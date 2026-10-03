@@ -152,7 +152,10 @@ def news(date: str | None = None) -> dict:
                 out.append({**e, "news": ns})
         return out
 
-    return {"date": r["date"], "news": [n for n in r.get("news", []) if is_finance(n)], "events": keep(r.get("events")),
+    from src.agents.news import asset_category
+
+    return {"date": r["date"], "news": [{**n, "category": n.get("category") or asset_category(n)} for n in r.get("news", [])
+                                        if is_finance(n)], "events": keep(r.get("events")),
             "macro": keep(r.get("macro")),
             "market_view": r.get("market_view"), "us_snapshot": r.get("us_snapshot", []),
             "market_summary": (r.get("text") or {}).get("market_summary")}
@@ -243,7 +246,8 @@ def live_news(refresh: bool = False) -> dict:
     age = time.time() - _NEWS["t"]
     if _NEWS["v"] is None or age > 300 or (refresh and age > 30):
         items = news_agent.fetch_news(now_tw())
-        _NEWS.update(t=time.time(), v={"news": [{k: n[k] for k in ("id", "source", "title", "url", "time")} for n in items],
+        _NEWS.update(t=time.time(), v={"news": [{k: n[k] for k in ("id", "source", "title", "url", "time", "category")}
+                                                for n in items],
                                        "fetched_at": now_tw().strftime("%H:%M:%S")})
     return _NEWS["v"]
 
@@ -364,3 +368,31 @@ def today_status(code: str, analysis: dict) -> dict:
                     "weakest_components": [f"{n} {v:+.2f}" for v, n in ddrag]},
         "note": "分數元件範圍 -1～+1；每天依綜合分數由高到低取前幾名，分數低於最後一檔入選者就不會列入",
     }
+
+
+def etf_view() -> dict:
+    """ETF 籃：配置比例與理由、候選 ETF（類別、分數、折溢價、建議股數）。"""
+    from src.agents import on_demand
+
+    lp = live_intraday()
+    a = lp.get("allocation") or {}
+    orders = [o for o in lp.get("orders", []) if o.get("basket") == "etf"]
+    ctx = on_demand.context()
+    from src.agents import etf as etf_agent
+    from src.config import stock_meta
+
+    prem = etf_agent.premiums()
+    a_preds = ctx["alpha"]["predictions"]
+    cands = sorted([c for c in a_preds if c in ctx["etf"]], key=lambda c: -a_preds[c].get("p_up", 0))[:10]
+    return {"etf_share": a.get("etf"), "etf_reasons": a.get("etf_reasons"),
+            "planned_orders": [{k: o.get(k) for k in ("code", "name", "planned_shares", "limit_price", "status", "advice")}
+                               for o in orders],
+            "candidates": [{"code": c, "name": stock_meta(c)["name"],
+                            "category": etf_agent.category(c, stock_meta(c)["name"]),
+                            "p_up": round(a_preds[c].get("p_up", 0), 3), "exp_dd": round(a_preds[c].get("exp_dd", 0), 4),
+                            "premium_pct": (prem.get(c) or {}).get("premium_pct")} for c in cands]}
+
+
+def futures_view() -> dict:
+    lp = live_intraday()
+    return {"derivatives": lp.get("derivatives"), "funding": lp.get("funding")}

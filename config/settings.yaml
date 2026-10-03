@@ -139,7 +139,7 @@ news:
     - {name: 鉅亨網外匯, url: "https://news.cnyes.com/rss/v1/news/category/forex"}
     - {name: 中央社財經, url: "https://feeds.feedburner.com/rsscna/finance"}
     - {name: Yahoo股市, url: "https://tw.stock.yahoo.com/rss?category=tw-market"}
-  google_news_queries: [台股 法人, 聯準會 利率, 關稅 貿易, 油價 OPEC, 美元 台幣 匯率, 中國 經濟數據, 地緣政治 股市, 輝達 股價]
+  google_news_queries: [台股 法人, 聯準會 利率, 關稅 貿易, 油價 OPEC, 美元 台幣 匯率, 中國 經濟數據, 地緣政治 股市, 輝達 股價, ETF 配息, 台指期 外資]
 
 # 國際因子：用來量化「國際大事 → 持股」的影響幅度（歷史敏感度 β）
 macro_factors:

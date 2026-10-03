@@ -178,3 +178,11 @@ def test_cached_skips_empty(tmp_path, monkeypatch):
     md._cached("k_empty", lambda: pd.DataFrame())
     md._cached("k_full", lambda: {"a": 1})
     assert not (tmp_path / "k_empty.pkl").exists() and (tmp_path / "k_full.pkl").exists()
+
+
+def test_news_asset_category():
+    from src.agents.news import asset_category
+
+    assert asset_category({"title": "外資台指期未平倉空單增加 - 鉅亨"}) == "期貨"
+    assert asset_category({"title": "00878 季配息公布 殖利率 7%"}) == "ETF"
+    assert asset_category({"title": "台積電法說會前瞻"}) == "股票"

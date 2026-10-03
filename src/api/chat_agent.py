@@ -54,6 +54,8 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
+5g. 問 ETF 時用 get_etf_view；問期貨、台指期、選擇權、避險時用 get_futures_view，並照實說明回測有沒有優勢；沒有優勢就直說不建議。
+5h. 使用者說期貨／選擇權成交時，用 record_trade 並填 contract（例如 TMF202610、TXO202610P46000）；說轉帳到期貨戶或證券戶時用 record_transfer。
 5e. 問「還有什麼可以注意／潛在標的／候補」時呼叫 get_potential_picks；問某檔為什麼沒被推薦時，用 analyze_stock，依其中 today_status 回答：排第幾名、和最後一檔入選者的分數差距、拖累分數的項目（weakest_components 與 risks），不要自行推測其他原因。
 5f. 這是連續對話：使用者說「它」「這檔」「剛剛那檔」「第二個」時，指前文提到的股票或項目，直接沿用，不要再問一次；需要數字時仍要重新呼叫工具。
 7. 問到新聞、事件、國際局勢對股票的影響時，用 search_news 或 get_macro 取得真實新聞，並用 analyze_stock 的國際敏感度或歸因數據佐證影響幅度；沒有數據支持的影響不要寫。"""
@@ -75,6 +77,9 @@ SOURCE_DESC = {
     "simulate_trades": "本系統試算（競賽手續費 0.1425%、證交稅）",
     "get_potential_picks": "本系統每日排名",
     "get_data_sources": "本系統資料來源監控",
+    "get_etf_view": "本系統 ETF 籃計算（證交所 ETF 預估淨值、一個月模型）",
+    "get_futures_view": "本系統期貨建議（期交所 MIS 即時報價與 OpenAPI 保證金、加權指數 5 年回測）",
+    "record_transfer": "待確認動作",
     "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
 }
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
@@ -197,9 +202,21 @@ TOOLS = [
          "required": ["trades"]}},
     {"name": "record_trade", "description": "記錄在競賽平台的實際成交（建立待確認動作，使用者確認後才寫入）",
      "parameters": {"type": "object", "properties": {
-         "code": {"type": "string"}, "side": {"type": "string", "enum": ["BUY", "SELL"]}, "shares": {"type": "integer"},
-         "price": {"type": "number"}, "margin": {"type": "boolean"}, "date": {"type": "string", "description": "YYYY-MM-DD，預設今天"}},
+         "code": {"type": "string", "description": "股票／ETF 代號；期貨填 TX、MTX、TMF；選擇權填 TXO"},
+         "side": {"type": "string", "enum": ["BUY", "SELL"]},
+         "shares": {"type": "integer", "description": "股數；期貨與選擇權為口數"},
+         "price": {"type": "number", "description": "成交價；期貨為點數、選擇權為權利金點數"}, "margin": {"type": "boolean"},
+         "contract": {"type": "string", "description": "期貨／選擇權合約，例如 TMF202610、TXO202610P46000"},
+         "date": {"type": "string", "description": "YYYY-MM-DD，預設今天"}},
          "required": ["code", "side", "shares", "price"]}},
+    {"name": "record_transfer", "description": "記錄證券戶與期貨戶之間的資金調撥（建立待確認動作）",
+     "parameters": {"type": "object", "properties": {
+         "direction": {"type": "string", "enum": ["TO_FUTURES", "TO_SECURITIES"], "description": "TO_FUTURES＝證券戶轉入期貨戶"},
+         "amount": {"type": "number"}, "date": {"type": "string"}}, "required": ["direction", "amount"]}},
+    {"name": "get_etf_view", "description": "ETF 籃建議：今日配置比例與理由、候選 ETF 的類別、分數、折溢價、建議張數",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_futures_view", "description": "期貨與選擇權建議：方向模型機率、回測是否有優勢、模式（衝名次／補回虧損／保名次）、建議口數、保證金、賣權避險",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "import_xq_holdings", "description": "解析使用者從 XQ 全球贏家庫存畫面複製貼上的表格，與系統持股比對，產生需確認的同步調整",
      "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "使用者貼上的原始表格文字"}},
                     "required": ["text"]}},
@@ -216,13 +233,23 @@ TOOLS = [
 # ---------------------------------------------------------------- 工具實作
 def _record(args: dict) -> dict:
     from src.agents.compliance import is_warrant
+    from src.state.portfolio import DERIV_ROOTS, asset_of
 
-    code = str(args["code"]).strip()
+    code = str(args["code"]).strip().upper()
     if is_warrant(code):
         return {"error": "權證不可交易（競賽規則）"}
     row = {"date": args.get("date") or now_tw().date().isoformat(), "code": code, "side": args["side"].upper(),
            "shares": int(args["shares"]), "price": float(args["price"]), "margin": int(bool(args.get("margin"))),
-           "note": "AI 助理記錄"}
+           "note": "AI 助理記錄", "contract": str(args.get("contract") or "").upper()}
+    row["asset"] = asset_of(row)
+    if code in DERIV_ROOTS:
+        if not row["contract"].startswith(code) or len(row["contract"]) < len(code) + 6:
+            return {"error": f"期貨／選擇權請提供完整合約，例如 {code}202610" + ("P46000" if code == "TXO" else "")}
+        name = row["contract"]
+        aid = uuid.uuid4().hex[:10]
+        PENDING[aid] = {"kind": "record_trade", "payload": row, "created": time.time()}
+        return {"pending_action": aid, "summary": f"記錄成交：{row['date']} {'買進' if row['side'] == 'BUY' else '賣出'} "
+                f"{name} {row['shares']} 口 @ {row['price']}", "status": "等待使用者在畫面上按確認"}
     name = on_demand.stock_meta(code)["name"]
     aid = uuid.uuid4().hex[:10]
     PENDING[aid] = {"kind": "record_trade", "payload": row, "created": time.time()}
@@ -248,6 +275,18 @@ def xq_sync_preview(text: str, complete: bool = True) -> dict:
         out["summary"] = "依 XQ 庫存同步：" + "、".join(
             f"{'補記買進' if a['side'] == 'BUY' else '補記賣出'} {a['code']} {a['shares']:,} 股@{a['price']}" for a in rec["adjustments"])
     return out
+
+
+def _transfer(args: dict) -> dict:
+    amt = float(args["amount"])
+    if amt <= 0:
+        return {"error": "金額必須大於 0"}
+    row = {"date": args.get("date") or now_tw().date().isoformat(), "code": "TRANSFER", "side": args["direction"],
+           "shares": 1, "price": amt, "margin": 0, "note": "資金調撥", "asset": "CASH", "contract": ""}
+    aid = uuid.uuid4().hex[:10]
+    PENDING[aid] = {"kind": "record_trade", "payload": row, "created": time.time()}
+    text = "證券戶 → 期貨戶" if args["direction"] == "TO_FUTURES" else "期貨戶 → 證券戶"
+    return {"pending_action": aid, "summary": f"記錄資金調撥：{row['date']} {text} {amt:,.0f} 元", "status": "等待使用者在畫面上按確認"}
 
 
 def _run(args: dict) -> dict:
@@ -325,6 +364,12 @@ def call_tool(name: str, args: dict) -> dict:
             return on_demand.simulate(args["trades"])
         if name == "record_trade":
             return _record(args)
+        if name == "record_transfer":
+            return _transfer(args)
+        if name == "get_etf_view":
+            return apidata.etf_view()
+        if name == "get_futures_view":
+            return apidata.futures_view()
         if name == "run_analysis":
             return _run(args)
         if name == "import_xq_holdings":

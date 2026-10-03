@@ -52,3 +52,20 @@ def test_holding_ratio_excludes_futures_and_transfer():
     nav = pf.nav(prices)
     assert pf.holding_ratio(prices) == pytest.approx(3000 * 2500 / nav)
     assert pf.trade_count == 2  # 資金調撥不算交易
+
+
+def test_position_alerts_margin_call_and_expiry(monkeypatch):
+    import datetime as dt
+
+    from src.agents import alerts
+    from src.agents import futures_data as fd
+
+    monkeypatch.setattr(fd, "futures_quotes", lambda root: {"spot": 47000.0, "months": {}})
+    rows = [{"date": "d0", "code": "TRANSFER", "side": "TO_SECURITIES", "shares": "1", "price": "1900000", "margin": "0"},
+            t("d1", "MTX", "BUY", 1, 48000, "MTX202610"), t("d1", "TXO", "BUY", 1, 100, "TXO202610P47200")]
+    pf = build_portfolio(rows)
+    m = {"MTX": {"initial": 175250, "maintenance": 134500}}
+    a = alerts.position_alerts(pf, {}, {"MTX202610": 47000, "TXO202610P47200": 20}, m, {}, dt.date(2026, 10, 20))
+    titles = " ".join(x["title"] for x in a)
+    assert any(x["level"] == "嚴重" and "追繳" in x["title"] for x in a)  # 權益數低於維持保證金
+    assert "剩 1 天" in titles and "權利金剩" in titles and "履約價" in titles

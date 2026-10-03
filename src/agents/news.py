@@ -63,6 +63,20 @@ def is_finance(item: dict) -> bool:
     return any(w.lower() in t.lower() for w in FINANCE_WORDS)
 
 
+ETF_WORDS = ("ETF", "配息", "除息", "成分股", "折溢價", "受益人", "高股息", "00878", "0050", "00919", "00929", "主動式")
+FUT_WORDS = ("台指期", "臺指期", "期貨", "未平倉", "結算", "選擇權", "夜盤", "小台", "微台", "期交所", "外資期")
+
+
+def asset_category(item: dict) -> str:
+    """新聞分類：期貨與選擇權／ETF／股票（標題關鍵字，媒體名稱不算）。"""
+    t = headline(item.get("title", ""))
+    if any(w in t for w in FUT_WORDS):
+        return "期貨"
+    if any(w in t for w in ETF_WORDS) or re.search(r"(?<![0-9])00\d{2,4}[A-Z]?(?![0-9])", t):
+        return "ETF"
+    return "股票"
+
+
 def _cnyes_api() -> list[dict]:
     out = []
     for cat in ("tw_stock", "us_stock", "tech"):
@@ -115,6 +129,7 @@ def fetch_news(now: dt.datetime) -> list[dict]:
     deduped = deduped[: cfg["max_items"]]
     for idx, it in enumerate(deduped, 1):
         it["id"] = idx
+        it["category"] = asset_category(it)
         it["time"] = it["time"].strftime("%m/%d %H:%M") if it["time"] else ""
     return deduped
 

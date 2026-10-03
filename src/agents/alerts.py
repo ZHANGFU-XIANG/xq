@@ -422,6 +422,75 @@ def rule_alerts(pf, orders: list[dict], today: dt.date) -> list[dict]:
     return out
 
 
+def position_alerts(pf, prices: dict, marks: dict, margins: dict, premiums: dict, today: dt.date) -> list[dict]:
+    """依類別的持有部位關鍵警訊：ETF（折溢價）、期貨（追繳風險、停損、結算日）、選擇權（到期、權利金耗損、接近履約價）。"""
+    from src.agents import futures_data as fd
+    from src.state.portfolio import parse_option
+
+    out = []
+    for code, pos in pf.positions.items():
+        if not stock_meta(code).get("is_etf"):
+            continue
+        q = premiums.get(code)
+        name = stock_meta(code)["name"]
+        if not q:
+            continue
+        if abs(q["premium_pct"]) >= 1.0:
+            hi = q["premium_pct"] > 0
+            out.append({"scope": "部位", "asset": "ETF", "code": code, "name": name, "level": "警告" if hi else "提醒",
+                        "title": f"ETF {code} {name} {'溢價' if hi else '折價'} {q['premium_pct']:+.2f}%",
+                        "reasons": [f"市價 {q['price']}、預估淨值 {q['nav']}（證交所 {q['time']}）"],
+                        "action": "溢價偏高：可考慮先賣出部分、等溢價收斂再買回" if hi else "折價：不急著賣，價格低於淨值"})
+    eq = pf.futures_equity(marks)
+    maint = pf.margin_required(margins, "maintenance")
+    init = pf.margin_required(margins, "initial")
+    if maint > 0:
+        ratio = eq / maint
+        if ratio < 1.0:
+            out.append({"scope": "部位", "asset": "FUT", "level": "嚴重",
+                        "title": f"期貨權益數 {eq:,.0f} 元低於維持保證金 {maint:,.0f} 元（追繳）",
+                        "reasons": [f"權益數／維持保證金 = {ratio * 100:.0f}%"],
+                        "action": f"今天內補足至原始保證金 {init:,.0f} 元（約需轉入 {max(0, init - eq):,.0f} 元）或減少口數，否則可能被砍倉"})
+        elif ratio < 1.25:
+            out.append({"scope": "部位", "asset": "FUT", "level": "警告",
+                        "title": f"期貨保證金比例偏低（權益數為維持保證金的 {ratio * 100:.0f}%）",
+                        "reasons": [f"權益數 {eq:,.0f} 元、維持保證金 {maint:,.0f} 元"],
+                        "action": f"建議由證券戶轉入約 {max(0, init * 1.5 - eq):,.0f} 元，避免追繳"})
+    for c, d in pf.derivs.items():
+        px = marks.get(c)
+        if d.kind == "FUT":
+            ym = c[len(d.root):]
+            left = fd.days_to_settlement(ym, today)
+            if 0 <= left <= 2:
+                out.append({"scope": "部位", "asset": "FUT", "code": c, "level": "警告",
+                            "title": f"{c} 距結算日 {fd.settlement_date(ym)} 剩 {left} 天",
+                            "reasons": ["結算日以最後結算價強制了結"], "action": "決定平倉或轉倉到次月"})
+            if px:
+                pnl = d.value(px)
+                out.append({"scope": "部位", "asset": "FUT", "code": c, "level": "提醒",
+                            "title": f"{c} {'多' if d.qty > 0 else '空'} {abs(d.qty)} 口，未實現損益 {pnl:+,.0f} 元",
+                            "reasons": [f"均價 {d.avg_price:,.0f}、現價 {px:,.0f}"], "action": "依建議的停損停利執行"})
+        else:
+            o = parse_option(c)
+            left = fd.days_to_settlement(o["ym"], today)
+            if left <= 3:
+                out.append({"scope": "部位", "asset": "OPT", "code": c, "level": "警告",
+                            "title": f"賣權 {c} 剩 {left} 天到期", "reasons": ["到期前時間價值快速歸零"],
+                            "action": "仍需保護就轉到次月；不需要就趁還有價值賣出"})
+            if px is not None and d.avg_price > 0 and px / d.avg_price < 0.3:
+                out.append({"scope": "部位", "asset": "OPT", "code": c, "level": "提醒",
+                            "title": f"賣權 {c} 權利金剩買進價的 {px / d.avg_price * 100:.0f}%",
+                            "reasons": [f"買進 {d.avg_price} 點、現在 {px} 點，保護效果低"],
+                            "action": "評估是否換成較接近現價的履約價"})
+            spot = fd.futures_quotes("TX").get("spot")
+            if spot and spot <= o["strike"] * 1.01:
+                out.append({"scope": "部位", "asset": "OPT", "code": c, "level": "警告",
+                            "title": f"加權指數 {spot:,.0f} 已接近／跌破履約價 {o['strike']:,.0f}",
+                            "reasons": ["賣權開始有內含價值，正在發揮保護"],
+                            "action": "若判斷跌勢告一段落，可賣出賣權實現避險收益"})
+    return out
+
+
 def sort_alerts(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda a: (LEVEL_ORDER.get(a["level"], 9), a["scope"] != "持股"))
 
@@ -465,6 +534,15 @@ def collect(pf, meta: dict, orders: list[dict], us_snapshot: list[dict], target:
     tx = taiex_today()
     items = (holding_alerts(pf, meta, rt, closes, feats, att, risks) + order_alerts(orders, att, risks, rt)
              + market_alerts(lim, us_snapshot, tx["chg_pct"] if tx else None) + rule_alerts(pf, orders, target))
+    try:
+        from src.agents import etf, futures_data
+
+        marks = futures_data.marks(pf) if pf.derivs else {}
+        margins = futures_data.margins() if pf.derivs else {}
+        prem = etf.premiums() if any(stock_meta(c).get("is_etf") for c in pf.positions) else {}
+        items += position_alerts(pf, closes, marks, margins, prem, target)
+    except Exception as e:  # noqa: BLE001
+        log.warning("部位警訊失敗：%s", e)
     items = sort_alerts(items)
     slim = lambda q: {k: q.get(k) for k in ("code", "name", "market", "close", "chg_pct", "value", "industry",  # noqa: E731
                                             "peer_count", "reason", "news")}

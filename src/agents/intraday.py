@@ -60,7 +60,8 @@ def _order_status(o: dict, rt: dict, held: int, market_open: bool = True) -> dic
     code, limit = o["code"], o["limit_price"]
     q = rt.get(code) or {}
     price = q.get("price")
-    base = {"code": code, "name": o["name"], "action": o["action"], "basket": o.get("basket"), "planned_shares": o["shares"],
+    base = {"code": code, "name": o["name"], "action": o["action"], "basket": o.get("basket"), "asset": o.get("asset", "STOCK"),
+            "planned_shares": o["shares"],
             "limit_price": limit, "price": price, "chg_pct": q.get("chg_pct"), "stop": o.get("stop"),
             "why": (o.get("why_sell") or (o.get("why_stock") or [""])[0])}
     if not market_open:  # 盤前／收盤後：可預掛單（平台接受前一日 15:30 後的預掛）
@@ -161,12 +162,24 @@ def run(report: dict | None) -> dict:
         "is_last_check": current_slot(now).endswith("13:00"), "market_open": current_slot(now)[-5:] not in ("盤前", "休市", "收盤後"),
         "building": building, "taiex": _taiex_rt(), "nav": nav, "holding_ratio": ratio,
         "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
-        "allocation": {k: lp["allocation"][k] for k in ("offense", "defense")},
+        "allocation": {k: lp["allocation"].get(k) for k in ("offense", "defense", "etf", "stock_split", "etf_reasons")},
+        "derivatives": slim_deriv(lp.get("derivatives") or {}),
+        "funding": lp.get("funding"),
         "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
         "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,
         "rule_notes": rule_notes,
         "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
     }
+
+
+def slim_deriv(d: dict) -> dict:
+    """期貨建議精簡版（前端與 Email 用）：不含回測明細以外的大型欄位。"""
+    sig = d.get("signal") or {}
+    return {"summary": d.get("summary"), "mode": d.get("mode"), "orders": d.get("orders", []), "hedge": d.get("hedge"),
+            "reasons": d.get("reasons", []), "reserve": d.get("reserve"), "margin_needed": d.get("margin_needed"),
+            "quote": d.get("quote"), "contract_month": d.get("contract_month"),
+            "signal": {k: sig.get(k) for k in ("date", "p_up", "horizon_days", "long_enabled", "short_enabled",
+                                               "gate_reasons", "drivers", "backtest")} if sig else None}
 
 
 def save(out: dict) -> None:
@@ -187,6 +200,17 @@ def email_body(out: dict) -> str:
         lines += ["", "掛單等待："] + [f"- {w}" for w in out["waits"]]
     if out["changes"]:
         lines += ["", "和早上計畫相比："] + [f"- {c['change']}｜{c['code']} {c['name']}：{c['detail']}" for c in out["changes"]]
+    dv = out.get("derivatives") or {}
+    if dv:
+        lines += ["", f"期貨與選擇權：{dv.get('summary')}"]
+        for o in dv.get("orders", []):
+            lines.append(f"- {'買進' if o['action'] == 'BUY' else '賣出'} {o['contract']} {o['qty']} 口，限價 {o['limit_price']:,}、"
+                         f"停損 {o['stop']:,}、保證金 {o['margin']:,} 元、最大損失 {o['max_loss']:,} 元")
+        if dv.get("hedge"):
+            h = dv["hedge"]
+            lines.append(f"- 避險：買進 {h['name']} {h['qty']} 口，權利金約 {h['premium']:,} 元（最大損失）")
+        if not dv.get("orders") and not dv.get("hedge"):
+            lines += [f"- {r}" for r in (dv.get("reasons") or [])[-2:]]
     if out["skipped"]:
         lines += ["", "今天不追："] + [f"- {s['code']} {s['name']}：{s['reason']}" for s in out["skipped"]]
     holds = [h for h in out["holding_items"] if h["verdict"] == "續抱"]
