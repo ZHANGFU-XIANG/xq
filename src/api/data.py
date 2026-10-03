@@ -97,15 +97,45 @@ def macro_latest() -> dict:
             "hypothetical": r.get("hypothetical")}
 
 
+_TRACK: dict = {"t": 0.0, "v": None}
+
+
+def track_record() -> dict:
+    """實際表現（含回補歷史）：依預測紀錄即時對答案，30 分鐘快取。"""
+    import time
+
+    import pandas as pd
+
+    from src.agents import tuner
+
+    if _TRACK["v"] is not None and time.time() - _TRACK["t"] < 1800:
+        return _TRACK["v"]
+    ctx = on_demand.context()
+    ev = tuner.evaluate(ctx["panel"], ctx["taiex"])
+    monthly = []
+    if ev["alpha"]:
+        df = pd.DataFrame(ev["alpha"])
+        df["month"] = pd.to_datetime(df["target_date"]).dt.strftime("%Y-%m")
+        for (b, m), g in df.groupby(["basket", "month"]):
+            monthly.append({"basket": b, "month": m, "n": int(len(g)), "avg_ret": round(float(g.real_ret.mean()), 4),
+                            "avg_excess": round(float(g.real_excess.mean()), 4), "up_rate": round(float((g.real_ret > 0).mean()), 3),
+                            "newhigh_rate": round(float(g.real_newhigh.mean()), 3)})
+    out = {"stats": tuner.summary_stats(ev), "monthly": monthly,
+           "backfill_note": "包含回補的歷史預測（模型只用當天以前的資料訓練，不偷看未來）"}
+    _TRACK.update(t=time.time(), v=out)
+    return out
+
+
 def model_health() -> dict:
     from src.agents import tuner
 
     r = load_report() or {}
     am = r.get("alpha_model", {})
+    tr = track_record()
     return {"date": r.get("date"), "backtest": am.get("metrics"), "base_rate": am.get("base_rate"),
             "n_stocks": am.get("n_stocks"), "feature_ic": am.get("feature_ic"),
-            "live": (r.get("tuner") or {}).get("stats"), "tuning_log": tuner.history()[-10:],
-            "learned_params": params.learned()}
+            "live": tr["stats"], "monthly": tr["monthly"], "backfill_note": tr["backfill_note"],
+            "tuning_log": tuner.history()[-10:], "learned_params": params.learned()}
 
 
 def news(date: str | None = None) -> dict:

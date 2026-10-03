@@ -40,6 +40,8 @@ def _warm():
         on_demand.context()  # 預載全市場日 K 與當日模型
         WARM["ready"] = True
         data.live_alerts()  # 預先計算警示（含新聞），首次開啟警示頁不必等待
+        data.live_intraday()  # 預先計算盤中／建倉建議
+        data.track_record()
     except Exception as e:  # noqa: BLE001
         WARM["error"] = str(e)[:200]
         log.exception("預載失敗")

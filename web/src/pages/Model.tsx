@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { Bullets, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
 import { get, type Json } from '../lib/api'
-import { fmtRatio } from '../lib/format'
+import { fmtRatio, tone } from '../lib/format'
 
 export default function Model() {
   const { data: m, isLoading, error } = useQuery<Json>({ queryKey: ['model'], queryFn: () => get('/api/model') })
@@ -42,12 +42,38 @@ export default function Model() {
           </table>
         </Section>
       )}
-      <Section title="開賽後實際表現">
+      <Section title="實際預測表現" aside={m.backfill_note}>
         <ul className="space-y-1">
           <li>大盤隔夜跳空命中率：{live.taiex_gap_hit != null ? `${fmtRatio(live.taiex_gap_hit)}（${live.taiex_gap_n} 次）` : '累積中'}</li>
           <li>個股隔夜跳空命中率：{live.stock_gap_hit != null ? `${fmtRatio(live.stock_gap_hit)}（${live.stock_gap_n} 次）` : '累積中'}</li>
-          <li>一個月推薦實際超額報酬：{live.alpha_excess != null ? fmtRatio(live.alpha_excess, 2, true) : '推薦滿 20 個交易日後開始計算'}</li>
+          <li>一個月推薦實際超額報酬：{live.alpha_excess != null ? `${fmtRatio(live.alpha_excess, 2, true)}（${live.alpha_n} 筆）` : '推薦滿 20 個交易日後開始計算'}</li>
         </ul>
+        {m.monthly?.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-[0.95rem]">
+              <thead className="text-left text-sm text-muted">
+                <tr className="border-b border-line">
+                  <th className="py-2 font-normal">到期月份</th><th className="font-normal">籃子</th><th className="text-right font-normal">筆數</th>
+                  <th className="text-right font-normal">平均報酬</th><th className="text-right font-normal">超額報酬</th>
+                  <th className="text-right font-normal">上漲比例</th><th className="text-right font-normal">創新高比例</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.monthly.map((r: Json) => (
+                  <tr key={r.basket + r.month} className="border-b border-line/60">
+                    <td className="num py-1.5">{r.month}</td>
+                    <td><BasketTag basket={r.basket} /></td>
+                    <td className="num text-right">{r.n}</td>
+                    <td className={`num text-right ${tone(r.avg_ret)}`}>{fmtRatio(r.avg_ret, 2, true)}</td>
+                    <td className={`num text-right ${tone(r.avg_excess)}`}>{fmtRatio(r.avg_excess, 2, true)}</td>
+                    <td className="num text-right">{fmtRatio(r.up_rate)}</td>
+                    <td className="num text-right">{fmtRatio(r.newhigh_rate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
       <Section title="調整 Agent 紀錄">
         {!m.tuning_log?.length ? <Empty>還沒有調整紀錄。</Empty> : (
