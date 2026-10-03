@@ -9,7 +9,9 @@ import { BasketTag, Section } from './ui'
 
 function Row({ x, q, notes }: { x: Json; q?: Json; notes?: Json[] }) {
   const { ask } = useChat()
-  const metric = x.basket === 'offense'
+  const metric = x.basket === 'etf'
+    ? `${x.category}・收正機率 ${fmtRatio(x.p_up)}・預期回檔 ${fmtRatio(x.exp_dd, 1, true)}${x.premium_pct != null ? `・溢價 ${x.premium_pct > 0 ? '+' : ''}${x.premium_pct}%` : ''}`
+    : x.basket === 'offense'
     ? `創新高機率 ${fmtRatio(x.p_newhigh)}・預期超額 ${fmtRatio(x.exp_excess, 1, true)}`
     : `收正機率 ${fmtRatio(x.p_up)}・預期回檔 ${fmtRatio(x.exp_dd, 1, true)}`
   return (
@@ -29,13 +31,14 @@ function Row({ x, q, notes }: { x: Json; q?: Json; notes?: Json[] }) {
 }
 
 /** 潛在標的：模型看好但今天還沒列入下單（排名候補、過熱等回檔）。 */
-export default function Potential() {
+export default function Potential({ asset = 'STOCK' }: { asset?: 'STOCK' | 'ETF' }) {
   const { data: d } = useQuery<Json>({ queryKey: ['potential'], queryFn: () => get('/api/potential'), refetchInterval: 600_000 })
   // 盤中計畫（每 40 分鐘重算）已經要買的不算潛在標的
   const { data: intra } = useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'), staleTime: 60_000 })
   const planned = new Set<string>((intra?.orders ?? []).map((o: Json) => o.code))
-  const pick = (b: 'offense' | 'defense'): Json[] => (d?.[b] ?? []).filter((x: Json) => !planned.has(x.code))
-  const list: Json[] = [...pick('offense'), ...pick('defense')]
+  const baskets = (asset === 'ETF' ? ['etf'] : ['offense', 'defense']) as ('offense' | 'defense' | 'etf')[]
+  const pick = (b: 'offense' | 'defense' | 'etf'): Json[] => (d?.[b] ?? []).filter((x: Json) => !planned.has(x.code))
+  const list: Json[] = baskets.flatMap((b) => pick(b))
   const codes = list.map((x) => x.code)
   const { data: q } = useQuotes(codes)
   const { data: intl } = useIntl(codes)
@@ -44,10 +47,10 @@ export default function Potential() {
   const notes: Json = intl?.impacts ?? {}
   return (
     <Section title="潛在標的" aside={<span className="text-sm text-muted">模型看好、今天還沒列入下單</span>}>
-      <div className="grid gap-x-8 md:grid-cols-2">
-        {(['offense', 'defense'] as const).map((b) => (
+      <div className={`grid gap-x-8 ${baskets.length > 1 ? 'md:grid-cols-2' : ''}`}>
+        {baskets.map((b) => (
           <div key={b}>
-            <h3 className={`mb-1 font-medium ${b === 'offense' ? 'text-offense' : 'text-defense'}`}>{b === 'offense' ? '進攻籃' : '穩健籃'}</h3>
+            <h3 className={`mb-1 font-medium ${b === 'offense' ? 'text-offense' : b === 'etf' ? 'text-etf' : 'text-defense'}`}>{b === 'offense' ? '進攻籃' : b === 'etf' ? 'ETF 籃' : '穩健籃'}</h3>
             <ul className="divide-y divide-line/60">
               {pick(b).map((x: Json) => <Row key={x.code} x={x} q={quotes[x.code]} notes={notes[x.code]} />)}
             </ul>

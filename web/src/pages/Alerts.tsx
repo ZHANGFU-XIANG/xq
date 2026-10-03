@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import { get, type Json } from '../lib/api'
 import { fmtPct } from '../lib/format'
 
@@ -82,9 +83,13 @@ function LimitTable({ rows, kind }: { rows: Json[]; kind: 'up' | 'down' }) {
 export default function Alerts() {
   const qc = useQueryClient()
   const { data: d, isLoading, error, isFetching } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000 })
+  const [tab, setTab] = useAssetTab(['STOCK', 'ETF', 'FUT', 'MARKET'])
   if (isLoading) return <Loading label="彙整警示中（首次需蒐集新聞，約 30 秒）" />
   if (error) return <ErrorNote error={error} />
   const groups = ['持股', '部位', '規則', '買進前', '大盤', '國際', '題材']
+  const all: Json[] = d.alerts
+  const mine = all.filter((a) => (a.asset ?? (a.code ? assetOf(a.code) : 'MARKET')) === tab)
+  const count = (x: Asset) => all.filter((a) => (a.asset ?? (a.code ? assetOf(a.code) : 'MARKET')) === x).length
   return (
     <>
       <PageTitle
@@ -107,9 +112,11 @@ export default function Alerts() {
         {d.taiex && <span className="text-ink-2">加權指數 <Change value={d.taiex.chg_pct} /></span>}
       </div>
 
-      {!d.alerts.length && <Empty>目前持股與今日建議都沒有需要處理的警示。</Empty>}
+      <AssetTabs tab={tab} onChange={setTab} options={['STOCK', 'ETF', 'FUT', 'MARKET']}
+        counts={{ STOCK: count('STOCK'), ETF: count('ETF'), FUT: count('FUT'), MARKET: count('MARKET') }} />
+      {!mine.length && <Empty>{ASSET_LABEL[tab]}目前沒有需要處理的警示。</Empty>}
       {groups.map((g) => {
-        const items = d.alerts.filter((a: Json) => a.scope === g)
+        const items = mine.filter((a: Json) => a.scope === g)
         if (!items.length) return null
         return (
           <Section key={g} title={g === '持股' ? '持股風險' : g === '買進前' ? '今日建議買進前注意' : g === '題材' ? '題材動向' : g === '規則' ? '競賽規則提醒' : g === '部位' ? '持有部位關鍵警訊（ETF／期貨／選擇權）' : `${g}風險`}>
@@ -118,14 +125,14 @@ export default function Alerts() {
         )
       })}
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      {tab === 'MARKET' && <div className="grid gap-8 lg:grid-cols-2">
         <Section title={`跌停（${d.limit_down_count}）`} aside={d.down_industries?.slice(0, 3).map((g: Json) => `${g.industry} ${g.count}`).join('、')}>
           {d.limit_down.length ? <LimitTable rows={d.limit_down} kind="down" /> : <p className="text-muted">沒有跌停股。</p>}
         </Section>
         <Section title={`漲停（${d.limit_up_count}）`} aside={d.up_industries?.slice(0, 3).map((g: Json) => `${g.industry} ${g.count}`).join('、')}>
           {d.limit_up.length ? <LimitTable rows={d.limit_up} kind="up" /> : <p className="text-muted">沒有漲停股。</p>}
         </Section>
-      </div>
+      </div>}
       <p className="text-xs text-muted">
         漲跌停原因只列出實際新聞標題，未經 AI 改寫；查無新聞時以同產業連動判斷。持股與今日建議股票在盤中使用證交所即時報價，全市場漲跌停使用最近收盤資料。
         目前全市場注意股 {d.attention_total?.['注意'] ?? 0} 檔、處置股 {d.attention_total?.['處置'] ?? 0} 檔。

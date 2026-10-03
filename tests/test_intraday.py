@@ -61,3 +61,11 @@ def test_compare_with_morning_plan():
 def test_premarket_orders_are_preplaced():
     r = _order_status(BUY, {}, 0, market_open=False)
     assert r["status"] == "可預掛單" and "預掛" in r["advice"] and "1 張又 500 股" in r["advice"]
+
+
+def test_market_open_from_slot_labels():
+    from src.agents.intraday import market_open, slot_label
+
+    assert slot_label("2026-10-04 休市") == "休市" and not market_open("2026-10-04 休市")
+    assert not market_open("2026-10-05 盤前") and not market_open("2026-10-05 收盤後")
+    assert market_open("2026-10-05 09:40") and slot_label("2026-10-05 09:40") == "09:40"

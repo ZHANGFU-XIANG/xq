@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
-import Derivatives from '../components/Derivatives'
-import Intraday from '../components/Intraday'
+import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
+import Intraday, { useIntraday } from '../components/Intraday'
 import Potential from '../components/Potential'
 import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
@@ -73,18 +73,19 @@ function UrgentBanner() {
   )
 }
 
-function MorningPlan({ r }: { r: Json }) {
-  const codes: string[] = r.orders.map((o: Json) => o.code)
+function MorningPlan({ r, asset }: { r: Json; asset: Asset }) {
+  const mine: Json[] = r.orders.filter((o: Json) => assetOf(o) === asset)
+  const codes: string[] = mine.map((o: Json) => o.code)
   const { data: q } = useQuotes(codes)
   const { data: intl } = useIntl(codes)
   const quotes: Json = q?.quotes ?? {}
   const notes: Json = intl?.impacts ?? {}
-  const buys = r.orders.filter((o: Json) => o.action === 'BUY')
-  const sells = r.orders.filter((o: Json) => o.action === 'SELL')
+  const buys = mine.filter((o: Json) => o.action === 'BUY')
+  const sells = mine.filter((o: Json) => o.action === 'SELL')
   return (
-    <Section title="盤前計畫（07:00）" aside={<Link to={`/daily/${r.key}`}>完整理由與 K 線</Link>}>
+    <Section title={`${ASSET_LABEL[asset]}・盤前計畫（07:00）`} aside={<Link to={`/daily/${r.key}?asset=${asset}`}>完整理由與 K 線</Link>}>
       {r.text?.outlook && <p className="mb-3 text-[0.95rem] leading-relaxed text-ink-2">{r.text.outlook}</p>}
-      {!r.orders.length && <Empty>今天沒有標的達到進出場條件。</Empty>}
+      {!mine.length && <Empty>今天沒有{ASSET_LABEL[asset]}達到進出場條件。</Empty>}
       {sells.length > 0 && (
         <div className="mb-4 space-y-2">
           {sells.map((o: Json) => (
@@ -110,10 +111,10 @@ function MorningPlan({ r }: { r: Json }) {
               </tr>
             </thead>
             <tbody>
-              {[...buys].sort((x: Json, y: Json) => (x.asset === 'ETF' ? 1 : 0) - (y.asset === 'ETF' ? 1 : 0)).map((o: Json) => (
+              {buys.map((o: Json) => (
                 <tr key={o.code} className="border-b border-line/70 align-top">
                   <td className="py-2.5"><BasketTag basket={o.basket} /></td>
-                  <td className="py-2.5"><Link to={`/daily/${r.key}?code=${o.code}`} className="text-ink no-underline hover:text-link"><span className="num text-muted">{o.code}</span> {o.name}</Link></td>
+                  <td className="py-2.5"><Link to={`/daily/${r.key}?asset=${asset}&code=${o.code}`} className="text-ink no-underline hover:text-link"><span className="num text-muted">{o.code}</span> {o.name}</Link></td>
                   <td className="py-2.5 text-right"><LivePrice q={quotes[o.code]} /></td>
                   <td className="num py-2.5 text-right">{qty(o.lots, o.odd)}</td>
                   <td className="num py-2.5 text-right">{o.limit_price}</td>
@@ -125,7 +126,6 @@ function MorningPlan({ r }: { r: Json }) {
           </table>
         </div>
       )}
-      {r.derivatives && <div className="mt-4"><Derivatives d={r.derivatives} /></div>}
       {intl?.factor_date && (
         <p className="mt-2 text-xs text-muted">國際影響：{intl.factor_date} 國際市場收盤變動 × 該股過去一年與該市場的連動程度（只列統計顯著、影響 ≥0.4% 者）</p>
       )}
@@ -133,8 +133,18 @@ function MorningPlan({ r }: { r: Json }) {
   )
 }
 
+/** 分頁上的數字：該類別目前的建議筆數（期貨＝建議口數筆數＋避險）。 */
+function countByAsset(d?: Json): Partial<Record<Asset, number>> {
+  if (!d) return {}
+  const n = (a: Asset) => (d.orders ?? []).filter((o: Json) => assetOf(o) === a).length
+  const fut = (d.derivatives?.orders?.length ?? 0) + (d.derivatives?.hedge ? 1 : 0)
+  return { STOCK: n('STOCK'), ETF: n('ETF'), FUT: fut }
+}
+
 export default function Overview() {
   const { data: r, isLoading, error } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
+  const [tab, setTab] = useAssetTab()
+  const { data: intra } = useIntraday()
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
   if (!r) return <Empty>還沒有任何報告。報告會在交易日 07:00 自動產生。</Empty>
@@ -146,8 +156,6 @@ export default function Overview() {
       <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
       <IndexTicker />
       <UrgentBanner />
-      <Intraday />
-      <HoldingAdvice compact />
       <Balance report={r} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
@@ -161,8 +169,15 @@ export default function Overview() {
           sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}，開盤後${tx.after_open}` : undefined} />
       </div>
 
-      <MorningPlan r={r} />
-      <Potential />
+      <AssetTabs tab={tab} onChange={setTab} counts={countByAsset(intra)} />
+      <Intraday asset={tab} />
+      {tab !== 'FUT' && (
+        <>
+          <HoldingAdvice compact asset={tab as 'STOCK' | 'ETF'} />
+          <MorningPlan r={r} asset={tab} />
+          <Potential asset={tab as 'STOCK' | 'ETF'} />
+        </>
+      )}
 
       <Section title="競賽規則檢查" aside={fails.length ? `${fails.length} 項需注意` : '全部通過'}>
         <ul className="space-y-1.5 text-[0.95rem]">

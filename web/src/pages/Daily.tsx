@@ -4,6 +4,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import KLine from '../components/KLine'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Panel, Section, StockLink } from '../components/ui'
+import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab } from '../components/AssetTabs'
+import Derivatives from '../components/Derivatives'
 import { fileUrl, get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, qty } from '../lib/format'
 
@@ -64,6 +66,7 @@ function OrderDetail({ o, note }: { o: Json; note?: string }) {
 export default function Daily() {
   const { key } = useParams()
   const [sp, setSp] = useSearchParams()
+  const [tab, setTab] = useAssetTab()
   const nav = useNavigate()
   const { data: list } = useQuery<Json[]>({ queryKey: ['reports'], queryFn: () => get('/api/reports') })
   const { data: r, isLoading, error } = useQuery<Json>({
@@ -73,7 +76,9 @@ export default function Daily() {
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
   if (!r) return <Empty>還沒有報告。</Empty>
-  const orders: Json[] = r.orders
+  const all: Json[] = r.orders
+  const orders: Json[] = all.filter((o) => assetOf(o) === tab)
+  const futN = (r.derivatives?.orders?.length ?? 0) + (r.derivatives?.hedge ? 1 : 0)
   const sel = orders.find((o) => o.code === sp.get('code')) ?? orders[0]
   const notes: Record<string, string> = Object.fromEntries((r.text?.order_notes ?? []).map((n: Json) => [n.code, n.note]))
   return (
@@ -97,15 +102,19 @@ export default function Daily() {
         {r.date} {r.title}
       </PageTitle>
       <p className="mb-6 max-w-3xl leading-relaxed text-ink-2">{r.text?.allocation_analysis}</p>
-      {!orders.length ? (
-        <Empty>這份報告沒有交易建議。</Empty>
+      <AssetTabs tab={tab} onChange={setTab}
+        counts={{ STOCK: all.filter((o) => assetOf(o) === 'STOCK').length, ETF: all.filter((o) => assetOf(o) === 'ETF').length, FUT: futN }} />
+      {tab === 'FUT' ? (
+        r.derivatives ? <Derivatives d={r.derivatives} /> : <Empty>這份報告產生時還沒有期貨建議功能。最新的期貨建議請看總覽或期貨頁。</Empty>
+      ) : !orders.length ? (
+        <Empty>這份報告沒有{ASSET_LABEL[tab]}的交易建議。</Empty>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
           <nav aria-label="建議清單" className="space-y-1.5 lg:sticky lg:top-6 lg:self-start">
             {orders.map((o) => {
               const active = sel?.code === o.code
               return (
-                <button key={o.code} onClick={() => setSp({ code: o.code })}
+                <button key={o.code} onClick={() => setSp({ asset: tab, code: o.code })}
                   className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left ${active ? 'border-ink bg-paper' : 'border-transparent hover:bg-paper'}`}>
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5">

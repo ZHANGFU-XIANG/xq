@@ -25,6 +25,15 @@ OUT_DIR = DATA_DIR / "intraday"
 SLOTS = [(9, 0), (9, 40), (10, 20), (11, 0), (11, 40), (12, 20), (13, 0)]
 
 
+def slot_label(slot: str) -> str:
+    """「2026-10-04 休市」→「休市」；「2026-10-05 09:40」→「09:40」。"""
+    return slot.split(" ", 1)[1] if " " in slot else slot
+
+
+def market_open(slot: str) -> bool:
+    return slot_label(slot) not in ("盤前", "休市", "收盤後")
+
+
 def current_slot(now: dt.datetime | None = None) -> str:
     """目前所屬的 40 分鐘時段（建議在時段內固定，到下一個時段才更新）。"""
     from src.config import is_trading_day
@@ -128,7 +137,7 @@ def run(report: dict | None) -> dict:
     order_rows = []
     for o in lp["orders"]:
         o = {**o, "existing_before": held.get(o["code"], 0) if o["action"] == "BUY" else 0}
-        order_rows.append(_order_status(o, rt, held.get(o["code"], 0), current_slot(now)[-5:] not in ("盤前", "休市", "收盤後")))
+        order_rows.append(_order_status(o, rt, held.get(o["code"], 0), market_open(current_slot(now))))
     changes = _compare(lp["orders"], morning, lp["skipped"]) if morning else []
 
     nav, ratio = lp["nav"], lp["holding_ratio"]
@@ -161,7 +170,7 @@ def run(report: dict | None) -> dict:
         actions.insert(0, f"【資金】下單前先把期貨戶 {lp['funding']['transfer_from_futures']:,} 元轉到證券戶，持股率才拉得上去")
     return {
         "time": now.strftime("%Y-%m-%d %H:%M"), "slot": current_slot(now),
-        "is_last_check": current_slot(now).endswith("13:00"), "market_open": current_slot(now)[-5:] not in ("盤前", "休市", "收盤後"),
+        "is_last_check": current_slot(now).endswith("13:00"), "market_open": market_open(current_slot(now)),
         "building": building, "taiex": _taiex_rt(), "nav": nav, "holding_ratio": ratio,
         "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
         "allocation": {k: lp["allocation"].get(k) for k in ("offense", "defense", "etf", "stock_split", "etf_reasons")},
@@ -193,7 +202,7 @@ def save(out: dict) -> None:
 def email_body(out: dict) -> str:
     tx = out.get("taiex") or {}
     title = "建倉建議" if out["building"] else "盤中建議"
-    lines = [f"{title}（{out['slot'][-5:]} 時段，每 40 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
+    lines = [f"{title}（{slot_label(out['slot'])}{'' if not market_open(out['slot']) else ' 時段'}，每 40 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
              f"加權指數 {tx.get('price', '—')}（{tx.get('chg_pct', 0):+.2f}%）｜總資產 {out['nav']:,} 元｜實際持股率 {out['holding_ratio'] * 100:.1f}%"
              f"｜攻守 {out['allocation']['offense'] * 100:.0f}/{out['allocation']['defense'] * 100:.0f}",
              "", "現在可以做：" if out["actions"] else "現在可以做：無，維持原掛單"]

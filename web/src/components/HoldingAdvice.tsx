@@ -12,14 +12,15 @@ const VERDICT_STYLE: Record<string, string> = {
 }
 
 /** 庫存中每一檔的結論：加碼／續抱／減碼／全部出清（依目前庫存與即時價計算，XQ 同步後立即更新）。 */
-export default function HoldingAdvice({ compact = false }: { compact?: boolean }) {
+export default function HoldingAdvice({ compact = false, asset }: { compact?: boolean; asset?: 'STOCK' | 'ETF' }) {
   const qc = useQueryClient()
   const { data: d, isLoading, isFetching } = useQuery<Json>({
     queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: 300_000,
   })
   if (isLoading) return <p className="py-4 text-muted">計算持股建議中（首次約 30 秒）</p>
   if (!d) return null
-  if (!d.items.length) return compact ? null : <p className="text-muted">{d.note}</p>
+  const items: Json[] = d.items.filter((h: Json) => !asset || (/^00d/.test(h.code) ? 'ETF' : 'STOCK') === asset)
+  if (!items.length) return compact ? null : <p className="text-muted">{d.note}</p>
   return (
     <section className="mb-8" aria-label="庫存怎麼處理">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-1.5">
@@ -32,7 +33,7 @@ export default function HoldingAdvice({ compact = false }: { compact?: boolean }
         </span>
       </div>
       <div className="space-y-3">
-        {d.items.map((h: Json) => (
+        {items.map((h: Json) => (
           <article key={h.code} className="rounded-lg border border-line bg-paper px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className={`rounded-md px-2.5 py-0.5 text-sm font-bold ${VERDICT_STYLE[h.verdict]}`}>{h.verdict}</span>

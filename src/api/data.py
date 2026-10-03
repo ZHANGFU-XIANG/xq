@@ -348,7 +348,33 @@ def potential(limit: int = 8) -> dict:
                     "exp_dd": x.get("exp_dd"), "beta": x.get("beta"),
                     "why_not_yet": f"穩健分數 {x['def_score']:+.2f} 排第 {rank} 名，今天因檔數與資金上限未列入",
                     "trigger": "穩健籃有持股出清或比例調高時優先遞補"})
-    return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit],
+    etf_list = []
+    try:  # ETF 候補：一個月模型收正機率高、尚未列入下單者（含溢價不追）
+        from src.agents import etf as etf_agent
+
+        ctx = on_demand.context()
+        ap = ctx["alpha"]["predictions"]
+        prem = etf_agent.premiums()
+        cfg = params.basket("etf")
+        for rank, c in enumerate(sorted([c for c in ap if c in ctx["etf"]], key=lambda c: -ap[c].get("def_combo", 0)), 1):
+            if c in ordered or c in held:
+                continue
+            name = stock_meta(c)["name"]
+            pr = (prem.get(c) or {}).get("premium_pct")
+            hot = pr is not None and pr > cfg["max_premium_pct"]
+            etf_list.append({"code": c, "name": name, "basket": "etf", "kind": "溢價不追" if hot else "候補", "rank": rank,
+                             "score": ap[c].get("def_combo"), "p_up": ap[c].get("p_up"), "exp_dd": ap[c].get("exp_dd"),
+                             "category": etf_agent.category(c, name), "premium_pct": pr,
+                             "why_not_yet": (f"溢價 {pr:+.2f}% 超過 {cfg['max_premium_pct']}%" if hot else
+                                             f"ETF 穩健排名第 {rank}，今天 ETF 籃已有更高分或同類別的 ETF"),
+                             "trigger": "溢價收斂到 1% 以內再評估" if hot else "ETF 籃有出清或比例調高時遞補（同類別最多 1 檔）"})
+            if len(etf_list) >= limit:
+                break
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("ETF 潛在標的失敗：%s", e)
+    return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit], "etf": etf_list,
             "note": "潛在標的不是今天的下單建議；要買之前請先用個股分析或問 AI 助理取得當下的張數與限價"}
 
 

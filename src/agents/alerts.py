@@ -555,6 +555,12 @@ def collect(pf, meta: dict, orders: list[dict], us_snapshot: list[dict], target:
         items += position_alerts(pf, closes, marks, margins, prem, target)
     except Exception as e:  # noqa: BLE001
         log.warning("部位警訊失敗：%s", e)
+    for a in items:  # 分類：股票／ETF／期貨與選擇權／市場與規則（前端分頁顯示）
+        if not a.get("asset"):
+            code = a.get("code")
+            a["asset"] = ("ETF" if stock_meta(code).get("is_etf") else "STOCK") if code and a.get("scope") in ("持股", "買進前")                 else "MARKET"
+        if a["asset"] == "OPT":
+            a["asset"] = "FUT"
     items = sort_alerts(items)
     slim = lambda q: {k: q.get(k) for k in ("code", "name", "market", "close", "chg_pct", "value", "industry",  # noqa: E731
                                             "peer_count", "reason", "news")}
