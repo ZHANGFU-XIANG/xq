@@ -12,6 +12,8 @@
   --color-down: #178A55;
   --color-offense: #6B46A8;
   --color-defense: #2F6690;
+  --color-etf: #2E7D6B;
+  --color-fut: #B4560F;
   --color-link: #2450C7;
   --color-warn: #A86A00;
   --font-sans: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
@@ -41,6 +43,8 @@
     --color-down: #3DBE84;
     --color-offense: #A98BE0;
     --color-defense: #6AA6D6;
+    --color-etf: #6CC5AE;
+    --color-fut: #E9A15B;
     --color-link: #7FA2FF;
     --color-warn: #E0A33A;
   }
@@ -58,6 +62,8 @@
   --color-down: #3DBE84;
   --color-offense: #A98BE0;
   --color-defense: #6AA6D6;
+  --color-etf: #6CC5AE;
+  --color-fut: #E9A15B;
   --color-link: #7FA2FF;
   --color-warn: #E0A33A;
 }

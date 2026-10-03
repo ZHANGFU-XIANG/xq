@@ -193,7 +193,8 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
     d.h1(f"攻守配置：進攻籃 {al['offense'] * 100:.0f}%／穩健籃 {al['defense'] * 100:.0f}%")
     d.para(text.get("allocation_analysis", ""))
     d.bullets(al["reasons"], "比例如何決定")
-    names = {"offense": "進攻籃（追強勢、一個月創新高）", "defense": "穩健籃（收正報酬機率高、回檔小、不追高）"}
+    names = {"offense": "進攻籃（追強勢、一個月創新高）", "defense": "穩健籃（收正報酬機率高、回檔小、不追高）",
+             "etf": "ETF 籃（分散、證交稅 0.1%）"}
     d.table(["籃子", "目標金額", "已持有", "本次新買", "執行後佔總資產"],
             [[names[b], f"{v['target']:,}", f"{v['held']:,}", f"{v['new']:,}", f"{v['after_pct']:.1f}%"]
              for b, v in al["baskets"].items()], [5.5, 2.6, 2.4, 2.4, 2.6])
@@ -310,6 +311,26 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
     if facts["funding"]["transfer_from_futures"] > 0:
         d.para(f"資金調度：建議由期貨戶轉入證券戶 {facts['funding']['transfer_from_futures']:,} 元"
                f"（期貨戶保留 {facts['funding']['futures_reserve']:,} 元），以提高持股率。", bold=True)
+    a = facts["allocation"]
+    if a.get("etf") is not None:
+        d.para(f"三籃配置（佔股票＋ETF 目標持股）：進攻籃 {a['offense'] * 100:.0f}%、穩健籃 {a['defense'] * 100:.0f}%、"
+               f"ETF 籃 {a['etf'] * 100:.0f}%", bold=True)
+        d.bullets(a.get("etf_reasons", []), "ETF 比例理由")
+    dv = facts.get("derivatives") or {}
+    if dv:
+        d.h2(f"期貨與選擇權：{dv.get('summary')}")
+        frows = [["做多" if o["action"] == "BUY" else "放空", o["contract"], o["qty"], f"{o['limit_price']:,}", f"{o['stop']:,}",
+                  f"{o['take_profit']:,}", f"{o['margin']:,}", f"{o['max_loss']:,}"] for o in dv.get("orders", [])]
+        if dv.get("hedge"):
+            h = dv["hedge"]
+            frows.append(["買賣權避險", h["contract"], h["qty"], h["limit_price"], "-", "-", "-", f"{h['premium']:,}"])
+        if frows:
+            d.table(["動作", "合約", "口數", "限價", "停損", "停利", "保證金", "最大損失"], frows)
+        for o in dv.get("orders", []):
+            d.bullets(o["why"] + o["why_qty"] + o["exit_plan"], f"{o['contract']} 理由")
+        if dv.get("hedge"):
+            d.bullets(dv["hedge"]["why"], "賣權避險理由")
+        d.bullets(dv.get("reasons", []), "期貨判斷依據")
     d.image(charts.get("allocation"))
 
     d.h1("六、個股決策說明")

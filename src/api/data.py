@@ -71,7 +71,20 @@ def portfolio() -> dict:
         df = on_demand.price_df(c)
         if not df.empty:
             prices[c] = float(df.Close.iloc[-1])
-    nav = pf.nav(prices)
+    marks = {}
+    derivs = []
+    if pf.derivs:
+        from src.agents import futures_data
+
+        marks = futures_data.marks(pf)
+        margins = futures_data.margins()
+        for c, d in pf.derivs.items():
+            px = marks.get(c)
+            derivs.append({"contract": c, "root": d.root, "kind": "期貨" if d.kind == "FUT" else "賣權（買方）",
+                           "qty": d.qty, "avg_price": round(d.avg_price, 2), "price": px,
+                           "value": round(d.value(px)), "multiplier": d.multiplier,
+                           "margin": round(abs(d.qty) * margins.get(d.root, {}).get("initial", 0)) if d.kind == "FUT" else 0})
+    nav = pf.nav({**prices, **marks})
     pos = []
     for c, p in pf.positions.items():
         price = prices.get(c, p.avg_cost)
@@ -79,11 +92,13 @@ def portfolio() -> dict:
                     "price": price, "market_value": round(p.shares * price), "pnl": round(p.shares * price - p.cost_basis),
                     "pnl_pct": round((price / p.avg_cost - 1) * 100, 2) if p.avg_cost else 0,
                     "weight_pct": round(p.shares * price / nav * 100, 2) if nav else 0,
-                    "basket": params.basket(meta.get(c, {}).get("basket") or "offense")["name"],
+                    "asset": "ETF" if stock_meta(c).get("is_etf") else "STOCK",
+                    "basket": params.basket("etf" if stock_meta(c).get("is_etf") else (meta.get(c, {}).get("basket") or "offense"))["name"],
                     "stop": meta.get(c, {}).get("stop"), "margin_loan": round(p.margin_loan)})
     initial = rules()["capital"]["initial"]
     return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
-            "futures_cash": round(pf.futures_cash), "holding_ratio": round(pf.holding_ratio(prices), 4),
+            "futures_cash": round(pf.futures_cash), "futures_equity": round(pf.futures_equity(marks)), "derivatives": derivs,
+            "holding_ratio": round(pf.holding_ratio({**prices, **marks}), 4),
             "margin_loan": round(pf.margin_loan()), "realized_pnl": round(pf.realized_pnl), "trade_count": pf.trade_count,
             "traded_symbols": sorted(pf.traded_symbols), "positions": pos, "trades": pf.trades[-50:][::-1],
             "nav_history": pfm.load_history()}

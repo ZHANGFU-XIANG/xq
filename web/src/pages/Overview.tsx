@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
+import Derivatives from '../components/Derivatives'
 import Intraday from '../components/Intraday'
 import Potential from '../components/Potential'
 import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
@@ -9,33 +10,45 @@ import { get, type Json } from '../lib/api'
 import { fmtPct, fmtRatio, fmtWan, qty, tone } from '../lib/format'
 import { useIntl, useQuotes } from '../lib/live'
 
-function Balance({ alloc }: { alloc: Json }) {
+function Balance({ report }: { report: Json }) {
+  // 優先用盤中即時配置（含 ETF 籃）；報告中的配置提供理由與大盤指標
+  const { data: intra } = useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'), staleTime: 60_000 })
+  const alloc: Json = { ...report.allocation, ...(intra?.allocation ?? {}) }
+  const hasEtf = alloc.etf != null
   const off = Math.round(alloc.offense * 100)
-  const def = 100 - off
-  const reasons: string[] = alloc.reasons.filter((r: string) => !r.startsWith('今日配置'))
+  const etf = hasEtf ? Math.round(alloc.etf * 100) : 0
+  const def = 100 - off - etf
+  const reasons: string[] = (report.allocation.reasons ?? []).filter((r: string) => !r.startsWith('今日配置'))
+  const etfReasons: string[] = alloc.etf_reasons ?? []
+  const parts = [
+    { key: 'offense', label: '攻', pct: off, color: 'offense', text: 'text-offense', bg: 'bg-offense', note: '進攻籃：追強勢、一個月內創新高' },
+    { key: 'defense', label: '守', pct: def, color: 'defense', text: 'text-defense', bg: 'bg-defense', note: '穩健籃：收正報酬機率高、回檔小' },
+    ...(hasEtf ? [{ key: 'etf', label: 'ETF', pct: etf, color: 'etf', text: 'text-etf', bg: 'bg-etf', note: 'ETF 籃：分散、稅 0.1%' }] : []),
+  ]
   return (
-    <section className="mb-8" aria-label="今日攻守配置">
+    <section className="mb-8" aria-label="今日配置">
       <div className="mb-2 flex items-end justify-between">
-        <div className="title text-[2.4rem] leading-none md:text-[3.2rem]">
-          <span className="text-offense">攻 {off}</span>
-          <span className="mx-3 text-line">／</span>
-          <span className="text-defense">守 {def}</span>
+        <div className="title text-[2rem] leading-none md:text-[2.8rem]">
+          {parts.map((p, i) => (
+            <span key={p.key}>
+              {i > 0 && <span className="mx-3 text-line">／</span>}
+              <span className={p.text}>{p.label} {p.pct}</span>
+            </span>
+          ))}
         </div>
         <div className="hidden text-right text-sm text-muted md:block">
           加權 RSI {alloc.taiex.rsi14}　20 日 {fmtPct(alloc.taiex.r20_pct, 1)}　距季線 {fmtPct(alloc.taiex.dist_ma60_pct, 1)}
         </div>
       </div>
-      <div className="flex h-4 overflow-hidden rounded-full" role="img" aria-label={`進攻 ${off}%，穩健 ${def}%`}>
-        <div className="bg-offense" style={{ width: `${off}%` }} />
-        <div className="w-1 bg-mist" />
-        <div className="bg-defense" style={{ width: `${def}%` }} />
+      <div className="flex h-4 gap-1 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.pct}%`).join('，')}>
+        {parts.map((p) => <div key={p.key} className={p.bg} style={{ width: `${p.pct}%` }} />)}
       </div>
-      <div className="mt-1 flex justify-between text-sm">
-        <span className="text-offense">進攻籃：追強勢、一個月內創新高</span>
-        <span className="text-right text-defense">穩健籃：收正報酬機率高、回檔小</span>
+      <div className="mt-1 flex flex-wrap justify-between gap-x-4 text-sm">
+        {parts.map((p) => <span key={p.key} className={p.text}>{p.note}</span>)}
       </div>
+      <p className="mt-1 text-xs text-muted">比例為股票＋ETF 目標持股的分配；期貨另計（持股率先不算期貨），見下方「期貨與選擇權」。</p>
       <ol className="mt-3 space-y-1 border-l-2 border-line pl-4 text-[0.95rem] text-ink-2">
-        {reasons.map((r, i) => <li key={i}>{r}</li>)}
+        {[...reasons, ...etfReasons].map((r, i) => <li key={i}>{r}</li>)}
       </ol>
     </section>
   )
@@ -97,7 +110,7 @@ function MorningPlan({ r }: { r: Json }) {
               </tr>
             </thead>
             <tbody>
-              {buys.map((o: Json) => (
+              {[...buys].sort((x: Json, y: Json) => (x.asset === 'ETF' ? 1 : 0) - (y.asset === 'ETF' ? 1 : 0)).map((o: Json) => (
                 <tr key={o.code} className="border-b border-line/70 align-top">
                   <td className="py-2.5"><BasketTag basket={o.basket} /></td>
                   <td className="py-2.5"><Link to={`/daily/${r.key}?code=${o.code}`} className="text-ink no-underline hover:text-link"><span className="num text-muted">{o.code}</span> {o.name}</Link></td>
@@ -112,6 +125,7 @@ function MorningPlan({ r }: { r: Json }) {
           </table>
         </div>
       )}
+      {r.derivatives && <div className="mt-4"><Derivatives d={r.derivatives} /></div>}
       {intl?.factor_date && (
         <p className="mt-2 text-xs text-muted">國際影響：{intl.factor_date} 國際市場收盤變動 × 該股過去一年與該市場的連動程度（只列統計顯著、影響 ≥0.4% 者）</p>
       )}
@@ -134,7 +148,7 @@ export default function Overview() {
       <UrgentBanner />
       <Intraday />
       <HoldingAdvice compact />
-      <Balance alloc={r.allocation} />
+      <Balance report={r} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
         <Stat label="總資產" value={fmtWan(pf.nav)} />

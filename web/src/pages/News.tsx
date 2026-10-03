@@ -25,12 +25,14 @@ export default function News() {
     staleTime: 0,
   })
   const [src, setSrc] = useState('')
+  const [cat, setCat] = useState('')
   const [q, setQ] = useState('')
   const allNews: Json[] = live?.news ?? data?.news ?? []
   const sources = useMemo(() => [...new Set<string>(allNews.map((n: Json) => n.source.split(':')[0]))], [allNews])
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
-  const news = allNews.filter((n) => (!src || n.source.startsWith(src)) && (!q || n.title.includes(q)))
+  const news = allNews.filter((n) => (!src || n.source.startsWith(src)) && (!q || n.title.includes(q)) && (!cat || n.category === cat))
+  const count = (c: string) => allNews.filter((n) => n.category === c).length
   const forceRefresh = () => {
     first.current = true
     refetch()
@@ -54,13 +56,21 @@ export default function News() {
             <input id="news-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="關鍵字" className="w-28 rounded-md border border-line bg-paper px-2 py-1 text-ink" />
           </span>
         }>
+        <div className="mb-2 flex flex-wrap gap-2" role="tablist" aria-label="新聞分類">
+          {[['', '全部', allNews.length], ['股票', '股票', count('股票')], ['ETF', 'ETF', count('ETF')], ['期貨', '期貨與選擇權', count('期貨')]].map(([v, label, n]) => (
+            <button key={String(v)} role="tab" aria-selected={cat === v} onClick={() => setCat(String(v))}
+              className={`rounded-full border px-3 py-1 text-sm ${cat === v ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink'}`}>
+              {label}（{n}）
+            </button>
+          ))}
+        </div>
         <ul className="divide-y divide-line/60">
           {news.map((n) => (
             <li key={n.id} className="flex gap-3 py-2">
               <span className="num w-20 shrink-0 text-sm text-muted">{n.time}</span>
               <div className="min-w-0">
                 <a href={n.url} target="_blank" rel="noreferrer" className="leading-snug">{n.title}</a>
-                <div className="text-xs text-muted">{n.source}</div>
+                <div className="text-xs text-muted">{n.category && <span className="mr-2">{n.category === '期貨' ? '期貨與選擇權' : n.category}</span>}{n.source}</div>
               </div>
             </li>
           ))}

@@ -50,7 +50,7 @@ export default function Portfolio() {
         <Stat label="總資產" value={fmtWan(p.nav)} />
         <Stat label="累積報酬" value={fmtPct(p.return_pct)} valueClass={tone(p.return_pct)} />
         <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub="規則下限 70%" valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
-        <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶 ${fmtWan(p.futures_cash)}`} />
+        <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶權益 ${fmtWan(p.futures_equity ?? p.futures_cash)}`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />
       </div>
 
@@ -82,6 +82,34 @@ export default function Portfolio() {
           </div>
         )}
       </Section>
+
+      {p.derivatives?.length > 0 && (
+        <Section title="期貨與選擇權部位" aside={`期貨戶權益數 ${fmtInt(p.futures_equity)} 元`}>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-[0.95rem]">
+              <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
+                <th className="py-2 font-normal">類別</th><th className="font-normal">合約</th><th className="text-right font-normal">口數</th>
+                <th className="text-right font-normal">均價</th><th className="text-right font-normal">現價</th>
+                <th className="text-right font-normal">未實現損益／市值</th><th className="text-right font-normal">保證金</th>
+              </tr></thead>
+              <tbody>
+                {p.derivatives.map((x: Json) => (
+                  <tr key={x.contract} className="border-b border-line/70">
+                    <td className="py-2.5 text-fut">{x.kind}</td>
+                    <td>{x.contract}</td>
+                    <td className="num text-right">{x.qty > 0 ? '多 ' : '空 '}{Math.abs(x.qty)}</td>
+                    <td className="num text-right">{fmtNum(x.avg_price)}</td>
+                    <td className="num text-right">{x.price != null ? fmtNum(x.price) : '—'}</td>
+                    <td className={`num text-right ${tone(x.value)}`}>{fmtInt(x.value)}</td>
+                    <td className="num text-right">{x.margin ? fmtInt(x.margin) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-muted">期貨記錄方式：跟 AI 助理說「我買了微台 TMF202610 2 口 48000 點」；資金調撥說「從證券戶轉 50 萬到期貨戶」。</p>
+        </Section>
+      )}
 
       <Section title="從 XQ 匯入持股" aside="以 XQ 帳務為準同步"><XQImport /></Section>
 

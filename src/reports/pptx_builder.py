@@ -228,22 +228,39 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
                        rows, [2.2, 1.4, 6], size=11)
 
     al = facts["allocation"]
-    s = deck._blank(f"攻守配置：進攻 {al['offense'] * 100:.0f}%／穩健 {al['defense'] * 100:.0f}%")
-    deck.text(s, Inches(0.5), Inches(1.2), Inches(6.0), Inches(5.6), al["reasons"], 13, title="比例如何決定", fill=LIGHT)
+    etf_txt = f"／ETF {al['etf'] * 100:.0f}%" if al.get("etf") is not None else ""
+    s = deck._blank(f"三籃配置：進攻 {al['offense'] * 100:.0f}%／穩健 {al['defense'] * 100:.0f}%{etf_txt}")
+    deck.text(s, Inches(0.5), Inches(1.2), Inches(6.0), Inches(5.6), al["reasons"] + al.get("etf_reasons", []), 13,
+              title="比例如何決定", fill=LIGHT)
     lines = []
-    for b, name in (("offense", "進攻籃"), ("defense", "穩健籃")):
+    for b, name in (("offense", "進攻籃"), ("defense", "穩健籃"), ("etf", "ETF 籃")):
         v = al["baskets"].get(b)
         buys = [f"{o['code']} {o['name']}" for o in facts["orders"] if o["action"] == "BUY" and o.get("basket") == b]
         if v:
             lines.append(f"【{name}】目標 {v['target'] / 1e4:,.0f} 萬，執行後佔總資產 {v['after_pct']:.1f}%")
         lines.append(f"{name}買進：" + ("、".join(buys) if buys else "無"))
     lines.append(text.get("allocation_analysis", ""))
-    deck.text(s, Inches(6.8), Inches(1.2), Inches(6.0), Inches(5.6), lines, 13, title="兩籃內容")
+    deck.text(s, Inches(6.8), Inches(1.2), Inches(6.0), Inches(5.6), lines, 13, title="各籃內容")
     if facts.get("def_picks"):
         deck.table("穩健籃候選（收正報酬機率高、回檔小、不追高）", ["標的", "產業", "收正機率", "預期回檔", "β", "穩健分數", "訊號"],
                    [[f"{p['code']} {p['name']}", p["sector"], f"{p['p_up'] * 100:.1f}%", f"{p['exp_dd'] * 100:.1f}%",
                      f"{p['beta']:.2f}" if p["beta"] is not None else "-", f"{p['def_score']:+.2f}", p["signal"]]
                     for p in facts["def_picks"][:12]], [2.4, 1.6, 1, 1, 0.8, 1, 1], size=11)
+
+    dv = facts.get("derivatives") or {}
+    if dv:
+        rows = [["做多" if o["action"] == "BUY" else "放空", o["contract"], str(o["qty"]), f"{o['limit_price']:,}", f"{o['stop']:,}",
+                 f"{o['margin']:,}", f"{o['max_loss']:,}"] for o in dv.get("orders", [])]
+        if dv.get("hedge"):
+            h = dv["hedge"]
+            rows.append(["買賣權避險", h["contract"], str(h["qty"]), str(h["limit_price"]), "-", "-", f"{h['premium']:,}"])
+        if rows:
+            deck.table(f"期貨與選擇權：{dv.get('summary')}", ["動作", "合約", "口數", "限價", "停損", "保證金", "最大損失"],
+                       rows, [1.4, 2.2, 0.8, 1.2, 1.2, 1.4, 1.4], size=12)
+        s2 = deck._blank(f"期貨與選擇權判斷：{dv.get('summary')}")
+        why = [w for o in dv.get("orders", []) for w in o["why"]] + ((dv.get("hedge") or {}).get("why") or [])
+        deck.text(s2, Inches(0.5), Inches(1.2), Inches(12.3), Inches(5.6), (why or []) + (dv.get("reasons") or []), 13,
+                  title="依據（模型估計，不是保證）", fill=LIGHT)
 
     att = facts["attribution"]
     title = f"為何今日會漲／會跌（{att['date']}）" + ("｜候選股示範" if facts["hypothetical"] else "")

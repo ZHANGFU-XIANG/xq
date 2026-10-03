@@ -31,14 +31,10 @@ export function Panel({ children, className = '' }: { children: ReactNode; class
 
 export function BasketTag({ basket }: { basket?: string }) {
   if (!basket) return null
-  const off = basket === 'offense' || basket.startsWith('進攻')
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium text-white ${off ? 'bg-offense' : 'bg-defense'}`}
-    >
-      {off ? '進攻' : '穩健'}
-    </span>
-  )
+  const kind = basket === 'etf' || basket.startsWith('ETF') ? 'etf' : basket === 'offense' || basket.startsWith('進攻') ? 'offense' : 'defense'
+  const style = { offense: 'bg-offense', defense: 'bg-defense', etf: 'bg-etf' }[kind]
+  const label = { offense: '進攻', defense: '穩健', etf: 'ETF' }[kind]
+  return <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium text-white ${style}`}>{label}</span>
 }
 
 export function Change({ value, suffix = '%', digits = 2 }: { value: number | null | undefined; suffix?: string; digits?: number }) {

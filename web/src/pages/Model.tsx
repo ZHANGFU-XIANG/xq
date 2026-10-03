@@ -3,6 +3,30 @@ import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section } fro
 import { get, type Json } from '../lib/api'
 import { fmtRatio, tone } from '../lib/format'
 
+function DataSources() {
+  const { data: d } = useQuery<Json>({ queryKey: ['data-sources'], queryFn: () => get('/api/data-sources'), refetchInterval: 120_000 })
+  if (!d) return null
+  return (
+    <Section title="資料來源狀態" aside={d.finmind_available ? 'FinMind 可用' : 'FinMind 額度用完，改用官方來源'}>
+      <p className="mb-2 text-sm text-ink-2">
+        FinMind token {d.finmind_tokens} 組（另有匿名額度），輪流使用；額度用完的會冷卻 1 小時，期間法人、月營收、本益比、融資券改由證交所與櫃買中心官方資料提供。
+        {d.finmind_cooling?.length > 0 && `冷卻中：${d.finmind_cooling.map((c: Json) => `${c.token}（到 ${c.until}）`).join('、')}`}
+      </p>
+      {d.sources?.length > 0 ? (
+        <ul className="space-y-1 text-[0.95rem]">
+          {d.sources.map((s: Json) => (
+            <li key={s.source} className="flex flex-wrap gap-x-3">
+              <span className="font-medium">{s.source}</span>
+              <span className="text-down">{s.ok_at ? `最近成功 ${s.ok_at}` : ''}</span>
+              {s.fail_at && <span className="text-warn">最近失敗 {s.fail_at}：{s.msg}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : <Empty>伺服器剛啟動，尚未呼叫任何資料來源。</Empty>}
+    </Section>
+  )
+}
+
 export default function Model() {
   const { data: m, isLoading, error } = useQuery<Json>({ queryKey: ['model'], queryFn: () => get('/api/model') })
   if (isLoading) return <Loading />
@@ -75,6 +99,7 @@ export default function Model() {
           </div>
         )}
       </Section>
+      <DataSources />
       <Section title="調整 Agent 紀錄">
         {!m.tuning_log?.length ? <Empty>還沒有調整紀錄。</Empty> : (
           <div className="space-y-4">

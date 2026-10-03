@@ -257,7 +257,16 @@ def run_daily(mode: str, today: dt.date) -> dict:
     body = "\n".join([f"{TITLES[mode]} {today}", ""] + (["【庫存怎麼處理】"] + advice_lines + [""] if advice_lines else []) +
                      (["【警示】"] + alert_lines + [""] if alert_lines else []) +
                      [text["market_summary"], text["outlook"], "",
-                      f"【攻守配置】進攻籃 {alloc['offense'] * 100:.0f}%／穩健籃 {alloc['defense'] * 100:.0f}%",
+                      f"【三籃配置】進攻籃 {alloc['offense'] * 100:.0f}%／穩健籃 {alloc['defense'] * 100:.0f}%／"
+                      f"ETF 籃 {alloc.get('etf', 0) * 100:.0f}%（佔股票＋ETF 目標持股）",
+                      *alloc.get("etf_reasons", []), "",
+                      f"【期貨與選擇權】{deriv.get('summary')}",
+                      *[f"- {'做多' if o['action'] == 'BUY' else '放空'} {o['contract']} {o['qty']} 口，限價 {o['limit_price']:,}、"
+                        f"停損 {o['stop']:,}、保證金 {o['margin']:,} 元、最大損失 {o['max_loss']:,} 元（{o['mode']}）"
+                        for o in deriv.get("orders", [])],
+                      *([f"- 避險：買進 {deriv['hedge']['name']} {deriv['hedge']['qty']} 口，權利金約 {deriv['hedge']['premium']:,} 元"]
+                        if deriv.get("hedge") else []),
+                      *[f"- {r}" for r in (deriv.get("reasons") or [])[-3:]],
                       text.get("allocation_analysis", ""), "",
                       "【今日漲跌分析】", text["daily_move_analysis"], "", "【虧損補回計畫】", text["recovery_plan"], "",
                       "【國際大事影響】", text["macro_analysis"], "", "交易建議："] +

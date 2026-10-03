@@ -3,6 +3,7 @@ import { get, type Json } from '../lib/api'
 import { qty } from '../lib/format'
 import { useIntl, useQuotes } from '../lib/live'
 import { IntlNote, LivePrice } from './LiveBits'
+import Derivatives from './Derivatives'
 import { BasketTag } from './ui'
 
 const STATUS_STYLE: Record<string, string> = {
@@ -32,7 +33,7 @@ export default function Intraday() {
         </h2>
         <span className="flex items-center gap-3 text-sm text-muted">
           <span>實際持股率 <b className={d.holding_ratio < 0.7 ? 'text-warn' : 'text-ink'}>{(d.holding_ratio * 100).toFixed(1)}%</b></span>
-          <span>攻守 {Math.round(d.allocation.offense * 100)}／{Math.round(d.allocation.defense * 100)}</span>
+          <span>攻／守{d.allocation.etf != null ? '／ETF' : ''} {Math.round(d.allocation.offense * 100)}／{Math.round(d.allocation.defense * 100)}{d.allocation.etf != null ? `／${Math.round(d.allocation.etf * 100)}` : ''}</span>
           <button disabled={isFetching} onClick={() => get('/api/intraday?refresh=true').then((v) => qc.setQueryData(['intraday'], v))}
             className="rounded-md border border-line px-2 py-0.5 text-ink disabled:opacity-50">立即重算</button>
         </span>
@@ -43,9 +44,14 @@ export default function Intraday() {
           {d.actions.filter((a: string) => !/^【(建倉|買進|賣出|預掛)】/.test(a)).map((a: string, i: number) => <li key={i} className="rounded-md bg-up/5 px-3 py-1.5 font-medium">{a}</li>)}
         </ul>
       )}
-      {d.orders.length > 0 && (
+      {[['STOCK', '股票'], ['ETF', 'ETF']].map(([asset, label]) => {
+        const rows = d.orders.filter((o: Json) => (o.asset ?? 'STOCK') === asset)
+        if (!rows.length) return null
+        return (
+        <div key={asset} className="mb-2">
+        <h3 className="mt-2 text-sm font-medium text-muted">{label}（{rows.length}）</h3>
         <ul className="divide-y divide-line/60">
-          {d.orders.map((o: Json) => (
+          {rows.map((o: Json) => (
             <li key={o.code + o.action} className="py-2.5 text-[0.95rem]">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_STYLE[o.status] ?? 'bg-mist'}`}>{o.status}</span>
@@ -59,7 +65,10 @@ export default function Intraday() {
             </li>
           ))}
         </ul>
-      )}
+        </div>
+        )
+      })}
+      {d.derivatives && <div className="mt-3"><Derivatives d={d.derivatives} compact /></div>}
       {d.changes?.length > 0 && (
         <div className="mt-3 text-sm">
           <h3 className="mb-1 font-medium text-muted">和早上計畫相比</h3>
