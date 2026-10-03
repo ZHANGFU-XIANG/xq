@@ -305,12 +305,13 @@ def live_plan(realtime: bool = True) -> dict:
             s["signal"] = s["def_signal"] = "跌停暫緩"
     scores = {s["code"]: s for s in ranked}
     meta = pfm.load_meta()
-    nav = pf.nav(prices)
+    nav = pf.nav(pipeline.with_marks(pf, prices))
     bo = pipeline.basket_of(pf, meta, scores)
     alloc = pipeline.current_allocation(ctx, target, now_tw().date(), nav)
     rec = recovery.plan(pf, prices, scores, ctx["alpha"]["predictions"], meta, ranked, nav, rules()["capital"]["initial"], {}, bo)
     sells = sizer.plan_sells(pf, prices, sc["feats"], scores, meta, nav, rec["actions"])
-    buys = sizer.plan_buys(ranked, pf, prices, nav, sells, sc["feats"], alloc, bo)
+    deriv = pipeline.derivatives_plan(pf, prices, nav, alloc, scores, sc["us_snap"], now_tw().date())
+    buys = sizer.plan_buys(ranked, pf, prices, nav, sells, sc["feats"], alloc, bo, deriv["reserve"])
     names = {c: stock_meta(c)["name"] for c in pf.positions}
     hold_alerts = alerts.holding_alerts(pf, meta, rt, prices, {c: sc["feats"].get(c) or {} for c in pf.positions},
                                         alerts.attention_lists(), alerts.news_risk(names)) if pf.positions else []
@@ -319,7 +320,8 @@ def live_plan(realtime: bool = True) -> dict:
     return {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "realtime": bool(rt) and alerts.is_trading_hours(),
             "orders": orders, "items": items, "skipped": skipped, "hold_alerts": hold_alerts, "rt": rt,
             "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4), "allocation": alloc,
-            "funding": {"transfer_from_futures": buys["transfer_from_futures"]}}
+            "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"]},
+            "derivatives": deriv}
 
 
 def portfolio_plan(refresh: bool = False) -> dict:

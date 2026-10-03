@@ -15,7 +15,7 @@ from src.state import params
 from src.state.portfolio import Portfolio, is_etf, trade_cost
 
 LOT = 1000
-BASKETS = ("defense", "offense")
+BASKETS = ("defense", "etf", "offense")  # 配置順序：穩健籃、ETF 籃（只用現金）→ 進攻籃（可融資）
 
 
 def tick_size(price: float, etf: bool = False) -> float:
@@ -53,6 +53,8 @@ def round_trip_cost_pct(code: str) -> float:
 
 
 def basket_score(s: dict, basket: str) -> float:
+    if basket == "etf":
+        return s.get("etf_score", 0.0)
     return s.get("def_score", 0.0) if basket == "defense" else s.get("score", 0.0)
 
 
@@ -144,6 +146,9 @@ def _round_sell(raw: float, held: int, allow_odd: bool) -> int:
 
 # ======================================================================= 買進
 def _pick_reason(s: dict, basket: str) -> str:
+    if basket == "etf":
+        return (f"【ETF 籃】{s.get('etf_category', '')}型 ETF，ETF 分數 {s.get('etf_score', 0):+.2f} 達門檻"
+                f"（{params.basket('etf')['buy_threshold']:+.2f}）；分散個股風險、證交稅 0.1%")
     bcfg = params.basket(basket)
     a = s.get("alpha") or {}
     if basket == "defense":
@@ -162,15 +167,27 @@ def select_candidates(ranked: list[dict], held_after: dict, basket_of: dict, pri
     st = params.strategy()
     out = {}
     taken: set[str] = set()
-    for basket in ("offense", "defense"):
+    for basket in ("offense", "defense", "etf"):
         bcfg = params.basket(basket)
         held_in = [c for c in held_after if basket_of.get(c, "offense") == basket]
         slots = bcfg["max_positions"] - len(held_in)
-        key = "signal" if basket == "offense" else "def_signal"
+        key = {"offense": "signal", "defense": "def_signal", "etf": "etf_signal"}[basket]
         cands = []
+        cats: dict[str, int] = {}
+        for c in held_in:
+            cat = (next((x for x in ranked if x["code"] == c), {}) or {}).get("etf_category")
+            if cat:
+                cats[cat] = cats.get(cat, 0) + 1
         for s in sorted(ranked, key=lambda x: -basket_score(x, basket)):
             if s.get(key) != "買進候選" or not s["features"] or s["code"] in taken:
                 continue
+            if (basket == "etf") != bool(stock_meta(s["code"]).get("is_etf")):  # 股票籃不放 ETF、ETF 籃只放 ETF
+                continue
+            if basket == "etf" and s["code"] not in held_after:
+                cat = s.get("etf_category", "其他")
+                if cats.get(cat, 0) >= bcfg["max_per_category"]:
+                    continue
+                cats[cat] = cats.get(cat, 0) + 1
             if s["code"] in held_after and basket_of.get(s["code"], "offense") != basket:
                 continue
             w = held_after.get(s["code"], 0) * prices.get(s["code"], 0) / nav
@@ -183,7 +200,7 @@ def select_candidates(ranked: list[dict], held_after: dict, basket_of: dict, pri
             cands.append({**s, "basket": basket, "pick_reason": _pick_reason(s, basket)})
             taken.add(s["code"])
         out[basket] = cands
-    # 規則：至少 5 個標的 → 由穩健籃補位（優先 ETF，分散且稅低）
+    # 規則：至少 5 個標的 → 補位（ETF 歸 ETF 籃、股票歸穩健籃）
     n = len(set(held_after) | taken)
     if n < st["min_positions"]:
         pool = sorted(ranked, key=lambda x: (x["code"] not in st["etf_fillers"], -x.get("def_score", -9)))
@@ -193,7 +210,8 @@ def select_candidates(ranked: list[dict], held_after: dict, basket_of: dict, pri
             if s["code"] in held_after or s["code"] in taken or not s["features"]:
                 continue
             if s.get("def_score", -1) > 0 or s["code"] in st["etf_fillers"]:
-                out["defense"].append({**s, "basket": "defense", "pick_reason":
+                b = "etf" if stock_meta(s["code"]).get("is_etf") else "defense"
+                out[b].append({**s, "basket": b, "pick_reason":
                                        f"【穩健籃】補足競賽「至少 {st['min_positions']} 個標的」規則"
                                        f"（穩健分數 {s.get('def_score', 0):+.2f}）"})
                 taken.add(s["code"])
@@ -205,7 +223,7 @@ def _entry(c: dict, price: float, f: dict, basket: str, etf: bool) -> tuple[floa
     st = params.strategy()
     pred = c.get("prediction") or {}
     pred_open = pred.get("pred_open", price)
-    if basket == "defense":
+    if basket in ("defense", "etf"):
         entry = round_tick(min(pred_open, price), etf)
         return entry, f"穩健籃不追價：限價取預測開盤價 {pred_open} 與前一日收盤 {price} 的較低者 = {entry}"
     if pred.get("intra_reliable") and pred.get("intraday_pct", 0) < 0:
@@ -301,7 +319,7 @@ def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, 
 
 
 def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells: list[dict], feats: dict,
-              alloc: dict, basket_of: dict) -> dict:
+              alloc: dict, basket_of: dict, futures_reserve: float | None = None) -> dict:
     st = params.strategy()
     credit = rules()["credit"]
     allow_odd = st["allow_odd_lot"]
@@ -316,7 +334,8 @@ def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells
 
     # 資金：現金 + 賣出回收 + 期貨戶可轉入金額 + 融資額度
     sell_proceeds = sum(o["amount"] - o["est_cost"] for o in sells)
-    transfer = max(0.0, pf.futures_cash - st["futures_reserve"])
+    reserve = st["futures_reserve"] if futures_reserve is None else futures_reserve  # 期貨戶需留存（保證金×緩衝）
+    transfer = max(0.0, pf.futures_cash - reserve)
     cash_left = pf.cash + sell_proceeds + transfer
     loan_left = max(0.0, st["max_margin_loan_ratio"] * nav - pf.margin_loan()) if st["allow_margin"] else 0.0
 
@@ -387,7 +406,10 @@ def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells
         summary[basket] = {"target": round(target_val), "held": round(held_val), "new": round(spent),
                            "after_pct": round((held_val + spent) / nav * 100, 2) if nav else 0}
 
-    return {"orders": orders, "transfer_from_futures": round(transfer), "cash_after": round(cash_left),
+    for o in orders:
+        o.setdefault("asset", "ETF" if is_etf(o["code"]) else "STOCK")
+    return {"orders": orders, "transfer_from_futures": round(transfer), "futures_reserve": round(reserve),
+            "cash_after": round(cash_left),
             "loan_capacity_left": round(loan_left), "baskets": summary}
 
 

@@ -35,6 +35,7 @@ allocation:
   strong: {taiex_above_ma60: true, taiex_r20_min: 0.02}               # 大盤健康上漲且無失誤 → 進攻 +5%
   drawdown_steps: [[0.04, 0.10], [0.08, 0.20]]                        # 總資產回撤 ≥4% 進攻 −10%，≥8% −20%
   late_days: 15                     # 剩餘交易日 ≤ 15 時：已正報酬 → 進攻 −10% 保住晉級；仍虧損 → 進攻 +10% 爭取轉正
+  etf: {base: 0.15, min: 0.05, max: 0.35}   # ETF 籃佔「股票＋ETF」目標持股的比例（動態調整）
 
 baskets:
   offense:
@@ -54,6 +55,16 @@ baskets:
     take_profit: [[0.06, 0.3333], [0.12, 0.5]]
     candidates: 25
     eligible: {max_rsi: 68, c_ma20: [-0.06, 0.06], max_beta: 1.1}
+  etf:
+    name: ETF籃
+    max_positions: 3
+    max_weight: 0.15
+    allow_margin: false
+    buy_threshold: 0.15
+    take_profit: [[0.06, 0.3333], [0.12, 0.5]]
+    candidates: 15
+    max_per_category: 1
+    max_premium_pct: 1.0             # 溢價超過 1% 不追
 
 # 穩健籃評分權重
 defense_weights:

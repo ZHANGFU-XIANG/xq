@@ -103,7 +103,6 @@ def run_daily(mode: str, today: dt.date) -> dict:
     gen = now_tw()
     target = today if (mode != "postclose" and is_trading_day(today)) else next_trading_day(today)
     log.info("模式 %s，報告日 %s，預測目標交易日 %s", mode, today, target)
-    st = params.strategy()
 
     # ---- 資料層：全市場 + 一個月模型
     ctx = _market_context(target)
@@ -130,7 +129,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
 
     # ---- 決策層
     meta = _update_meta(pf, feats)
-    nav = pf.nav(prices)
+    nav = pf.nav(pipeline.with_marks(pf, prices))
     basket_of = pipeline.basket_of(pf, meta, scores)
     pfm.save_meta(meta)
     alloc = pipeline.current_allocation(ctx, target, today, nav)
@@ -143,7 +142,8 @@ def run_daily(mode: str, today: dt.date) -> dict:
     macro_imp = macro.impacts(macro_events, hold_mv, sens, nav, {c: m.get("stop") for c, m in meta.items()}, prices)
 
     sells = sizer.plan_sells(pf, prices, feats, scores, meta, nav, rec["actions"])
-    buys = sizer.plan_buys(ranked, pf, prices, nav, sells, feats, alloc, basket_of)
+    deriv = pipeline.derivatives_plan(pf, prices, nav, alloc, scores, us_snap, today)
+    buys = sizer.plan_buys(ranked, pf, prices, nav, sells, feats, alloc, basket_of, deriv["reserve"])
     orders = [o for o in sells + buys["orders"] if not compliance.is_warrant(o["code"])]
     checks = compliance.check(pf, prices, orders, today, nav)
     PENDING_JSON.write_text(json.dumps({o["code"]: {"stop": o.get("stop"), "date": target.isoformat(), "basket": o["basket"]}
@@ -206,7 +206,8 @@ def run_daily(mode: str, today: dt.date) -> dict:
         "attribution": att, "recovery": {k: rec[k] for k in ("items", "summary", "portfolio_exp_ret")},
         "macro": macro_imp, "macro_sens": sens,
         "orders": orders, "compliance": checks, "tuner": tune, "alerts": alert_out, "holding_advice": advice,
-        "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": st["futures_reserve"],
+        "derivatives": deriv,
+        "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"],
                     "cash_after": buys["cash_after"], "loan_capacity_left": buys["loan_capacity_left"]},
         "portfolio": {"nav": round(nav), "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
                       "holding_ratio": round(pf.holding_ratio(prices), 4), "trade_count": pf.trade_count, "symbol_count": len(pf.traded_symbols),

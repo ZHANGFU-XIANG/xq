@@ -129,17 +129,19 @@ def test_allocation_reacts_to_overheat_drawdown_and_endgame():
     calm = _taiex_series([0.0005, -0.0004] * 60)
     t = calm.index[-1] + pd.Timedelta(days=1)
     base = allocation.decide(calm, t, [], 10_000_000, 10_000_000, 30, [])
-    assert base["offense"] == 0.60
+    assert base["stock_split"]["offense"] == 0.60 and base["etf"] == 0.15
+    assert abs(base["offense"] + base["defense"] + base["etf"] - 1) < 0.01  # 三籃合計 100%
     hot = _taiex_series([0.0] * 80 + [0.01] * 25)  # 連漲 → RSI、20 日漲幅、距季線都過熱
     r = allocation.decide(hot, hot.index[-1] + pd.Timedelta(days=1), [], 10_000_000, 10_000_000, 30, [])
-    assert r["offense"] == 0.45 and any("過熱" in x for x in r["reasons"])
+    assert r["stock_split"]["offense"] == 0.45 and any("過熱" in x for x in r["reasons"])
+    assert r["etf"] == 0.30 and any("過熱" in x for x in r["etf_reasons"])  # 過熱提高 ETF 分散
     hist = [{"date": "d", "nav": 10_500_000}]
     r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%
-    assert r["offense"] == 0.40
+    assert r["stock_split"]["offense"] == 0.40 and r["etf"] == 0.25
     r = allocation.decide(calm, t, [], 10_000_000, 10_300_000, 10, [])  # 尾聲且為正報酬 → 保住晉級
-    assert r["offense"] == 0.50
+    assert r["stock_split"]["offense"] == 0.50 and r["etf"] == 0.25
     r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 爭取轉正
-    assert r["offense"] == 0.70
+    assert r["stock_split"]["offense"] == 0.70 and r["etf"] == 0.15
 
 
 def test_overheated_stock_not_bought_in_offense():
