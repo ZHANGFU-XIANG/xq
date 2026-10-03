@@ -2,7 +2,9 @@ llm:
   # 供應商順序：開源模型優先（NVIDIA build.nvidia.com → Groq），Gemini（閉源）只當最後備援
   providers: [nvidia, groq, gemini]
   # NVIDIA 免費開發者方案（約 40 次／分鐘，無點數制）；依序嘗試，額度用完或不支援就換下一個
-  nvidia_models: [moonshotai/kimi-k2.6, deepseek-ai/deepseek-v4.1-flash, z-ai/glm-5.3, nvidia/nemotron-3-super-120b-a12b]
+  # 2026-10-04 實測（工具呼叫＋數字核對）：nemotron-3-super 最快最準；deepseek 詳細但較慢；glm 偶爾逾時
+  # kimi-k2.6 帳號無權限、kimi-k3 逾時、gpt-oss-20b 會亂答，故不列入
+  nvidia_models: [nvidia/nemotron-3-super-120b-a12b, deepseek-ai/deepseek-v4.1-flash, z-ai/glm-5.3-flash]
   # 依序嘗試；模型下架或過載(503)時自動換下一個，只需改這裡
   gemini_models: [gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest]
   groq_models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]

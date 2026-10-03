@@ -244,3 +244,8 @@ def test_citation_numbers_not_flagged_and_sources_listed():
 def test_uncited_points_flagged():
     t, n = chat_agent._flag_uncited("結論。\n1. 收盤 48.85〔S1〕\n2. 其他來源也沒有公布\n推論：可能是假期\n3. 推論：市場觀望\n建議：觀望")
     assert n == 1 and "2. 其他來源也沒有公布〔未附出處〕" in t and "〔S1〕〔未附出處〕" not in t
+
+
+def test_list_ordinals_not_flagged():
+    t = chat_agent._hide_cites("結論\n6. 大台 48671 點〔S2〕\n7、保證金")
+    assert "6" not in t.split("大台")[0] and chat_agent._show_cites(t) == "結論\n6. 大台 48671 點〔S2〕\n7、保證金"

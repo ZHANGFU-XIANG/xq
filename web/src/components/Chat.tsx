@@ -11,6 +11,7 @@ type Msg = {
   unverified?: string[]
   sources?: { id?: string; tool: string; label?: string; args: Record<string, unknown>; date?: string; links?: { title: string; url: string }[]; cited?: boolean }[]
   actions?: Action[]
+  model?: string
 }
 
 const TOOL_NAMES: Record<string, string> = {
@@ -188,7 +189,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         (e: ChatEvent) => {
           if (e.type === 'tool') patch((m) => ({ ...m, progress: [...(m.progress ?? []), `${TOOL_NAMES[e.name] ?? e.name}${e.args.code ? ` ${e.args.code}` : e.args.query ? `「${e.args.query}」` : ''}`] }))
           if (e.type === 'answer')
-            patch((m) => ({ ...m, content: e.text, verified: e.verified, unverified: e.unverified, sources: e.sources, actions: e.actions }))
+            patch((m) => ({ ...m, content: e.text, verified: e.verified, unverified: e.unverified, sources: e.sources, actions: e.actions, model: e.model }))
         },
       )
     } catch (err) {
@@ -311,6 +312,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
               )}
               {m.content && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                  {m.model && <span>回答模型：{m.model}</span>}
                   {m.verified ? <span className="text-down">數字已核對出處</span> : m.unverified?.length ? <span className="text-warn">有 {m.unverified.length} 處無法證實（虛線標示）</span> : null}
                 </div>
               )}

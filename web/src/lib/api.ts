@@ -71,6 +71,7 @@ export type ChatEvent =
       type: 'answer'
       text: string
       verified: boolean
+      model?: string
       unverified?: string[]
       sources?: { tool: string; args: Record<string, unknown>; date?: string }[]
       actions?: { id: string; summary: string }[]

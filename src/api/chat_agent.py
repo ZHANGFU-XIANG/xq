@@ -23,6 +23,7 @@ from src.llm.client import get_client, mark_exhausted, model_ok
 
 log = logging.getLogger(__name__)
 MAX_STEPS = 6
+_USED: dict = {"model": None}  # 本輪實際回答的模型（顯示在回答下方）
 PENDING: dict[str, dict] = {}
 
 SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的投資顧問助理，用專業、精簡、自然的繁體中文（台灣用語）回答，像資深營業員或研究員對客戶說明。
@@ -133,11 +134,13 @@ _UNDIG = str.maketrans("abcdefghij", "0123456789")
 
 
 def _hide_cites(text: str) -> str:
-    """出處編號〔S12〕暫時改成不含數字的〔Sbc〕，避免被數字核對當成數據。"""
-    return re.sub(r"〔S(\d+)〕", lambda m: f"〔S{m.group(1).translate(_DIG)}〕", text)
+    """出處編號〔S12〕與條列序號（行首的「6.」「7、」）暫時改成不含數字的字母，避免被數字核對當成數據。"""
+    text = re.sub(r"〔S(\d+)〕", lambda m: f"〔S{m.group(1).translate(_DIG)}〕", text)
+    return re.sub(r"(?m)^(\s*)(\d{1,2})([.、])", lambda m: f"{m.group(1)}§{m.group(2).translate(_DIG)}§{m.group(3)}", text)
 
 
 def _show_cites(text: str) -> str:
+    text = re.sub(r"§([a-j]+)§", lambda m: m.group(1).translate(_UNDIG), text)
     return re.sub(r"〔S([a-j]+)〕", lambda m: f"〔S{m.group(1).translate(_UNDIG)}〕", text)
 
 
@@ -431,6 +434,7 @@ def _gemini_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
                 cand = resp.candidates[0].content
                 calls = [p.function_call for p in (cand.parts or []) if p.function_call]
                 if not calls:
+                    _USED["model"] = f"Google {model}（閉源備援）"
                     return resp.text or "", outputs
                 contents.append(cand)
                 parts = []
@@ -494,6 +498,7 @@ def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
                     text = re.sub(r"<think>.*?</think>", "", msg["content"], flags=re.S).strip()
                     if not text:
                         raise RuntimeError("模型沒有回答內容")
+                    _USED["model"] = f"NVIDIA {model}（開源）"
                     return text, outputs
                 msgs.append({"role": "assistant", "content": msg["content"] or "", "tool_calls": calls})
                 for tc in calls:
@@ -543,6 +548,7 @@ def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
             raise RuntimeError(str(err))
         msg = resp.choices[0].message
         if not msg.tool_calls:
+            _USED["model"] = f"Groq {model}（開源）"
             return msg.content or "", outputs
         msgs.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
             {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
@@ -628,7 +634,7 @@ def run(messages: list[dict], emit, loop=None) -> dict:
                         "links": _links(o["tool"], r), "cited": f"〔S{i}〕" in text})
     actions = [{"id": o["result"]["pending_action"], "summary": o["result"]["summary"]}
                for o in outputs if isinstance(o["result"], dict) and o["result"].get("pending_action")]
-    return {"type": "answer", "text": text, "verified": not bad and not bad_cites and not uncited, "unverified": bad + bad_cites + ["未附出處"] * uncited,
+    return {"type": "answer", "text": text, "model": _USED["model"], "verified": not bad and not bad_cites and not uncited, "unverified": bad + bad_cites + ["未附出處"] * uncited,
             "sources": sources, "actions": actions}
 
 
