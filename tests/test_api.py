@@ -134,7 +134,8 @@ def test_cloud_record_trade_commits_to_github(monkeypatch, tmp_path):
     msg = sync.record_trade(row)
     assert "GitHub" in msg and calls["url"].endswith("/repos/team/invest/contents/data/trades.csv")
     new = base64.b64decode(calls["body"]["content"]).decode()
-    assert new.endswith("2026-10-05,2892,BUY,10000,38.5,0,x\n") and calls["body"]["sha"] == "abc"
+    assert new.endswith("2026-10-05,2892,BUY,10000,38.5,0,x,,\n") and calls["body"]["sha"] == "abc"
+    assert new.startswith("date,code,side,shares,price,margin,note,asset,contract\n")
 
 
 def test_cloud_record_rejects_overselling(monkeypatch, tmp_path):

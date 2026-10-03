@@ -189,3 +189,34 @@ filings:
 email:
   enabled: true
   to: []                            # 也可用環境變數 REPORT_TO（逗號分隔）
+
+# 期貨（台指期）方向建議與選擇權避險（只做買方）
+futures:
+  horizon_days: 5                   # 方向模型預測與持有天數
+  p_long: 0.60                      # 上漲機率 ≥ 此值才考慮做多
+  p_short: 0.40                     # 上漲機率 ≤ 此值才考慮放空
+  min_backtest_trades: 20           # 樣本外交易次數下限（證據不足就不開放）
+  roundtrip_cost_pct: 0.02          # 來回成本假設（稅＋手續費＋滑價，佔名目價值 %）
+  atr_mult: 2.0                     # 停損 = ATR14 × 倍數
+  risk_rank: 0.01                   # 衝名次：每筆風險佔總資產
+  risk_recovery: 0.015              # 補回虧損
+  risk_recovery_late: 0.02          # 比賽末段仍為負報酬
+  risk_protect: 0.005               # 末段已是正報酬：保名次
+  recovery_drawdown: 0.04
+  late_days: 15
+  max_margin_pct_nav: 0.06          # 期貨原始保證金上限佔總資產（確保股票＋ETF 持股率）
+  margin_buffer: 2.5                # 期貨戶留存 = 保證金 × 倍數（防追繳）
+  min_reserve: 300000               # 期貨戶最少留存
+  roll_days: 3                      # 距結算不足天數改用次月
+  hedge:
+    taiex_rsi: 75
+    dist_ma60_pct: 10
+    vix_jump_pct: 15
+    p_down: 0.60
+    otm_pct: 0.04                   # 價外 4%
+    hedge_ratio: 0.4                # 避險比例（股票 β 加權市值）
+    premium_budget_pct: 0.005       # 權利金上限佔總資產
+    min_days_to_expiry: 7
+  overlay:                          # 補回虧損模式：沒有擇時優勢時，可選擇「加碼大盤曝險」（明確標示非預測優勢）
+    enabled: true
+    risk: 0.01

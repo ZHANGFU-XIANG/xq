@@ -40,6 +40,15 @@ requirements:
   min_symbols: 5
   min_holding_ratio: 0.70
 
+futures:
+  count_in_holding: false           # 持股率是否計入期貨名目價值（官網未明說，先保守不算）
+  contracts:
+    TX: {name: 臺股期貨, multiplier: 200, margin_name: 臺股期貨}
+    MTX: {name: 小型臺指, multiplier: 50, margin_name: 小型臺指}
+    TMF: {name: 微型臺指期貨, multiplier: 10, margin_name: 微型臺指期貨}
+    TXO: {name: 臺指選擇權, multiplier: 50}
+  commission_per_contract: {TX: 60, MTX: 30, TMF: 15, TXO: 25}   # 假設值（官網未列期貨手續費），依平台實際為準
+
 penalties:
   holding_ratio_penalty: 0.002      # 每次扣報酬率 0.2%，每日收盤評估，只算實際持股
 

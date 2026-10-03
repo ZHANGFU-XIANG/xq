@@ -86,6 +86,11 @@ def record_trade(row: dict) -> str:
     cur = base64.b64decode(r.json()["content"]).decode("utf-8")
     if not cur.endswith("\n"):
         cur += "\n"
+    lines = cur.splitlines()
+    if lines and lines[0].lstrip("﻿").split(",") != pfm.TRADE_FIELDS:  # 舊表頭：補上新欄位
+        n_old = len(lines[0].split(","))
+        pad = "," * (len(pfm.TRADE_FIELDS) - n_old)
+        cur = "\n".join([",".join(pfm.TRADE_FIELDS)] + [ln + pad for ln in lines[1:] if ln.strip()]) + "\n"
     line = ",".join(str(row.get(k, "")) for k in pfm.TRADE_FIELDS)
     body = {"message": f"record trade {row['date']} {row['side']} {row['code']} {row['shares']}@{row['price']}",
             "content": base64.b64encode((cur + line + "\n").encode("utf-8")).decode(), "sha": r.json()["sha"]}
