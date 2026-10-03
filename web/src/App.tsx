@@ -13,6 +13,7 @@ import News from './pages/News'
 import Overview from './pages/Overview'
 import Portfolio from './pages/Portfolio'
 import Stock from './pages/Stock'
+import Futures from './pages/Futures'
 
 function ChatPage() {
   return (
@@ -44,6 +45,8 @@ export default function App() {
             <Route path="daily/:key" element={<Daily />} />
             <Route path="stock" element={<Stock />} />
             <Route path="stock/:code" element={<Stock />} />
+            <Route path="futures" element={<Futures />} />
+            <Route path="futures/:root" element={<Futures />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="news" element={<News />} />
             <Route path="portfolio" element={<Portfolio />} />

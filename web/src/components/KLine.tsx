@@ -26,12 +26,12 @@ const RANGES = [
   { label: '1 年', days: 260 },
 ]
 
-export default function KLine({ code, height = 380 }: { code: string; height?: number }) {
+export default function KLine({ code, height = 380, url, unit = '張', futures = false }: { code: string; height?: number; url?: string; unit?: string; futures?: boolean }) {
   const [days, setDays] = useState(130)
   const [showMA, setShowMA] = useState(true)
   const [lower, setLower] = useState<'volume' | 'inst'>('volume')
   const box = useRef<HTMLDivElement>(null)
-  const { data, isLoading, error } = useQuery<KData>({ queryKey: ['kline', code], queryFn: () => get(`/api/stock/${code}/kline?days=260`) })
+  const { data, isLoading, error } = useQuery<KData>({ queryKey: ['kline', code, url], queryFn: () => get(url ?? `/api/stock/${code}/kline?days=260`) })
 
   useEffect(() => {
     if (!box.current || !data?.candles.length) return
@@ -112,7 +112,7 @@ export default function KLine({ code, height = 380 }: { code: string; height?: n
           ))}
         </div>
         <div className="inline-flex overflow-hidden rounded-md border border-line" role="group" aria-label="下方圖表">
-          {(['volume', 'inst'] as const).map((k) => (
+          {(futures ? (['volume'] as const) : (['volume', 'inst'] as const)).map((k) => (
             <button key={k} onClick={() => setLower(k)}
               className={`px-2.5 py-1 ${lower === k ? 'bg-ink text-paper' : 'bg-paper text-ink-2 hover:bg-mist'}`}>
               {k === 'volume' ? '成交量' : '法人買賣超'}
@@ -131,7 +131,7 @@ export default function KLine({ code, height = 380 }: { code: string; height?: n
         )}
       </div>
       <div ref={box} style={{ height }} aria-label={`${code} K 線圖`} />
-      <div className="mt-1 text-xs text-muted">虛線：建議限價（藍）、停損（綠）、停利（紅）；點線：52 週高點。箭頭為實際成交紀錄。單位：張</div>
+      <div className="mt-1 text-xs text-muted">虛線：建議限價（藍）、停損（綠）、停利（紅）{futures ? "" : "；點線：52 週高點"}。箭頭為實際成交紀錄。單位：{unit}{futures ? '（期貨價位：點）' : ''}</div>
     </div>
   )
 }

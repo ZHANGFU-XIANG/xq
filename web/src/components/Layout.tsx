@@ -9,6 +9,7 @@ const NAV = [
   { to: '/daily', label: '每日建議' },
   { to: '/alerts', label: '警示提醒' },
   { to: '/stock', label: '個股' },
+  { to: '/futures', label: '期貨' },
   { to: '/news', label: '新聞' },
   { to: '/portfolio', label: '持股' },
   { to: '/model', label: '模型' },
@@ -19,13 +20,13 @@ function StockSearch({ onDone }: { onDone?: () => void }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const nav = useNavigate()
-  const { data } = useQuery<{ code: string; name: string; sector: string }[]>({
+  const { data } = useQuery<{ code: string; name: string; sector: string; kind?: string }[]>({
     queryKey: ['search', q],
     queryFn: () => get(`/api/stock/search?q=${encodeURIComponent(q)}`),
     enabled: q.trim().length > 0,
   })
-  const go = (code: string) => {
-    nav(`/stock/${code}`)
+  const go = (code: string, kind?: string) => {
+    nav(kind === 'futures' ? `/futures/${code}` : `/stock/${code}`)
     setQ('')
     setOpen(false)
     onDone?.()
@@ -40,16 +41,16 @@ function StockSearch({ onDone }: { onDone?: () => void }) {
           setQ(e.target.value)
           setOpen(true)
         }}
-        onKeyDown={(e) => e.key === 'Enter' && data?.[0] && go(data[0].code)}
+        onKeyDown={(e) => e.key === 'Enter' && data?.[0] && go(data[0].code, data[0].kind)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="搜尋代號或名稱"
+        placeholder="搜尋股票、ETF、期貨"
         className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white placeholder:text-white/60 outline-none focus:border-white/60"
       />
       {open && !!data?.length && (
         <ul className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-line bg-paper text-ink shadow-lg">
           {data.map((s) => (
             <li key={s.code}>
-              <button onMouseDown={() => go(s.code)} className="flex w-full justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-mist">
+              <button onMouseDown={() => go(s.code, s.kind)} className="flex w-full justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-mist">
                 <span><span className="num text-muted">{s.code}</span> {s.name}</span>
                 <span className="text-xs text-muted">{s.sector}</span>
               </button>

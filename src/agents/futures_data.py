@@ -70,6 +70,13 @@ def _ym_from_code(letter: str, ydigit: str, months: str) -> str:
     return f"{year}{m:02d}"
 
 
+def _fmt_time(d: str, t: str) -> str:
+    """20261002 + 134459 → 2026-10-02 13:44:59"""
+    d, t = str(d or ""), str(t or "").zfill(6) if t else ""
+    out = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else d
+    return f"{out} {t[:2]}:{t[2:4]}:{t[4:6]}" if len(t) == 6 else out
+
+
 def _f(x) -> float | None:
     try:
         v = float(x)
@@ -104,7 +111,7 @@ def futures_quotes(root: str) -> dict:
                 if price:
                     out["months"][ym] = {"price": price, "ref": ref,
                                          "chg_pct": round((price / ref - 1) * 100, 2) if ref else None,
-                                         "time": f"{x.get('CDate', '')} {x.get('CTime', '')}".strip()}
+                                         "time": _fmt_time(x.get("CDate", ""), x.get("CTime", ""))}
             providers._mark(f"{TAIFEX} MIS", True)
         except Exception as e:  # noqa: BLE001
             providers._mark(f"{TAIFEX} MIS", False, str(e))

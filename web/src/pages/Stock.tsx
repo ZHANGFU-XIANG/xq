@@ -119,6 +119,29 @@ function Analysis({ code }: { code: string }) {
   )
 }
 
+function EtfInfo({ code }: { code: string }) {
+  const { data: a } = useQuery<Json>({ queryKey: ['analysis', code], queryFn: () => get(`/api/stock/${code}/analysis`), staleTime: 300_000 })
+  const e = a?.etf
+  if (!e) return <p className="mb-6 text-sm text-muted">ETF 資訊計算中</p>
+  const pr = e.premium
+  return (
+    <Section title="ETF 資訊" aside={<BasketTag basket="etf" />}>
+      <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
+        <Stat label="類別" value={e.category ?? '—'} />
+        <Stat label="預估淨值" value={pr ? pr.nav : '—'} sub={pr ? `市價 ${pr.price}` : '無法取得'} />
+        <Stat label="折溢價" value={pr ? `${pr.premium_pct > 0 ? '+' : ''}${pr.premium_pct}%` : '—'}
+          valueClass={pr && Math.abs(pr.premium_pct) >= 1 ? 'text-warn' : ''} sub={pr ? (pr.premium_pct > 1 ? '溢價過高不追' : '正常範圍') : undefined} />
+        <Stat label="ETF 分數" value={e.score != null ? (e.score > 0 ? '+' : '') + e.score.toFixed(2) : '—'} sub={e.signal} />
+        <Stat label="今日 ETF 籃比例" value={e.basket_share_today != null ? `${Math.round(e.basket_share_today * 100)}%` : '—'} sub="佔股票＋ETF 目標持股" />
+      </div>
+      <ul className="list-disc space-y-0.5 pl-5 text-[0.95rem] text-ink-2">
+        {[...(e.reasons ?? []), ...(e.risks ?? [])].map((r: string, i: number) => <li key={i}>{r}</li>)}
+      </ul>
+      {pr?.time && <p className="mt-2 text-xs text-muted">折溢價資料：證交所 ETF 預估淨值（{pr.time}）</p>}
+    </Section>
+  )
+}
+
 export default function Stock() {
   const { code } = useParams()
   const chat = useChat()
@@ -164,6 +187,7 @@ export default function Stock() {
         )}
       </div>
       <Panel className="mb-8"><KLine code={code} height={420} /></Panel>
+      {p.is_etf && <EtfInfo code={code} />}
       <Section title="基本盤"><Profile p={p} /></Section>
       {!p.is_etf && <Company code={code} />}
       <Analysis code={code} />

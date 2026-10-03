@@ -41,7 +41,7 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 寫作格式：
 - 不使用粗體、井字號標題、表情符號、分隔線、HTML 標籤，也不要用「當然」「好的」「以下是」「希望對你有幫助」「總結來說」「值得注意的是」這類客套或制式用語。
 - 第一句直接給結論；接著用「1. 2. 3.」列出依據（每點附出處）；最後一行以「建議：」開頭寫具體動作。比較多檔時可以用簡單表格。
-- 註明資料日期。不要輸出 JSON 或英文欄位名稱。
+- 註明資料日期。不要輸出 JSON、英文欄位名稱或工具名稱（例如 get_futures_view、record_transfer）；需要使用者做的事用一般說法，例如「跟我說要從證券戶轉多少到期貨戶」。
 
 工具使用規則：
 1. 回答任何股價、張數、金額、比例、機率等數字前，必須先呼叫工具取得；只能使用工具結果中的數字，禁止自行估算或憑記憶。
@@ -479,9 +479,22 @@ def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     recent = [m if i >= len(recent) - 3 else {**m, "content": m["content"][:600]} for i, m in enumerate(recent)]
     msgs = [{"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}] + recent
     outputs = []
-    model = settings()["llm"]["groq_models"][0]
+    models = [m for m in settings()["llm"]["groq_models"] if model_ok(m)] or settings()["llm"]["groq_models"][:1]
     for _ in range(MAX_STEPS):
-        resp = client.chat.completions.create(model=model, messages=msgs, tools=tools, temperature=0)
+        resp, err = None, None
+        for model in list(models):  # 額度用完（429）就換下一個模型
+            try:
+                resp = client.chat.completions.create(model=model, messages=msgs, tools=tools, temperature=0)
+                break
+            except Exception as e:  # noqa: BLE001
+                err = e
+                if "429" in str(e) or "rate" in str(e).lower():
+                    mark_exhausted(model, str(e))
+                    models.remove(model)
+                    continue
+                raise
+        if resp is None:
+            raise RuntimeError(str(err))
         msg = resp.choices[0].message
         if not msg.tool_calls:
             return msg.content or "", outputs
