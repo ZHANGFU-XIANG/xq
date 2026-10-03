@@ -111,7 +111,9 @@ def test_stock_info_falls_back_and_never_caches_empty(monkeypatch, tmp_path):
 
     monkeypatch.setattr(universe, "_info", None)
     monkeypatch.setattr(universe, "INFO_PKL", tmp_path / "info.pkl")
-    monkeypatch.setattr(universe.requests, "get", lambda *a, **k: Bad())
+    from src.data import providers as pv
+
+    monkeypatch.setattr(pv, "finmind_get", lambda *a, **k: None)
     monkeypatch.setattr(universe, "_isin_info", lambda: {})
     assert universe.stock_info() == {} and not (tmp_path / "info.pkl").exists()
     big = {str(1000 + i): {"code": str(1000 + i), "name": "x", "industry": "半導體業", "raw_industry": "半導體業",
@@ -120,24 +122,51 @@ def test_stock_info_falls_back_and_never_caches_empty(monkeypatch, tmp_path):
     assert len(universe.stock_info()) == 600 and (tmp_path / "info.pkl").exists()
 
 
-def test_finmind_circuit_breaker(monkeypatch):
-    import time as _t
-
-    from src.agents import market_data as md
+def test_finmind_rotation_and_fallback(monkeypatch):
+    """第一組 token 額度用完 → 冷卻並改用下一組；全部冷卻 → 回傳 None，由官方來源補上。"""
+    from src.data import providers as pv
 
     calls = []
 
-    class Lim:
-        def json(self):
-            return {"status": 402, "msg": "Requests reach the upper limit."}
+    class Resp:
+        def __init__(self, tok):
+            self.tok = tok
 
-    monkeypatch.setattr(md.requests, "get", lambda *a, **k: calls.append(1) or Lim())
-    monkeypatch.setattr(md.time, "sleep", lambda s: None)
-    monkeypatch.setitem(md._FM_BLOCK, "until", 0.0)
-    t0 = _t.time()
-    assert md._finmind("X", "2330", "2026-01-01").empty and md._finmind("X", "2454", "2026-01-01").empty
-    assert len(calls) == 1 and not md.finmind_available() and _t.time() - t0 < 2
-    monkeypatch.setitem(md._FM_BLOCK, "until", 0.0)
+        def json(self):
+            if self.tok == "Bearer A":
+                return {"status": 402, "msg": "Requests reach the upper limit."}
+            return {"status": 200, "data": [{"x": 1}]}
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        tok = (headers or {}).get("Authorization")
+        calls.append(tok)
+        return Resp(tok)
+
+    monkeypatch.setenv("FINMIND_TOKENS", "A,B")
+    monkeypatch.setattr(pv.requests, "get", fake_get)
+    monkeypatch.setattr(pv, "_COOL", {})
+    monkeypatch.setitem(pv._NEXT, "i", 0)
+    df = pv.finmind_get("X", "2330", "2026-01-01")
+    assert df is not None and len(df) == 1 and calls == ["Bearer A", "Bearer B"]
+    assert pv._COOL.get("token1", 0) > 0 and pv.finmind_available()
+    calls.clear()
+    pv.finmind_get("X", "2330", "2026-01-01")
+    assert "Bearer A" not in calls  # 冷卻中的 token 不再使用
+    for lab in ("token1", "token2", "匿名"):
+        pv._COOL[lab] = 9e12
+    assert pv.finmind_get("X", "2330") is None and not pv.finmind_available()
+
+
+def test_market_data_falls_back_to_official(monkeypatch, tmp_path):
+    from src.agents import market_data as md
+    from src.data import providers as pv
+
+    monkeypatch.setattr(md, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(pv, "finmind_get", lambda *a, **k: None)
+    monkeypatch.setattr(pv, "revenue_all", lambda: {"9999": {"month": "2026/08", "revenue_100m": 1.0, "yoy": 0.1, "mom": 0.0, "yoy_3m": None}})
+    monkeypatch.setattr(pv, "valuation_all", lambda: {"9999": {"date": "2026-10-02", "per": 10.0, "pbr": 1.0, "dividend_yield": 3.0}})
+    assert md.tw_revenue("9999")["yoy"] == 0.1 and md.tw_valuation("9999")["per"] == 10.0
+    assert pv.source_of("revenue", "9999") == md.OFFICIAL
 
 
 def test_cached_skips_empty(tmp_path, monkeypatch):

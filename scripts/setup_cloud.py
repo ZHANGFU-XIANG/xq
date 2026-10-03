@@ -29,7 +29,7 @@ from src import config  # noqa: E402,F401  載入 .env
 GH_REPO = os.getenv("GITHUB_REPO_NAME", "ZHANGFU-XIANG/xq")
 HF_SPACE = os.getenv("HF_SPACE", "avad8/xq")
 GH_API = "https://api.github.com"
-SHARED = ["GEMINI_API_KEY", "GROQ_API_KEY", "FINMIND_TOKEN"]
+SHARED = ["GEMINI_API_KEY", "GROQ_API_KEY", "FINMIND_TOKEN", "FINMIND_TOKENS"]  # FINMIND_TOKENS：多組逗號分隔，輪流使用
 GH_ONLY = ["SMTP_USER", "SMTP_APP_PASSWORD", "REPORT_TO"]
 
 

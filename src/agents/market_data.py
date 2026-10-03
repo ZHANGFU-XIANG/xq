@@ -7,15 +7,14 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import logging
-import os
 import pickle
 import time
 
 import pandas as pd
-import requests
 import yfinance as yf
 
 from src.config import CACHE_DIR, settings, stock_meta, watchlist
+from src.data import providers
 
 log = logging.getLogger(__name__)
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
@@ -108,37 +107,17 @@ def nq_live() -> dict | None:
 
 
 # ---------------------------------------------------------------- 台股
-_FM_BLOCK = {"until": 0.0}
-FM_COOLDOWN = 900  # 額度用完後 15 分鐘內不再呼叫，直接回空資料（避免每檔重試 18 秒拖垮整個計算）
-
-
 def finmind_available() -> bool:
-    return time.time() >= _FM_BLOCK["until"]
+    return providers.finmind_available()
 
 
 def _finmind(dataset: str, data_id: str, start: str) -> pd.DataFrame:
-    if not finmind_available():
-        return pd.DataFrame()
-    params = {"dataset": dataset, "data_id": data_id, "start_date": start}
-    headers = {}
-    if os.getenv("FINMIND_TOKEN"):
-        headers["Authorization"] = f"Bearer {os.environ['FINMIND_TOKEN']}"
-    for attempt in range(3):
-        try:
-            r = requests.get(FINMIND_URL, params=params, headers=headers, timeout=30)
-            j = r.json()
-            if j.get("status") == 200:
-                return pd.DataFrame(j["data"])
-            msg = str(j.get("msg", ""))
-            log.warning("FinMind %s %s: %s", dataset, data_id, msg)
-            if "upper limit" in msg or j.get("status") == 402:
-                _FM_BLOCK["until"] = time.time() + FM_COOLDOWN
-                log.warning("FinMind 額度用完，%d 分鐘內暫停呼叫", FM_COOLDOWN // 60)
-                return pd.DataFrame()
-        except Exception as e:  # noqa: BLE001
-            log.warning("FinMind %s %s 失敗: %s", dataset, data_id, e)
-        time.sleep(3 * (attempt + 1))
-    return pd.DataFrame()
+    """FinMind（多組 token 輪流，額度用完自動跳過）；全部不可用時回傳空表，由呼叫端改用官方來源。"""
+    df = providers.finmind_get(dataset, data_id, start)
+    return df if df is not None else pd.DataFrame()
+
+
+OFFICIAL = "證交所／櫃買中心官方資料"
 
 
 def _yf_tw(code: str, years: int) -> pd.DataFrame:
@@ -188,7 +167,10 @@ def tw_institutional(code: str, days: int = 30) -> pd.DataFrame:
         start = (dt.date.today() - dt.timedelta(days=days)).isoformat()
         df = _finmind("TaiwanStockInstitutionalInvestorsBuySell", code, start)
         if df.empty:
-            return df
+            off = providers.institutional(code, min(days, 12))
+            providers.note_source("institutional", code, OFFICIAL if not off.empty else "無資料")
+            return off
+        providers.note_source("institutional", code, providers.FINMIND)
         df["net"] = df["buy"] - df["sell"]
         mapping = {"Foreign_Investor": "foreign", "Foreign_Dealer_Self": "foreign",
                    "Investment_Trust": "trust", "Dealer_self": "dealer", "Dealer_Hedging": "dealer"}
@@ -222,7 +204,10 @@ def tw_revenue(code: str) -> dict:
         start = (dt.date.today() - dt.timedelta(days=500)).isoformat()
         df = _finmind("TaiwanStockMonthRevenue", code, start)
         if df.empty or len(df) < 13:
-            return {}
+            off = providers.revenue_all().get(code, {})
+            providers.note_source("revenue", code, OFFICIAL if off else "無資料")
+            return off
+        providers.note_source("revenue", code, providers.FINMIND)
         df = df.sort_values(["revenue_year", "revenue_month"]).reset_index(drop=True)
         last = df.iloc[-1]
         prev = df.iloc[-2]
@@ -246,7 +231,10 @@ def tw_valuation(code: str) -> dict:
     def fetch():
         df = _finmind("TaiwanStockPER", code, (dt.date.today() - dt.timedelta(days=20)).isoformat())
         if df.empty:
-            return {}
+            off = providers.valuation_all().get(code, {})
+            providers.note_source("valuation", code, OFFICIAL if off else "無資料")
+            return off
+        providers.note_source("valuation", code, providers.FINMIND)
         r = df.iloc[-1]
         return {"date": str(r["date"]), "per": float(r["PER"]), "pbr": float(r["PBR"]),
                 "dividend_yield": float(r["dividend_yield"])}
@@ -260,7 +248,10 @@ def tw_margin(code: str) -> dict:
     def fetch():
         df = _finmind("TaiwanStockMarginPurchaseShortSale", code, (dt.date.today() - dt.timedelta(days=20)).isoformat())
         if df.empty:
-            return {}
+            off = providers.margin_all().get(code, {})
+            providers.note_source("margin", code, OFFICIAL if off else "無資料")
+            return off
+        providers.note_source("margin", code, providers.FINMIND)
         last = df.iloc[-1]
         base = df.iloc[-6] if len(df) >= 6 else df.iloc[0]
         return {"date": str(last["date"]), "margin_balance": int(last["MarginPurchaseTodayBalance"]),

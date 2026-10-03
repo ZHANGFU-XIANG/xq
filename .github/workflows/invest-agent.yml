@@ -58,6 +58,7 @@ jobs:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      FINMIND_TOKENS: ${{ secrets.FINMIND_TOKENS }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_TO }}

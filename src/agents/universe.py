@@ -70,8 +70,10 @@ def stock_info() -> dict[str, dict]:
         return _info
     info: dict[str, dict] = {}
     try:
-        r = requests.get(FINMIND_URL, params={"dataset": "TaiwanStockInfo"}, headers=_finmind_headers(), timeout=60)
-        for row in r.json()["data"]:
+        from src.data import providers
+
+        fm = providers.finmind_get("TaiwanStockInfo")
+        for row in ([] if fm is None else fm.to_dict("records")):
             if row["type"] not in ("twse", "tpex"):
                 continue
             code = row["stock_id"]

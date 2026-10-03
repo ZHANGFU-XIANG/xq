@@ -74,6 +74,7 @@ SOURCE_DESC = {
     "get_model_health": "本系統模型回測與實際命中紀錄",
     "simulate_trades": "本系統試算（競賽手續費 0.1425%、證交稅）",
     "get_potential_picks": "本系統每日排名",
+    "get_data_sources": "本系統資料來源監控",
     "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
 }
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
@@ -204,6 +205,8 @@ TOOLS = [
                     "required": ["text"]}},
     {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_data_sources", "description": "各資料來源目前狀態：FinMind 各組 token 是否冷卻、證交所／櫃買中心官方來源最近成功或失敗時間",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "run_analysis", "description": "重新執行分析並產生報告（建立待確認動作）",
      "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["premarket", "postclose", "weekly", "tune"]}},
                     "required": ["mode"]}},
@@ -261,12 +264,15 @@ def _data_gaps(a: dict) -> dict | None:
     gaps = []
     if not a.get("revenue"):
         gaps.append("月營收")
-    texts = [*(a.get("offense") or {}).get("reasons", []), *(a.get("offense") or {}).get("risks", [])]
-    if not market_data.finmind_available() or not any(t.startswith("籌碼面") for t in texts):
+    if market_data.tw_institutional(a.get("code", "")).empty:
         gaps.append("三大法人買賣超")
+    from src.data import providers
+
+    used = {k: providers.source_of(k, a.get("code", "")) for k in ("institutional", "revenue", "valuation", "margin")}
+    used = {k: v for k, v in used.items() if v}
     if not gaps:
-        return None
-    return {"missing": gaps,
+        return {"missing": [], "sources_used": used} if used else None
+    return {"missing": gaps, "sources_used": used,
             "note": "這些資料這次沒有取得（資料來源暫時無法使用或尚無資料），評分時以 0 計；"
                     "這不代表中性，相關分數與排名可能失真，回答時必須以「無法確認：」說明"}
 
@@ -307,6 +313,10 @@ def call_tool(name: str, args: dict) -> dict:
             return {k: a[k] for k in ("generated_at", "trading_now", "quotes_date", "counts", "alerts", "limit_up_count",
                                       "limit_down_count", "up_industries", "down_industries", "attention_watch")} | {
                 "limit_up_top": a["limit_up"][:10], "limit_down_top": a["limit_down"][:10]}
+        if name == "get_data_sources":
+            from src.data import providers
+
+            return providers.status()
         if name == "get_potential_picks":
             return apidata.potential()
         if name == "get_model_health":

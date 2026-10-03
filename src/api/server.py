@@ -157,6 +157,13 @@ def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)
 
 
+@app.get("/api/data-sources", dependencies=[api])
+def data_sources():
+    from src.data import providers
+
+    return providers.status()
+
+
 @app.get("/api/potential", dependencies=[api])
 def potential_():
     return data.potential()
