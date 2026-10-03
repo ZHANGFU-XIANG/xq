@@ -209,7 +209,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
         "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": st["futures_reserve"],
                     "cash_after": buys["cash_after"], "loan_capacity_left": buys["loan_capacity_left"]},
         "portfolio": {"nav": round(nav), "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
-                      "holding_ratio": round(pf.holding_ratio(prices), 4), "trade_count": pf.trade_count,
+                      "holding_ratio": round(pf.holding_ratio(prices), 4), "trade_count": pf.trade_count, "symbol_count": len(pf.traded_symbols),
                       "cash": round(pf.cash), "positions": positions},
         "projected_ratio": round(mv_after / nav, 4) if nav else 0,
         "hypothetical": not pf.positions,

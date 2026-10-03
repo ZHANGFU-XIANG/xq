@@ -84,7 +84,7 @@ export default function Alerts() {
   const { data: d, isLoading, error, isFetching } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000 })
   if (isLoading) return <Loading label="彙整警示中（首次需蒐集新聞，約 30 秒）" />
   if (error) return <ErrorNote error={error} />
-  const groups = ['持股', '買進前', '大盤', '國際', '題材']
+  const groups = ['持股', '規則', '買進前', '大盤', '國際', '題材']
   return (
     <>
       <PageTitle
@@ -112,7 +112,7 @@ export default function Alerts() {
         const items = d.alerts.filter((a: Json) => a.scope === g)
         if (!items.length) return null
         return (
-          <Section key={g} title={g === '持股' ? '持股風險' : g === '買進前' ? '今日建議買進前注意' : g === '題材' ? '題材動向' : `${g}風險`}>
+          <Section key={g} title={g === '持股' ? '持股風險' : g === '買進前' ? '今日建議買進前注意' : g === '題材' ? '題材動向' : g === '規則' ? '競賽規則提醒' : `${g}風險`}>
             <div className="space-y-3">{items.map((a: Json, i: number) => <AlertCard key={i} a={a} />)}</div>
           </Section>
         )

@@ -135,10 +135,12 @@ export default function Overview() {
       <HoldingAdvice compact />
       <Balance alloc={r.allocation} />
 
-      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
+      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
         <Stat label="總資產" value={fmtWan(pf.nav)} />
         <Stat label="累積報酬" value={fmtPct(pf.return_pct)} valueClass={tone(pf.return_pct)} />
         <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />
+        <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
+          sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔・買賣各算一筆`} />
         <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub="只算實際成交" />
         <Stat label="大盤開盤預測" value={fmtPct(tx?.gap_pct)} valueClass={tone(tx?.gap_pct)}
           sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}，開盤後${tx.after_open}` : undefined} />

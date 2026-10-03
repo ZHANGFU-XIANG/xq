@@ -73,6 +73,9 @@ export default function Intraday() {
       {d.skipped?.length > 0 && (
         <p className="mt-2 text-sm text-ink-2">今天不追：{d.skipped.map((s: Json) => `${s.code} ${s.name}（${s.reason}）`).join('、')}</p>
       )}
+      {d.rule_notes?.filter((a: Json) => a.level !== '嚴重').map((a: Json, i: number) => (
+        <p key={i} className="mt-2 text-sm text-warn">競賽規則：{a.title}；{a.action}</p>
+      ))}
       {d.ratio_note && !d.actions.some((a: string) => a.startsWith('【持股率】')) && <p className="mt-2 text-sm text-ink-2">{d.ratio_note}</p>}
     </section>
   )

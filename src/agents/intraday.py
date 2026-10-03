@@ -149,6 +149,10 @@ def run(report: dict | None) -> dict:
             actions.append(f"【{tag}】{r['code']} {r['name']}：{r['advice']}")
     if ratio_note and ratio < min_ratio and not building:
         actions.append(f"【持股率】{ratio_note}")
+    from src.agents import alerts
+
+    rule_notes = alerts.rule_alerts(pf, lp["orders"], now.date())
+    actions += [f"【規則】{a['title']}：{a['action']}" for a in rule_notes if a["level"] == "嚴重"]
     waits = [f"{r['code']} {r['name']}：{r['advice']}" for r in order_rows if r["status"] in ("接近限價", "不追價", "漲停買不到", "跌停賣不掉", "無報價")]
     if lp["funding"]["transfer_from_futures"] > 0 and building:
         actions.insert(0, f"【資金】下單前先把期貨戶 {lp['funding']['transfer_from_futures']:,} 元轉到證券戶，持股率才拉得上去")
@@ -160,6 +164,7 @@ def run(report: dict | None) -> dict:
         "allocation": {k: lp["allocation"][k] for k in ("offense", "defense")},
         "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
         "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,
+        "rule_notes": rule_notes,
         "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
     }
 
@@ -189,4 +194,7 @@ def email_body(out: dict) -> str:
         lines += ["", "續抱：" + "、".join(f"{h['code']} {h['name']}" for h in holds)]
     if out["ratio_note"] and not any(a.startswith("【持股率】") for a in out["actions"]):
         lines += ["", out["ratio_note"]]
+    notes = [a for a in out.get("rule_notes", []) if a["level"] != "嚴重"]
+    if notes:
+        lines += ["", "競賽規則提醒："] + [f"- {a['title']}：{a['action']}" for a in notes]
     return "\n".join(lines)

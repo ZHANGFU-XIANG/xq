@@ -63,3 +63,15 @@ def test_limit_moves_grouping():
          {"code": "2603", "name": "長榮", "chg_pct": -9.9, "value": 3}, {"code": "2317", "name": "鴻海", "chg_pct": 3, "value": 9}]
     lim = alerts.limit_moves(q)
     assert [x["code"] for x in lim["up"]] == ["2330", "2303"] and lim["down"][0]["code"] == "2603"
+
+
+def test_rule_alerts_trades_and_symbols():
+    import datetime as dt
+
+    a = alerts.rule_alerts(_pf(), [{"code": "2330", "action": "BUY"}], dt.date(2026, 10, 6))
+    t = {x["title"].split(" ")[0]: x for x in a}
+    assert "還差 9 筆" in a[0]["title"] and a[0]["scope"] == "規則"
+    assert any("還差 4 檔" in x["title"] and x["level"] == "警告" for x in a)  # 建倉期只警告
+    late = alerts.rule_alerts(_pf(), [], dt.date(2026, 11, 23))
+    assert all(x["level"] == "嚴重" for x in late)
+    assert t

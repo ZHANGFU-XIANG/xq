@@ -383,6 +383,45 @@ def market_alerts(lim: dict, us_snapshot: list[dict], taiex_chg: float | None) -
     return out
 
 
+def rule_alerts(pf, orders: list[dict], today: dt.date) -> list[dict]:
+    """競賽基本要求：總交易筆數 ≥10（買賣各算一筆，未達不列入排名）、交易過的標的 ≥5（每日收盤追蹤，未達每次扣 0.2%）。"""
+    from src.agents.compliance import remaining_trading_days
+    from src.config import rules
+
+    r = rules()
+    req = r["requirements"]
+    build_end = dt.date.fromisoformat(str(r["competition"]["build_period_end"]))
+    remain = remaining_trading_days(today)
+    planned = len(orders)
+    out = []
+    n, need = pf.trade_count, req["min_trades"] - pf.trade_count
+    if need > 0:
+        level = "嚴重" if remain <= 5 else ("警告" if remain <= 15 or planned < need else "提醒")
+        out.append({
+            "scope": "規則", "level": level, "title": f"交易筆數 {n}／{req['min_trades']} 筆，還差 {need} 筆",
+            "reasons": [f"競賽期間買進、賣出各算一筆，總數需達 {req['min_trades']} 筆以上，否則不列入排名",
+                        f"距比賽結束（{r['competition']['end']}）剩 {remain} 個交易日",
+                        f"今日建議 {planned} 筆，全部成交後為 {n + planned} 筆" + ("，即可達標" if n + planned >= req["min_trades"] else "")],
+            "action": ("照建議下單即可達標；只算實際成交，掛單沒成交不算" if n + planned >= req["min_trades"]
+                       else "可把大筆買單分兩次下、或汰弱換強時順便累積筆數；不要為湊筆數無意義進出（每筆都有手續費與稅）"),
+        })
+    syms = set(pf.traded_symbols)
+    after = syms | {o["code"] for o in orders}
+    lack = req["min_symbols"] - len(syms)
+    if lack > 0:
+        in_build = today <= build_end
+        out.append({
+            "scope": "規則", "level": "警告" if in_build else "嚴重",
+            "title": f"交易過的標的 {len(syms)}／{req['min_symbols']} 檔，還差 {lack} 檔",
+            "reasons": ["每日收盤追蹤「交易過的標的數目」，未達每次扣報酬率 0.2%"
+                        + (f"（建倉期至 {build_end.month}/{build_end.day} 不罰）" if in_build else ""),
+                        f"今日建議全部成交後為 {len(after)} 檔"],
+            "action": (f"建倉期結束前至少成交 {req['min_symbols']} 檔不同標的" if in_build
+                       else f"今天收盤前再成交 {lack} 檔不同標的（小量也算），否則今天收盤扣 0.2%"),
+        })
+    return out
+
+
 def sort_alerts(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda a: (LEVEL_ORDER.get(a["level"], 9), a["scope"] != "持股"))
 
@@ -425,7 +464,7 @@ def collect(pf, meta: dict, orders: list[dict], us_snapshot: list[dict], target:
     lim = explain_limits(limit_moves(quotes))
     tx = taiex_today()
     items = (holding_alerts(pf, meta, rt, closes, feats, att, risks) + order_alerts(orders, att, risks, rt)
-             + market_alerts(lim, us_snapshot, tx["chg_pct"] if tx else None))
+             + market_alerts(lim, us_snapshot, tx["chg_pct"] if tx else None) + rule_alerts(pf, orders, target))
     items = sort_alerts(items)
     slim = lambda q: {k: q.get(k) for k in ("code", "name", "market", "close", "chg_pct", "value", "industry",  # noqa: E731
                                             "peer_count", "reason", "news")}

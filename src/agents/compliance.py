@@ -60,8 +60,9 @@ def check(pf: Portfolio, prices: dict, orders: list[dict], today: dt.date, nav: 
             held_after.add(o["code"])
         elif o.get("holding_after", 1) == 0:
             held_after.discard(o["code"])
-    add("投資組合至少 5 個標的", len(held_after) >= req["min_symbols"],
-        f"執行後持有 {len(held_after)} 檔；累計交易過 {len(symbols)} 檔")
+    add("交易過的標的 ≥ 5（每日收盤追蹤）", len(symbols) >= req["min_symbols"],
+        f"已成交 {len(pf.traded_symbols)} 檔＋本次建議 = {len(symbols)} 檔；執行後持有 {len(held_after)} 檔"
+        + ("（建倉期不罰）" if in_build else "（未達每次扣報酬率 0.2%）"), warn=in_build)
 
     # 交易筆數進度
     done = pf.trade_count + len(orders)
