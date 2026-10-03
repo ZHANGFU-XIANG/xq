@@ -58,9 +58,11 @@ def login(body: Login, response: Response):
     if not auth.check_password(body.password):
         raise HTTPException(401, "密碼錯誤")
     token = auth.issue_token()
-    if sync.cloud():  # Space 透過 huggingface.co 的 iframe 開啟，cookie 屬第三方，需 SameSite=None＋Partitioned
-        response.set_cookie(auth.COOKIE, token, max_age=auth.TTL, httponly=True, samesite="none", secure=True,
-                            partitioned=True)
+    if sync.cloud():
+        # Space 透過 huggingface.co 的 iframe 開啟，cookie 屬第三方，需 SameSite=None＋Partitioned。
+        # Starlette 只在 Python 3.14+ 支援 partitioned，Space 是 3.12，因此直接寫標頭（JWT 只含網址安全字元）。
+        response.headers.append("set-cookie", f"{auth.COOKIE}={token}; Max-Age={auth.TTL}; Path=/; HttpOnly; "
+                                              "Secure; SameSite=None; Partitioned")
     else:
         response.set_cookie(auth.COOKIE, token, max_age=auth.TTL, httponly=True, samesite="lax")
     return {"ok": True, "token": token}
