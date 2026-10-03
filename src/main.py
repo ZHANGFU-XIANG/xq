@@ -317,16 +317,17 @@ def run_weekly(today: dt.date) -> None:
                        for o in fx["orders"]] or ["無交易建議"])
     path = out_dir / f"{today}_週報.docx"
     d.save(path)
-    deck = pptx_builder.Deck(f"週報 {today}")
-    deck.title_slide("台股投資競賽 週報", f"{week_start} ~ {today}")
-    deck.kpis("本週績效", [("總資產", f"{last['nav'] / 1e4:,.0f} 萬", None), ("累積報酬", f"{last['return_pct']:+.2f}%", None),
-                       ("交易筆數", str(pf.trade_count), None), ("交易標的", str(len(pf.traded_symbols)), None)],
-              [f"本週交易 {len(trades)} 筆"] + ([tune["note"]] if tune["note"] else []))
-    deck.image("累積報酬走勢", nav_png)
-    pptx_builder.tuner_slide(deck, tune)
-    ppt = out_dir / f"{today}_週報.pptx"
-    deck.save(ppt)
-    emailer.send(f"[投資競賽] 週報 {today}", f"週報 {week_start} ~ {today}\n\n調整 Agent：{tune['note'] or '無需調整'}", [path, ppt])
+    # 週報 PPT：當週成交、每筆理由、每日市場與事件、總資產變化（與網站「週報 PPT」同一份）
+    from src.api import data as apidata
+
+    try:
+        wr = apidata.weekly_report(today.isoformat())
+        ppt = REPORT_DIR / wr["file"]
+    except Exception as e:  # noqa: BLE001
+        log.warning("週報 PPT 失敗：%s", e)
+        ppt = None
+    emailer.send(f"[投資競賽] 週報 {today}", f"週報 {week_start} ~ {today}\n\n調整 Agent：{tune['note'] or '無需調整'}",
+                 [path] + ([ppt] if ppt else []))
     print(f"週報完成：{path}")
 
 

@@ -72,6 +72,7 @@ export type ChatEvent =
       text: string
       verified: boolean
       model?: string
+      downloads?: { label: string; path: string }[]
       unverified?: string[]
       sources?: { tool: string; args: Record<string, unknown>; date?: string }[]
       actions?: { id: string; summary: string }[]

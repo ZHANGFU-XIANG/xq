@@ -14,13 +14,17 @@ import Overview from './pages/Overview'
 import Portfolio from './pages/Portfolio'
 import Stock from './pages/Stock'
 import Futures from './pages/Futures'
+import WeeklyReport from './components/WeeklyReport'
 
 function ChatPage() {
   return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col">
-      <PageTitle>AI 助理</PageTitle>
-      <div className="min-h-0 flex-1"><ChatPanel /></div>
-    </div>
+    <>
+      <div className="flex h-[calc(100vh-7rem)] flex-col">
+        <PageTitle>AI 助理</PageTitle>
+        <div className="min-h-0 flex-1"><ChatPanel /></div>
+      </div>
+      <WeeklyReport />
+    </>
   )
 }
 

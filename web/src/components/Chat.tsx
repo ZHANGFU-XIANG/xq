@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { post, streamChat, type ChatEvent } from '../lib/api'
+import { fileUrl, post, streamChat, type ChatEvent } from '../lib/api'
 
 type Action = { id: string; summary: string; state?: 'done' | 'cancelled' | 'error'; message?: string }
 type Msg = {
@@ -12,6 +12,7 @@ type Msg = {
   sources?: { id?: string; tool: string; label?: string; args: Record<string, unknown>; date?: string; links?: { title: string; url: string }[]; cited?: boolean }[]
   actions?: Action[]
   model?: string
+  downloads?: { label: string; path: string }[]
 }
 
 const TOOL_NAMES: Record<string, string> = {
@@ -189,7 +190,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         (e: ChatEvent) => {
           if (e.type === 'tool') patch((m) => ({ ...m, progress: [...(m.progress ?? []), `${TOOL_NAMES[e.name] ?? e.name}${e.args.code ? ` ${e.args.code}` : e.args.query ? `「${e.args.query}」` : ''}`] }))
           if (e.type === 'answer')
-            patch((m) => ({ ...m, content: e.text, verified: e.verified, unverified: e.unverified, sources: e.sources, actions: e.actions, model: e.model }))
+            patch((m) => ({ ...m, content: e.text, verified: e.verified, unverified: e.unverified, sources: e.sources, actions: e.actions, model: e.model, downloads: e.downloads }))
         },
       )
     } catch (err) {
@@ -290,6 +291,11 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
                   )}
                 </div>
               ))}
+              {!!m.downloads?.length && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {m.downloads.map((d) => <a key={d.path} href={fileUrl(d.path)} className="rounded-md bg-link px-3 py-1.5 text-sm text-white no-underline">下載 {d.label}</a>)}
+                </div>
+              )}
               {m.content && !!m.sources?.length && (
                 <details className="mt-1 text-xs text-ink-2">
                   <summary className="cursor-pointer text-muted">出處（{m.sources.length}）</summary>

@@ -530,3 +530,52 @@ def futures_detail(root: str) -> dict:
     plan = (_INTRA["v"] or {}).get("derivatives")
     out["system_view"] = plan
     return out
+
+
+def weekly_report(week: str | None = None) -> dict:
+    """產生指定一週（任一天即可）的週報 PPT，存到 reports/weekly/，回傳下載路徑。"""
+    import datetime as dt
+
+    from src.agents import weekly
+    from src.config import REPORT_DIR, now_tw
+    from src.reports import weekly_pptx
+
+    day = dt.date.fromisoformat(week) if week else now_tw().date()
+    w = weekly.collect(day)
+    text, verified = weekly.narrate(w, weekly.next_week_plan())
+    name = f"{w['week_label'].replace(' ', '')}週報_{w['monday']}.pptx"
+    path = weekly_pptx.build(w, text, verified, REPORT_DIR / "weekly" / name)
+    from pptx import Presentation
+
+    return {"file": f"weekly/{name}", "name": name, "week_no": w["week_no"], "week_label": w["week_label"], "period": f"{w['monday']}～{w['end_day']}",
+            "slides": len(Presentation(str(path)).slides), "trades": w["trade_count_week"], "verified_text": verified,
+            "headline": text.headline}
+
+
+def weekly_reports() -> list[dict]:
+    from src.config import REPORT_DIR
+
+    out = []
+    for fp in sorted((REPORT_DIR / "weekly").glob("*.pptx"), key=lambda p: p.stat().st_mtime, reverse=True):
+        import datetime as dt
+
+        out.append({"file": f"weekly/{fp.name}", "name": fp.name,
+                    "generated_at": dt.datetime.fromtimestamp(fp.stat().st_mtime).strftime("%m/%d %H:%M")})
+    return out
+
+
+def competition_weeks() -> list[dict]:
+    """比賽每一週的週一～週五（給前端選週）。"""
+    import datetime as dt
+
+    from src.config import rules as _rules
+
+    c = _rules()["competition"]
+    start, end = dt.date.fromisoformat(str(c["start"])), dt.date.fromisoformat(str(c["end"]))
+    mon = start - dt.timedelta(days=start.weekday())
+    out, n = [], 1
+    while mon <= end:
+        out.append({"week_no": n, "monday": mon.isoformat(), "friday": (mon + dt.timedelta(days=4)).isoformat()})
+        mon += dt.timedelta(days=7)
+        n += 1
+    return out

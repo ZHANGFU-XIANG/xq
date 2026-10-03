@@ -55,6 +55,7 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
+5i. 要做週報、週報 PPT、本週交易報告時呼叫 make_weekly_report，回答時說明週次、期間、成交筆數，並提醒用下方的下載按鈕下載。
 5g. 問 ETF 時用 get_etf_view，比例一律用 today_etf_share_pct（今日實際比例），不要把「基準比例」當成今日比例；個別 ETF 用 analyze_stock（含折溢價、類別、ETF 籃張數）；問期貨、台指期、選擇權、避險時用 get_futures_view，並照實說明回測有沒有優勢；沒有優勢就直說不建議。
 5h. 使用者說期貨／選擇權成交時，用 record_trade 並填 contract（例如 TMF202610、TXO202610P46000）；說轉帳到期貨戶或證券戶時用 record_transfer。
 5e. 問「還有什麼可以注意／潛在標的／候補」時呼叫 get_potential_picks；問某檔為什麼沒被推薦時，用 analyze_stock，依其中 today_status 回答：排第幾名、和最後一檔入選者的分數差距、拖累分數的項目（weakest_components 與 risks），不要自行推測其他原因。
@@ -82,6 +83,7 @@ SOURCE_DESC = {
     "get_futures_view": "本系統期貨建議（期交所 MIS 即時報價與 OpenAPI 保證金、加權指數 5 年回測）",
     "record_transfer": "待確認動作",
     "get_futures_quote": "期交所 MIS 即時報價與 OpenAPI 保證金",
+    "make_weekly_report": "本系統週報（成交紀錄、每日報告、證交所／期交所收盤價）",
     "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
 }
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
@@ -219,6 +221,8 @@ TOOLS = [
          "amount": {"type": "number"}, "date": {"type": "string"}}, "required": ["direction", "amount"]}},
     {"name": "get_etf_view", "description": "ETF 籃建議：今日配置比例與理由、候選 ETF 的類別、分數、折溢價、建議張數",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "make_weekly_report", "description": "製作週報 PPT：彙整指定一週的實際成交、每筆理由、每日市場與事件、總資產變化、期末持股與下週計畫，產生可下載的 .pptx",
+     "parameters": {"type": "object", "properties": {"week": {"type": "string", "description": "那一週的任一天 YYYY-MM-DD，省略為本週"}}}},
     {"name": "get_futures_quote", "description": "期貨／選擇權行情與規格：TX 大台、MTX 小台、TMF 微台的各月報價、基差、保證金、每點價值、槓桿、結算日；TXO 則回傳賣權報價表",
      "parameters": {"type": "object", "properties": {"root": {"type": "string", "enum": ["TX", "MTX", "TMF", "TXO"]}}, "required": ["root"]}},
     {"name": "get_futures_view", "description": "期貨與選擇權建議：方向模型機率、回測是否有優勢、模式（衝名次／補回虧損／保名次）、建議口數、保證金、賣權避險",
@@ -374,6 +378,9 @@ def call_tool(name: str, args: dict) -> dict:
             return _transfer(args)
         if name == "get_etf_view":
             return apidata.etf_view()
+        if name == "make_weekly_report":
+            r = apidata.weekly_report(args.get("week"))
+            return {**r, "download": {"label": r["name"], "path": r["file"]}}
         if name == "get_futures_quote":
             d = apidata.futures_detail(args["root"])
             d.pop("system_view", None)
@@ -634,7 +641,8 @@ def run(messages: list[dict], emit, loop=None) -> dict:
                         "links": _links(o["tool"], r), "cited": f"〔S{i}〕" in text})
     actions = [{"id": o["result"]["pending_action"], "summary": o["result"]["summary"]}
                for o in outputs if isinstance(o["result"], dict) and o["result"].get("pending_action")]
-    return {"type": "answer", "text": text, "model": _USED["model"], "verified": not bad and not bad_cites and not uncited, "unverified": bad + bad_cites + ["未附出處"] * uncited,
+    downloads = [o["result"]["download"] for o in outputs if isinstance(o["result"], dict) and o["result"].get("download")]
+    return {"type": "answer", "text": text, "model": _USED["model"], "downloads": downloads, "verified": not bad and not bad_cites and not uncited, "unverified": bad + bad_cites + ["未附出處"] * uncited,
             "sources": sources, "actions": actions}
 
 

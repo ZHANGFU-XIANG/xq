@@ -164,3 +164,31 @@ def test_tuning_log_dedupes_no_change_checks(tmp_path, monkeypatch):
     h = tuner.history()
     assert [(e["date"], bool(e["changes"])) for e in h] == [("2026-10-03", False), ("2026-10-03", True), ("2026-10-04", False)]
     assert h[1]["checks"] == 2 and h[2]["checks"] == 2
+
+
+def test_weekly_report_collect_and_build(monkeypatch, tmp_path):
+    import datetime as dt
+
+    import pandas as pd
+
+    from src.agents import market_data, weekly
+    from src.reports import weekly_pptx
+    from src.state import portfolio as pfm
+
+    idx = pd.to_datetime(["2026-09-25", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"])
+    tx = pd.DataFrame({"Close": [100.0, 99.0, 100.0, 101.0, 102.0]}, index=idx)
+    monkeypatch.setattr(market_data, "taiex", lambda years=1: tx)
+    monkeypatch.setattr(weekly, "_close_on", lambda code, d: 50.0)
+    monkeypatch.setattr(weekly, "_facts_for", lambda d: [])
+    monkeypatch.setattr(pfm, "load_trades", lambda: [
+        {"date": "2026-09-30", "code": "2886", "side": "BUY", "shares": "1000", "price": "48", "margin": "0", "note": "看好金融股殖利率"},
+        {"date": "2026-10-01", "code": "2886", "side": "SELL", "shares": "400", "price": "49", "margin": "0", "note": ""}])
+    w = weekly.collect(dt.date(2026, 10, 1))
+    assert w["monday"] == "2026-09-28" and not w["daily"][0]["trading"]  # 9/28 加權沒有資料 → 休市
+    assert [t["reason"]["source"] for t in w["trades"]] == ["記錄時的備註", "不在系統建議中（自行判斷）"]
+    assert w["taiex_week_pct"] == 2.0 and w["trade_count_week"] == 2
+    text = weekly._template(w, {})
+    out = weekly_pptx.build(w, text, False, tmp_path / "w.pptx")
+    from pptx import Presentation
+
+    assert out.exists() and len(Presentation(str(out)).slides) >= 8

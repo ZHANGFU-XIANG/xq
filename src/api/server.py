@@ -157,6 +157,24 @@ def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)
 
 
+class WeeklyReq(BaseModel):
+    week: str | None = None
+
+
+@app.post("/api/weekly-report", dependencies=[api])
+def weekly_report(body: WeeklyReq):
+    try:
+        return data.weekly_report(body.week)
+    except Exception as e:  # noqa: BLE001
+        log.exception("週報產生失敗")
+        raise HTTPException(500, f"週報產生失敗：{str(e)[:200]}") from e
+
+
+@app.get("/api/weekly-reports", dependencies=[api])
+def weekly_reports():
+    return {"files": data.weekly_reports(), "weeks": data.competition_weeks()}
+
+
 @app.get("/api/data-sources", dependencies=[api])
 def data_sources():
     from src.data import providers

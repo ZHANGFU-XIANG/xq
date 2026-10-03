@@ -29,8 +29,10 @@ export function useAssetTab(options: Asset[] = ['STOCK', 'ETF', 'FUT']): [Asset,
   }]
 }
 
+// 選取中的底色與文字色成對指定：MARKET 用墨色底，文字必須用紙色（深色主題時墨色是淺色，白字會看不到）
 const STYLE: Record<Asset, string> = {
-  STOCK: 'border-offense bg-offense', ETF: 'border-etf bg-etf', FUT: 'border-fut bg-fut', MARKET: 'border-ink bg-ink',
+  STOCK: 'border-offense bg-offense text-white', ETF: 'border-etf bg-etf text-white', FUT: 'border-fut bg-fut text-white',
+  MARKET: 'border-ink bg-ink text-paper',
 }
 
 export default function AssetTabs({ tab, onChange, counts = {}, options = ['STOCK', 'ETF', 'FUT'] }:
@@ -39,9 +41,9 @@ export default function AssetTabs({ tab, onChange, counts = {}, options = ['STOC
     <div role="tablist" aria-label="商品類別" className="sticky top-0 z-20 -mx-1 mb-6 flex flex-wrap gap-2 bg-mist/90 px-1 py-2 backdrop-blur">
       {options.map((a) => (
         <button key={a} role="tab" aria-selected={tab === a} onClick={() => onChange(a)}
-          className={`rounded-full border px-4 py-1.5 text-[0.95rem] ${tab === a ? `${STYLE[a]} text-white` : 'border-line bg-paper text-ink hover:border-ink-2'}`}>
+          className={`rounded-full border px-4 py-1.5 text-[0.95rem] ${tab === a ? STYLE[a] : 'border-line bg-paper text-ink hover:border-ink-2'}`}>
           {ASSET_LABEL[a]}
-          {counts[a] != null && <span className={`num ml-1.5 rounded-full px-1.5 text-xs ${tab === a ? 'bg-white/25' : 'bg-mist text-ink-2'}`}>{counts[a]}</span>}
+          {counts[a] != null && <span className={`num ml-1.5 rounded-full px-1.5 text-xs ${tab === a ? 'bg-paper/25' : 'bg-mist text-ink-2'}`}>{counts[a]}</span>}
         </button>
       ))}
     </div>
