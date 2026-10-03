@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { get, post } from '../lib/api'
+import { get, post, setToken } from '../lib/api'
 import ChatPanel, { useChat } from './Chat'
 
 const NAV = [
@@ -113,7 +113,7 @@ export default function Layout() {
           {status?.sync?.error && <div className="text-red-200">同步失敗：{status.sync.error}</div>}
           <ThemeToggle />
           {status?.auth_required && (
-            <button className="block text-white/70 hover:text-white" onClick={() => post('/api/logout').then(() => location.reload())}>登出</button>
+            <button className="block text-white/70 hover:text-white" onClick={() => post('/api/logout').finally(() => { setToken(null); location.reload() })}>登出</button>
           )}
         </div>
       </aside>

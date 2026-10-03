@@ -9,6 +9,7 @@ import jwt
 from fastapi import HTTPException, Request
 
 COOKIE = "invest_session"
+HEADER = "X-Session-Token"
 TTL = 30 * 86400
 
 
@@ -30,18 +31,33 @@ def issue_token() -> str:
     return jwt.encode({"sub": "team", "iat": now, "exp": now + TTL}, _secret(), algorithm="HS256")
 
 
+def _candidates(request: Request) -> list[str]:
+    """cookie、標頭（iframe 內第三方 cookie 被擋時前端改用標頭）、網址參數 t（僅限檔案下載連結）。"""
+    c = [request.cookies.get(COOKIE), request.headers.get(HEADER)]
+    if request.url.path.startswith("/api/files/"):
+        c.append(request.query_params.get("t"))
+    return [t for t in c if t]
+
+
+def _valid(token: str) -> bool:
+    try:
+        jwt.decode(token, _secret(), algorithms=["HS256"])
+        return True
+    except jwt.PyJWTError:
+        return False
+
+
 def session_id(request: Request) -> str:
     """登入者識別（用於速率限制）；未啟用登入時以 IP 區分。"""
-    return request.cookies.get(COOKIE, "")[-16:] or (request.client.host if request.client else "local")
+    c = _candidates(request)
+    return (c[0][-16:] if c else "") or (request.client.host if request.client else "local")
 
 
 def require_auth(request: Request) -> None:
     if not auth_required():
         return
-    token = request.cookies.get(COOKIE)
-    if not token:
+    c = _candidates(request)
+    if not c:
         raise HTTPException(401, "請先登入")
-    try:
-        jwt.decode(token, _secret(), algorithms=["HS256"])
-    except jwt.PyJWTError:
-        raise HTTPException(401, "登入已過期，請重新登入") from None
+    if not any(_valid(t) for t in c):
+        raise HTTPException(401, "登入已過期，請重新登入")

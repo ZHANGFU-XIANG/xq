@@ -154,3 +154,27 @@ def test_cloud_run_workflow_dispatch(monkeypatch):
     sync.run_workflow("postclose")
     assert calls["url"].endswith("/actions/workflows/invest-agent.yml/dispatches")
     assert calls["body"]["inputs"] == {"mode": "postclose", "force": "true"}
+
+
+def test_header_token_works_when_cookie_blocked(client, monkeypatch):
+    """Space 在 huggingface.co 的 iframe 內，第三方 cookie 常被擋：改用標頭也要能登入。"""
+    monkeypatch.setenv("APP_PASSWORD", "pw")
+    monkeypatch.setenv("JWT_SECRET", "y" * 32)
+    token = client.post("/api/login", json={"password": "pw"}).json()["token"]
+    client.cookies.clear()
+    assert client.get("/api/reports").status_code == 401
+    assert client.get("/api/reports", headers={"X-Session-Token": token}).status_code == 200
+    assert client.get("/api/status", headers={"X-Session-Token": token}).json()["authenticated"] is True
+    # 壞掉的舊 cookie 不應蓋過有效標頭
+    client.cookies.set("invest_session", "garbage")
+    assert client.get("/api/reports", headers={"X-Session-Token": token}).status_code == 200
+    # 網址參數只對檔案下載有效
+    assert client.get(f"/api/reports?t={token}").status_code == 401
+
+
+def test_cloud_cookie_is_iframe_compatible(client, monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "pw")
+    monkeypatch.setattr(sync, "cloud", lambda: True)
+    r = client.post("/api/login", json={"password": "pw"})
+    sc = r.headers["set-cookie"].lower()
+    assert "samesite=none" in sc and "secure" in sc and "partitioned" in sc and "httponly" in sc

@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import KLine from '../components/KLine'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Panel, Section, StockLink } from '../components/ui'
-import { get, type Json } from '../lib/api'
+import { fileUrl, get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, qty } from '../lib/format'
 
 const TABS = [
@@ -87,7 +87,7 @@ export default function Daily() {
               {list?.map((f) => <option key={f.key} value={f.key}>{f.date} {f.title}</option>)}
             </select>
             {Object.entries(r.files ?? {}).map(([ext, p]) => (
-              <a key={ext} href={`/api/files/${p}`} className="rounded-md border border-line bg-paper px-2.5 py-1.5 no-underline hover:border-link">
+              <a key={ext} href={fileUrl(p as string)} className="rounded-md border border-line bg-paper px-2.5 py-1.5 no-underline hover:border-link">
                 下載 {ext === 'docx' ? 'Word' : ext === 'pptx' ? '簡報' : '下單清單'}
               </a>
             ))}

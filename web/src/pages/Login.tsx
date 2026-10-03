@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { post } from '../lib/api'
+import { post, setToken } from '../lib/api'
 
 export default function Login({ onDone }: { onDone: () => void }) {
   const [pw, setPw] = useState('')
@@ -14,7 +14,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
           setBusy(true)
           setErr('')
           try {
-            await post('/api/login', { password: pw })
+            const r = await post('/api/login', { password: pw })
+            setToken(r.token ?? null)
             onDone()
           } catch (x) {
             setErr(x instanceof Error ? x.message : '登入失敗')

@@ -57,14 +57,18 @@ def login(body: Login, response: Response):
         return {"ok": True}
     if not auth.check_password(body.password):
         raise HTTPException(401, "密碼錯誤")
-    response.set_cookie(auth.COOKIE, auth.issue_token(), max_age=auth.TTL, httponly=True, samesite="lax",
-                        secure=sync.cloud())
-    return {"ok": True}
+    token = auth.issue_token()
+    if sync.cloud():  # Space 透過 huggingface.co 的 iframe 開啟，cookie 屬第三方，需 SameSite=None＋Partitioned
+        response.set_cookie(auth.COOKIE, token, max_age=auth.TTL, httponly=True, samesite="none", secure=True,
+                            partitioned=True)
+    else:
+        response.set_cookie(auth.COOKIE, token, max_age=auth.TTL, httponly=True, samesite="lax")
+    return {"ok": True, "token": token}
 
 
 @app.post("/api/logout")
 def logout(response: Response):
-    response.delete_cookie(auth.COOKIE)
+    response.delete_cookie(auth.COOKIE, samesite="none" if sync.cloud() else "lax", secure=sync.cloud())
     return {"ok": True}
 
 

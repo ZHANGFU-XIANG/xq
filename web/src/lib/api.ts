@@ -9,6 +9,35 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_KEY = 'invest_session'
+
+/** 雲端版在 huggingface.co 的 iframe 中執行，瀏覽器可能擋掉第三方 cookie，所以同時以標頭傳送登入權杖。 */
+export function getToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setToken(t: string | null) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch { /* 無法儲存時只依賴 cookie */ }
+}
+
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const t = getToken()
+  return t ? { ...extra, 'X-Session-Token': t } : extra
+}
+
+/** 檔案下載連結無法帶標頭，改用網址參數。 */
+export function fileUrl(path: string) {
+  const t = getToken()
+  return `/api/files/${path}${t ? `?t=${encodeURIComponent(t)}` : ''}`
+}
+
 async function handle(res: Response) {
   if (res.ok) return res.json()
   let msg = `伺服器錯誤（${res.status}）`
@@ -17,17 +46,21 @@ async function handle(res: Response) {
     if (j.detail) msg = typeof j.detail === 'string' ? j.detail : msg
     if (j.message) msg = j.message
   } catch { /* 非 JSON 錯誤 */ }
-  if (res.status === 401) window.dispatchEvent(new Event('auth-required'))
+  if (res.status === 401) {
+    setToken(null)
+    window.dispatchEvent(new Event('auth-required'))
+  }
   throw new ApiError(res.status, msg)
 }
 
-export const get = (path: string): Promise<Json> => fetch(path, { credentials: 'include' }).then(handle)
+export const get = (path: string): Promise<Json> =>
+  fetch(path, { credentials: 'include', headers: authHeaders() }).then(handle)
 
 export const post = (path: string, body?: unknown): Promise<Json> =>
   fetch(path, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   }).then(handle)
 
@@ -51,7 +84,7 @@ export async function streamChat(
   const res = await fetch('/api/chat', {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ messages }),
   })
   if (!res.ok || !res.body) return handle(res)
