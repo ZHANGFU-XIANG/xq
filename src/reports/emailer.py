@@ -18,6 +18,8 @@ def send(subject: str, body: str, attachments: list[Path]) -> bool:
     if not settings()["email"]["enabled"] or not (user and pwd and to):
         log.info("未設定寄信參數，略過 Email")
         return False
+    if os.getenv("DRY_RUN"):  # 雲端測試模式：資料不會提交，Email 照寄但標示為測試
+        subject = "[測試] " + subject
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
     msg.set_content(body)

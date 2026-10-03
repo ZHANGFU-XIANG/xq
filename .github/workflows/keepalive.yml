@@ -11,7 +11,14 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+      REPORT_TO: ${{ secrets.REPORT_TO }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
       - name: Ping Space
         run: |
           for i in $(seq 1 40); do
@@ -21,3 +28,6 @@ jobs:
             sleep 20
           done
           echo "Space 未在時間內完成預載" && exit 1
+      - name: Notify on failure
+        if: failure()
+        run: python3 scripts/notify_failure.py "keepalive" "網站沒有回應"

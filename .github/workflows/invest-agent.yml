@@ -20,6 +20,10 @@ on:
         description: 非交易日也執行
         type: boolean
         default: false
+      dry_run:
+        description: 測試模式（Email 主旨加［測試］、不寫預測紀錄與總資產、不提交任何檔案）
+        type: boolean
+        default: false
       rollback:
         description: "[tune] 回復上一次調整前的參數"
         type: boolean
@@ -63,6 +67,7 @@ jobs:
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_TO }}
+      DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -113,6 +118,7 @@ jobs:
             reports/**/*.csv
           if-no-files-found: ignore
       - name: Commit state and reports
+        if: ${{ !inputs.dry_run }}
         run: |
           git config user.name "invest-agent-bot"
           git config user.email "invest-agent-bot@users.noreply.github.com"
@@ -121,3 +127,6 @@ jobs:
             if [ -e "$f" ]; then git add "$f"; fi
           done
           git diff --cached --quiet || (git commit -m "chore: ${{ steps.mode.outputs.mode }} $(date +%F)" && git pull --rebase && git push)
+      - name: Notify on failure
+        if: failure()
+        run: python scripts/notify_failure.py "invest-agent" "${{ steps.mode.outputs.mode }}"
