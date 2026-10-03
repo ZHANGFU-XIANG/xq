@@ -254,6 +254,23 @@ def _run(args: dict) -> dict:
     return {"pending_action": aid, "summary": f"重新執行：{names.get(args['mode'], args['mode'])}", "status": "等待使用者在畫面上按確認"}
 
 
+def _data_gaps(a: dict) -> dict | None:
+    """哪些資料這次沒取得（例如 FinMind 額度用完）；這些項目在評分中以 0 計，不代表中性。"""
+    from src.agents import market_data
+
+    gaps = []
+    if not a.get("revenue"):
+        gaps.append("月營收")
+    texts = [*(a.get("offense") or {}).get("reasons", []), *(a.get("offense") or {}).get("risks", [])]
+    if not market_data.finmind_available() or not any(t.startswith("籌碼面") for t in texts):
+        gaps.append("三大法人買賣超")
+    if not gaps:
+        return None
+    return {"missing": gaps,
+            "note": "這些資料這次沒有取得（資料來源暫時無法使用或尚無資料），評分時以 0 計；"
+                    "這不代表中性，相關分數與排名可能失真，回答時必須以「無法確認：」說明"}
+
+
 def call_tool(name: str, args: dict) -> dict:
     try:
         if name == "find_stock":
@@ -270,7 +287,8 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "analyze_stock":
             a = on_demand.analyze(args["code"])
             if isinstance(a, dict) and not a.get("error"):
-                a = {"today_status": apidata.today_status(a.get("code", args["code"]), a), **a}  # 放最前面，壓縮時不會被截掉
+                a = {"data_gaps": _data_gaps(a), "today_status": apidata.today_status(a.get("code", args["code"]), a),
+                     **a}  # 放最前面，壓縮時不會被截掉
             return a
         if name == "get_daily_report":
             return apidata.report_summary(args.get("date"))
