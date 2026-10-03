@@ -249,3 +249,30 @@ def test_uncited_points_flagged():
 def test_list_ordinals_not_flagged():
     t = chat_agent._hide_cites("結論\n6. 大台 48671 點〔S2〕\n7、保證金")
     assert "6" not in t.split("大台")[0] and chat_agent._show_cites(t) == "結論\n6. 大台 48671 點〔S2〕\n7、保證金"
+
+
+def test_live_intraday_serves_saved_while_recomputing(monkeypatch, tmp_path):
+    import threading
+    import time as _t
+
+    from src.agents import intraday
+    from src.api import data
+
+    started = threading.Event()
+
+    def slow_run(report):
+        started.set()
+        _t.sleep(0.3)
+        return {"time": "now", "orders": [], "slot": "x"}
+
+    monkeypatch.setattr(intraday, "run", slow_run)
+    monkeypatch.setattr(intraday, "current_slot", lambda now=None: "2026-10-05 09:40")
+    monkeypatch.setattr(data, "_saved_intraday", lambda: {"time": "2026-10-05 09:00", "orders": [{"code": "2330"}]})
+    monkeypatch.setattr(data, "_INTRA", {"slot": None, "key": None, "v": None})
+    monkeypatch.setattr(data, "load_report", lambda key=None: {})
+    t0 = _t.time()
+    v = data.live_intraday()
+    assert v["stale"] and v["cached_from"] == "2026-10-05 09:00" and _t.time() - t0 < 0.2  # 不等重算
+    assert started.wait(2)
+    _t.sleep(0.5)
+    assert data.live_intraday()["time"] == "now"  # 背景算完後換成新的

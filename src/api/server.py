@@ -39,8 +39,8 @@ def _warm():
         sync.pull()
         on_demand.context()  # 預載全市場日 K 與當日模型
         WARM["ready"] = True
-        data.live_alerts()  # 預先計算警示（含新聞），首次開啟警示頁不必等待
-        data.live_intraday()  # 預先計算盤中／建倉建議
+        data.live_alerts(refresh=True)  # 預先計算警示（含新聞），期間的請求先拿報告內的警示
+        data.live_intraday(refresh=True)  # 預先計算盤中／建倉建議（期間的請求先拿雲端存檔）
         data.track_record()
     except Exception as e:  # noqa: BLE001
         WARM["error"] = str(e)[:200]
@@ -173,6 +173,11 @@ def weekly_report(body: WeeklyReq):
 @app.get("/api/weekly-reports", dependencies=[api])
 def weekly_reports():
     return {"files": data.weekly_reports(), "weeks": data.competition_weeks()}
+
+
+@app.get("/api/health", dependencies=[api])
+def health_():
+    return data.health()
 
 
 @app.get("/api/data-sources", dependencies=[api])

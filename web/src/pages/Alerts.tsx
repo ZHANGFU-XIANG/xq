@@ -82,7 +82,8 @@ function LimitTable({ rows, kind }: { rows: Json[]; kind: 'up' | 'down' }) {
 
 export default function Alerts() {
   const qc = useQueryClient()
-  const { data: d, isLoading, error, isFetching } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000 })
+  const { data: d, isLoading, error, isFetching } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'),
+    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 15_000 : 300_000) })
   const [tab, setTab] = useAssetTab(['STOCK', 'ETF', 'FUT', 'MARKET'])
   if (isLoading) return <Loading label="彙整警示中（首次需蒐集新聞，約 30 秒）" />
   if (error) return <ErrorNote error={error} />
@@ -95,7 +96,7 @@ export default function Alerts() {
       <PageTitle
         aside={
           <span className="flex items-center gap-3 text-sm text-muted">
-            {d.trading_now ? '盤中即時' : `收盤資料 ${d.quotes_date ?? ''}`}・更新 {d.generated_at}
+            {d.stale ? '先顯示報告內的警示，正在更新即時版' : d.trading_now ? '盤中即時' : `收盤資料 ${d.quotes_date ?? ''}`}・更新 {d.generated_at}
             <button disabled={isFetching} onClick={() => get('/api/alerts?refresh=true').then((v) => qc.setQueryData(['alerts'], v))}
               className="rounded-md border border-line bg-paper px-2.5 py-1 text-ink disabled:opacity-50">重新整理</button>
           </span>

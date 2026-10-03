@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import SystemHealth from '../components/Health'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtRatio, tone } from '../lib/format'
@@ -113,6 +114,7 @@ export default function Model() {
           </div>
         )}
       </Section>
+      <SystemHealth />
       <DataSources />
       <Section title="調整 Agent 紀錄">
         {!m.tuning_log?.length ? <Empty>還沒有調整紀錄。</Empty> : (

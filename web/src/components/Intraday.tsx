@@ -17,7 +17,9 @@ const CHANGE_STYLE: Record<string, string> = { 新增: 'text-up', 取消: 'text-
 const ORDER_ACTION = /^【(建倉|買進|賣出|預掛)】/
 
 export function useIntraday() {
-  return useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'), refetchInterval: 60_000 })
+  // 拿到的是上一份（stale）時每 10 秒問一次，背景算好就換上；平常每 60 秒
+  return useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'),
+    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 10_000 : 60_000) })
 }
 
 /** 盤中建議：每 40 分鐘一個時段重新計算（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */
@@ -49,6 +51,9 @@ export default function Intraday({ asset }: { asset: Asset }) {
             className="rounded-md border border-line px-2 py-0.5 text-ink disabled:opacity-50">立即重算</button>
         </span>
       </div>
+      {d.stale && (
+        <p className="mb-3 rounded-md bg-mist px-3 py-1.5 text-sm text-ink-2">先顯示 {d.cached_from} 計算的結果，正在依最新報價重算（約 1 分鐘），完成後自動更新</p>
+      )}
       {general.length > 0 && (
         <ul className="mb-4 space-y-1.5">
           {general.map((a: string, i: number) => <li key={i} className="rounded-md bg-up/5 px-3 py-1.5 font-medium">{a}</li>)}

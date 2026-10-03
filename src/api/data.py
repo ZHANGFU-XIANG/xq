@@ -179,6 +179,9 @@ def news(date: str | None = None) -> dict:
 _ALERTS: dict = {"t": 0.0, "v": None}
 
 
+_ALERTS_LOCK = __import__("threading").Lock()
+
+
 def live_alerts(refresh: bool = False) -> dict:
     """即時警示（5 分鐘快取）：持股與今日建議以盤中即時價判斷，全市場漲跌停用最近收盤。"""
     import time
@@ -188,27 +191,72 @@ def live_alerts(refresh: bool = False) -> dict:
     if not refresh and _ALERTS["v"] is not None and time.time() - _ALERTS["t"] < 300:
         return _ALERTS["v"]
     r = load_report() or {}
-    out = alerts.collect(pfm.build_portfolio(), pfm.load_meta(), r.get("orders", []), r.get("us_snapshot", []),
-                         on_demand.current_target())
-    _ALERTS.update(t=time.time(), v=out)
-    return out
+
+    def compute():
+        with _ALERTS_LOCK:
+            out = alerts.collect(pfm.build_portfolio(), pfm.load_meta(), r.get("orders", []), r.get("us_snapshot", []),
+                                 on_demand.current_target())
+            _ALERTS.update(t=time.time(), v=out)
+            return out
+
+    prev = _ALERTS["v"] or ((r.get("alerts") or None) and {**r["alerts"], "realtime": {}})
+    if refresh or prev is None:
+        return compute()
+    if not _ALERTS_LOCK.locked():  # 先回上一份（或報告內的警示），背景更新
+        __import__("threading").Thread(target=compute, daemon=True).start()
+    return {**prev, "stale": True}
 
 
 _INTRA: dict = {"slot": None, "key": None, "v": None}
+_INTRA_LOCK = __import__("threading").Lock()
+
+
+def _saved_intraday() -> dict | None:
+    """雲端排程每 40 分鐘存下的最新一份盤中建議（data/intraday/*.json，經 GitHub 同步到網站）。"""
+    from src.config import DATA_DIR
+
+    files = sorted((DATA_DIR / "intraday").glob("*.json"))
+    if not files:
+        return None
+    try:
+        return json.loads(files[-1].read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _compute_intraday(slot: str, key: tuple) -> dict:
+    from src.agents import intraday
+
+    with _INTRA_LOCK:  # 同一時間只算一份（全市場重算約 1～1.5 分鐘）
+        if _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key and not _INTRA["v"].get("stale"):
+            return _INTRA["v"]
+        out = intraday.run(load_report())
+        _INTRA.update(slot=slot, key=key, v=out)
+        return out
 
 
 def live_intraday(refresh: bool = False) -> dict:
-    """盤中建議：每 40 分鐘一個時段，時段內建議固定（行情另外即時刷新）；持股變動或手動重算時立即更新。"""
+    """盤中建議：每 40 分鐘一個時段，時段內建議固定（行情另外即時刷新）；持股變動或手動重算時立即更新。
+    還沒有這個時段的結果時，先回傳上一份（記憶體或雲端存檔）並標示 stale，背景重算完自動替換，不讓使用者等。"""
+    import threading
+
     from src.agents import intraday
 
     slot = intraday.current_slot()
     pf = pfm.build_portfolio()
     key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
-    if not refresh and _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key:
+    fresh = _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key
+    if fresh and not refresh:
         return _INTRA["v"]
-    out = intraday.run(load_report())
-    _INTRA.update(slot=slot, key=key, v=out)
-    return out
+    if refresh:
+        _INTRA["v"] = None
+        return _compute_intraday(slot, key)
+    prev = _INTRA["v"] or _saved_intraday()
+    if prev is None:
+        return _compute_intraday(slot, key)
+    if not _INTRA_LOCK.locked():
+        threading.Thread(target=_compute_intraday, args=(slot, key), daemon=True).start()
+    return {**prev, "stale": True, "cached_from": prev.get("time")}
 
 
 _QUOTES: dict = {}
@@ -579,3 +627,122 @@ def competition_weeks() -> list[dict]:
         mon += dt.timedelta(days=7)
         n += 1
     return out
+
+
+# ---------------------------------------------------------------- 系統健康
+_HEALTH: dict = {"t": 0.0, "runs": None}
+WORKFLOWS = {"invest-agent.yml": "每日排程（盤前／盤中／盤後／週報）", "keepalive.yml": "網站保持清醒", "deploy-space.yml": "網站部署"}
+
+
+def _gh() -> tuple[str, dict] | None:
+    import os
+
+    repo = os.getenv("GITHUB_REPO") or "ZHANGFU-XIANG/xq"
+    tok = os.getenv("GITHUB_TOKEN") or os.getenv("GH_PAT")
+    if not tok:
+        return None
+    return repo, {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
+
+
+def _workflow_runs() -> dict:
+    """各 workflow 最近的執行（5 分鐘快取）。"""
+    import time
+
+    import requests
+
+    if _HEALTH["runs"] is not None and time.time() - _HEALTH["t"] < 300:
+        return _HEALTH["runs"]
+    out = {}
+    gh = _gh()
+    if gh:
+        repo, h = gh
+        for wf, label in WORKFLOWS.items():
+            try:
+                runs = requests.get(f"https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs?per_page=15",
+                                    headers=h, timeout=20).json().get("workflow_runs", [])
+            except Exception as e:  # noqa: BLE001
+                out[wf] = {"label": label, "error": str(e)[:120], "runs": []}
+                continue
+            out[wf] = {"label": label, "runs": [{"time": r["created_at"], "event": r["event"], "status": r["status"],
+                                                  "conclusion": r["conclusion"], "url": r["html_url"]} for r in runs]}
+    _HEALTH.update(t=time.time(), runs=out)
+    return out
+
+
+def health() -> dict:
+    """排程是否照時間執行、資料是否新鮮；異常會列出原因與處理方式。"""
+    import datetime as dt
+
+    from src import config
+    from src.agents import intraday
+    from src.api import sync
+    from src.data import providers
+
+    now = config.now_tw()
+    today = now.date()
+    trading = config.is_trading_day(today)
+    hm = now.hour * 60 + now.minute
+    checks = []
+
+    def add(name: str, status: str, detail: str, fix: str = "") -> None:
+        checks.append({"name": name, "status": status, "detail": detail, "fix": fix})
+
+    def tw(iso: str) -> dt.datetime:
+        return dt.datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(config.TW_TZ)
+
+    runs = _workflow_runs()
+    for wf, info in runs.items():
+        rs = info.get("runs") or []
+        if info.get("error"):
+            add(info["label"], "unknown", f"無法讀取 GitHub：{info['error']}")
+            continue
+        if not rs:
+            add(info["label"], "warn" if wf != "invest-agent.yml" else "unknown", "還沒有執行紀錄")
+            continue
+        last = rs[0]
+        ok = next((r for r in rs if r["conclusion"] == "success"), None)
+        last_t = tw(last["time"]).strftime("%m/%d %H:%M")
+        if last["status"] != "completed":
+            add(info["label"], "running", f"執行中（{last_t} 開始）")
+        elif last["conclusion"] == "success":
+            add(info["label"], "ok", f"最近一次 {last_t} 成功")
+        else:
+            add(info["label"], "error", f"最近一次 {last_t} {last['conclusion']}" +
+                (f"；上次成功 {tw(ok['time']).strftime('%m/%d %H:%M')}" if ok else "；尚無成功紀錄"),
+                "到 GitHub Actions 看錯誤訊息，或請 AI 助理重新執行")
+    if "keepalive.yml" in runs:
+        rs = [r for r in runs["keepalive.yml"].get("runs", []) if r["event"] == "schedule"]
+        if not rs:
+            add("保持清醒排程", "warn", "每 6 小時的排程還沒有自動觸發過（GitHub 新排程有時會延遲幾小時）")
+
+    # 資料新鮮度
+    latest = load_report() or {}
+    if trading and hm >= 7 * 60 + 40:
+        if latest.get("target_date") == today.isoformat():
+            add("今天的盤前報告", "ok", f"{latest.get('generated_at')} 產生")
+        else:
+            add("今天的盤前報告", "error", f"還沒有 {today} 的盤前報告（07:00 應產生）", "請 AI 助理「重新執行盤前報告」")
+    else:
+        add("最新報告", "ok" if latest else "warn", f"{latest.get('date', '無')} {latest.get('title', '')}（{latest.get('generated_at', '—')}）")
+    files = sorted((config.DATA_DIR / "intraday").glob("*.json"))
+    if files:
+        f = files[-1].stem  # 20261005_0940
+        last = dt.datetime.strptime(f, "%Y%m%d_%H%M").replace(tzinfo=config.TW_TZ)
+        age = (now - last).total_seconds() / 60
+        stale = trading and 9 * 60 + 10 <= hm <= 13 * 60 + 40 and age > 70
+        add("雲端盤中建議", "error" if stale else "ok", f"最近一次 {last.strftime('%m/%d %H:%M')}（{age:.0f} 分鐘前）",
+            "盤中每 40 分鐘一輪，超過 70 分鐘沒更新代表排程延遲或失敗" if stale else "")
+    elif trading and hm >= 9 * 60 + 10:
+        add("雲端盤中建議", "warn", "今天還沒有雲端盤中建議紀錄")
+    if sync.cloud():
+        st = sync.state
+        add("與 GitHub 同步", "error" if st.get("error") else "ok", f"最近一次 {st.get('last_sync') or '尚未'}" +
+            (f"；錯誤：{st['error']}" if st.get("error") else ""))
+    ps = providers.status()
+    add("FinMind 資料來源", "ok" if ps["finmind_available"] else "warn",
+        f"{ps['finmind_tokens']} 組 token" + ("；全部冷卻中，暫用官方資料" if not ps["finmind_available"] else ""))
+    order = {"error": 0, "warn": 1, "unknown": 2, "running": 3, "ok": 4}
+    overall = min((c["status"] for c in checks), key=lambda s: order.get(s, 9), default="ok")
+    return {"time": now.strftime("%Y-%m-%d %H:%M"), "overall": overall, "checks": checks,
+            "slot": intraday.current_slot(now),
+            "runs": {wf: {"label": v["label"], "runs": v.get("runs", [])[:8]} for wf, v in runs.items()}}

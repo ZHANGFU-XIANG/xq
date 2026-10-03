@@ -83,13 +83,13 @@ export default function Company({ code }: { code: string }) {
         </>
       )}
 
-      <div className="mb-6 grid gap-8 md:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-8 md:grid-cols-2 [&>*]:min-w-0">
         {c.revenue?.length > 0 && (
           <div>
             <h3 className="mb-2 font-bold">月營收（仟元）</h3>
             <ul className="space-y-1 text-[0.95rem]">
               {c.revenue.slice(0, 5).map((r: Json) => (
-                <li key={r.label} className="flex justify-between gap-3 border-b border-line/60 py-1">
+                <li key={r.label} className="flex flex-wrap justify-between gap-x-3 border-b border-line/60 py-1">
                   <span>{r.label}</span>
                   <span className="num">{r.value?.toLocaleString('zh-TW')} <span className={tone(r.growth_pct)}>（{fmtPct(r.growth_pct, 2)}）</span></span>
                 </li>
@@ -100,14 +100,16 @@ export default function Company({ code }: { code: string }) {
         {c.financial?.periods?.length > 0 && (
           <div>
             <h3 className="mb-2 font-bold">最新財報摘要（{c.financial.unit}）</h3>
-            <table className="w-full text-sm">
-              <thead className="text-right text-muted"><tr><th className="text-left font-normal" />{c.financial.periods.map((p: string) => <th key={p} className="font-normal">{p}</th>)}</tr></thead>
+            <div className="overflow-x-auto">
+            <table className="w-full whitespace-nowrap text-sm">
+              <thead className="text-right text-muted"><tr><th className="sticky left-0 bg-mist text-left font-normal" />{c.financial.periods.map((p: string) => <th key={p} className="pl-3 font-normal">{p}</th>)}</tr></thead>
               <tbody className="num text-right">
                 {[...c.financial.income, ...c.financial.balance.filter((r: Json) => r.item.includes('每股淨值'))].map((r: Json) => (
-                  <tr key={r.item} className="border-b border-line/60"><td className="py-1 text-left">{r.item}</td>{r.raw.map((v: string, i: number) => <td key={i}>{v}</td>)}</tr>
+                  <tr key={r.item} className="border-b border-line/60"><td className="sticky left-0 bg-mist py-1 pr-2 text-left">{r.item}</td>{r.raw.map((v: string, i: number) => <td key={i} className="pl-3">{v}</td>)}</tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

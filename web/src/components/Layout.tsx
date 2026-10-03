@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { get, post, setToken } from '../lib/api'
+import { HealthDot } from './Health'
 import ChatPanel, { useChat } from './Chat'
 
 const NAV = [
@@ -119,6 +120,7 @@ export default function Layout() {
         <div className="hidden space-y-2 px-4 py-4 text-xs md:block">
           {status && !status.warm && <div className="text-amber-200">正在載入全市場資料，個股分析約需 1 分鐘</div>}
           {status?.sync?.error && <div className="text-red-200">同步失敗：{status.sync.error}</div>}
+          <HealthDot />
           <ThemeToggle />
           {status?.auth_required && (
             <button className="block text-white/70 hover:text-white" onClick={() => post('/api/logout').finally(() => { setToken(null); location.reload() })}>登出</button>
