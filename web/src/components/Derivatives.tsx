@@ -42,7 +42,37 @@ export default function Derivatives({ d, compact = false }: { d?: Json; compact?
           {!compact && <ul className="mt-1 list-disc pl-5 text-sm text-ink-2">{d.hedge.why.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>}
         </div>
       )}
-      {!d.orders?.length && !d.hedge && (
+      {d.conditions?.length > 0 && (
+        <div className="mt-3">
+          <h4 className="mb-1 text-sm font-medium text-muted">什麼情況下會建議操作（每 40 分鐘重算）</h4>
+          <ul className="space-y-1.5 text-[0.95rem]">
+            {d.conditions.map((c: Json) => (
+              <li key={c.name} className="rounded-md bg-paper px-3 py-2">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${c.met ? 'bg-up text-white' : 'bg-mist text-muted'}`}>{c.met ? '條件成立' : '未達'}</span>
+                  <span className="font-medium">{c.name}</span>
+                </div>
+                <div className="mt-0.5 text-sm text-ink-2">條件：{c.need}</div>
+                <div className="text-sm text-ink-2">目前：{c.now}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!compact && d.reference && !d.orders?.length && (
+        <div className="mt-3 rounded-md border border-dashed border-line px-3 py-2 text-sm">
+          <div className="font-medium text-ink-2">{d.reference.note}</div>
+          <ul className="mt-1 space-y-0.5 text-ink-2">
+            {d.reference.futures.map((r: Json) => (
+              <li key={r.contract}>{r.name} {r.contract} 1 口：約 {fmtInt(r.price)} 點、契約價值 {fmtInt(r.notional)} 元、原始保證金 {fmtInt(r.margin)} 元；
+                停損 {fmtInt(r.stop_points)} 點時虧損約 {fmtInt(r.loss_at_stop)} 元（總資產 {r.loss_pct_nav}%）</li>
+            ))}
+            {d.reference.put && <li>台指賣權 {d.reference.put.contract}：權利金 {d.reference.put.price} 點 × 50 ＝ {fmtInt(d.reference.put.premium)} 元／口，加權跌破 {fmtInt(d.reference.put.protect_from)} 點開始有保護，最多虧掉權利金</li>}
+          </ul>
+          <div className="mt-1 text-xs text-muted">{d.reference.stop_rule}</div>
+        </div>
+      )}
+      {!d.orders?.length && !d.hedge && !d.conditions?.length && (
         <ul className="mt-1 space-y-0.5 text-sm text-ink-2">{(d.reasons ?? []).map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
       )}
       {!compact && bt && (

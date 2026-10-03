@@ -188,6 +188,7 @@ def slim_deriv(d: dict) -> dict:
     sig = d.get("signal") or {}
     return {"summary": d.get("summary"), "mode": d.get("mode"), "orders": d.get("orders", []), "hedge": d.get("hedge"),
             "reasons": d.get("reasons", []), "reserve": d.get("reserve"), "margin_needed": d.get("margin_needed"),
+            "conditions": d.get("conditions", []), "reference": d.get("reference"),
             "quote": d.get("quote"), "contract_month": d.get("contract_month"),
             "signal": {k: sig.get(k) for k in ("date", "p_up", "horizon_days", "long_enabled", "short_enabled",
                                                "gate_reasons", "drivers", "backtest")} if sig else None}

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import os
 import pickle
 import re
 import time
@@ -29,9 +28,6 @@ CODE_RE = re.compile(r"^(\d{4}|00\d{2,4}[A-Z]?)$")
 _info: dict[str, dict] | None = None
 
 
-def _finmind_headers() -> dict:
-    tok = os.getenv("FINMIND_TOKEN")
-    return {"Authorization": f"Bearer {tok}"} if tok else {}
 
 
 def _isin_info() -> dict[str, dict]:

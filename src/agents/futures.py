@@ -293,10 +293,81 @@ def plan(pf, prices: dict, nav: float, alloc: dict | None = None, stock_beta_val
     hedge = hedge_plan(sig, nav, stock_beta_value, alloc, us_snapshot, today)
     margin_needed = sum(o["margin"] for o in orders)
     reserve = max(c["min_reserve"], round(margin_needed * c["margin_buffer"]) + (hedge["premium"] if hedge else 0))
+    conditions = watch_conditions(sig, nav, alloc, us_snapshot, stock_beta_value, mode)
+    reference = sample_sizing(sig, nav, margins, ym, price, today)
     return {"orders": orders, "hedge": hedge, "signal": sig, "mode": mode, "reasons": reasons, "contract_month": ym,
             "quote": q, "margins": margins, "margin_needed": margin_needed, "reserve": reserve,
+            "conditions": conditions, "reference": reference,
             "summary": (f"{'做多' if orders[0]['action'] == 'BUY' else '放空'} {orders[0]['name']} {orders[0]['qty']} 口"
                         if orders else "期貨不操作") + ("；買進賣權避險" if hedge else "")}
+
+
+def watch_conditions(sig: dict, nav: float, alloc: dict | None, us_snapshot: list[dict] | None, beta_value: float,
+                     mode: str) -> list[dict]:
+    """每一種期貨操作的觸發條件、目前數值、是否達成（沒有建議時，讓使用者知道還差什麼）。"""
+    c = cfg()
+    h = c["hedge"]
+    r = rules()
+    p = sig["p_up"]
+    bt = sig["backtest"]
+    ret = nav / r["capital"]["initial"] - 1
+    hist = pfm.load_history()
+    peak = max([x["nav"] for x in hist] + [nav, r["capital"]["initial"]])
+    dd = nav / peak - 1
+    tx = (alloc or {}).get("taiex") or {}
+    vix = next((u for u in (us_snapshot or []) if u.get("ticker") == "^VIX"), None)
+    al = bt.get("always_long") or {}
+    lg = bt.get("long") or {}
+    out = [
+        {"name": "做多台指期（擇時）", "met": bool(p >= c["p_long"] and sig["long_enabled"]),
+         "need": f"上漲機率 ≥ {c['p_long'] * 100:.0f}%，且回測證明模型做多贏過「一直做多」",
+         "now": f"上漲機率 {p * 100:.1f}%（{'已達' if p >= c['p_long'] else '未達'}）；回測模型做多平均 "
+                f"{lg.get('avg_ret_pct', '—')}% vs 一直做多 {al.get('avg_ret_pct', '—')}%（{'有' if sig['long_enabled'] else '沒有'}優勢）"},
+        {"name": "放空台指期（擇時）", "met": bool(p <= c["p_short"] and sig["short_enabled"]),
+         "need": f"上漲機率 ≤ {c['p_short'] * 100:.0f}%，且回測放空有正報酬、樣本 ≥ {c['min_backtest_trades']} 次",
+         "now": f"上漲機率 {p * 100:.1f}%；回測放空樣本 {(bt.get('short') or {}).get('n', 0)} 次"},
+        {"name": "補回虧損：加碼大盤曝險", "met": bool((ret < 0 or dd <= -c["recovery_drawdown"]) and sig["above_ma60"]),
+         "need": f"累積報酬轉負或回撤 ≥ {c['recovery_drawdown'] * 100:.0f}%，且加權在季線上",
+         "now": f"累積報酬 {ret * 100:+.2f}%、回撤 {dd * 100:+.2f}%、加權距季線 {sig['dist_ma60_pct']:+.2f}%"},
+        {"name": "買賣權避險（只做買方）",
+         "met": bool(beta_value > 0 and (tx.get("rsi14", 0) >= h["taiex_rsi"] or tx.get("dist_ma60_pct", 0) >= h["dist_ma60_pct"]
+                                         or (vix and vix.get("change_pct", 0) >= h["vix_jump_pct"]) or 1 - p >= h["p_down"])),
+         "need": f"任一成立：加權 RSI ≥ {h['taiex_rsi']}、距季線 ≥ {h['dist_ma60_pct']}%、VIX 單日 ≥ +{h['vix_jump_pct']}%、"
+                 f"下跌機率 ≥ {h['p_down'] * 100:.0f}%",
+         "now": f"RSI {tx.get('rsi14', '—')}、距季線 {tx.get('dist_ma60_pct', '—')}%、"
+                f"VIX {vix['change_pct']:+.1f}%" if vix else f"RSI {tx.get('rsi14', '—')}、距季線 {tx.get('dist_ma60_pct', '—')}%、VIX 無資料"},
+    ]
+    out[-1]["now"] += f"、下跌機率 {(1 - p) * 100:.1f}%"
+    return out
+
+
+def sample_sizing(sig: dict, nav: float, margins: dict, ym: str, price: float, today: dt.date) -> dict:
+    """參考試算（不是建議）：如果自行判斷要做 1 口，要多少保證金、碰到停損會虧多少。"""
+    c = cfg()
+    stop_pts = round(c["atr_mult"] * sig["atr14"])
+    rows = []
+    for root in ("TMF", "MTX"):
+        mult = rules()["futures"]["contracts"][root]["multiplier"]
+        mg = (margins.get(root) or {}).get("initial")
+        loss = stop_pts * mult
+        rows.append({"contract": f"{root}{ym}", "name": rules()["futures"]["contracts"][root]["name"], "price": round(price),
+                     "margin": mg, "stop_points": stop_pts, "loss_at_stop": loss,
+                     "loss_pct_nav": round(loss / nav * 100, 2) if nav else None,
+                     "notional": round(price * mult)})
+    put = None
+    try:
+        hy = fd.front_month(today, min_days=c["hedge"]["min_days_to_expiry"])
+        target = sig["close"] * (1 - c["hedge"]["otm_pct"])
+        chain = [r for r in fd.put_chain(hy) if r["price"] and r.get("bid") and r.get("ask") and r["strike"] <= target
+                 and (r["ask"] - r["bid"]) / r["ask"] <= 0.15]
+        if chain:
+            best = max(chain, key=lambda r: r["strike"])
+            put = {"contract": best["contract"], "strike": best["strike"], "price": best["price"],
+                   "premium": round(best["price"] * 50), "protect_from": best["strike"]}
+    except Exception:  # noqa: BLE001
+        pass
+    return {"note": "僅供參考，不是建議：系統目前判斷沒有優勢，若自行操作請先確認風險",
+            "stop_rule": f"停損以加權 ATR14 的 {c['atr_mult']} 倍 ≈ {stop_pts:,} 點估算", "futures": rows, "put": put}
 
 
 def hedge_plan(sig: dict, nav: float, beta_value: float, alloc: dict | None, us_snapshot: list[dict] | None,
