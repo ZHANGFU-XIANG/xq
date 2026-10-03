@@ -114,3 +114,21 @@ def news(date: str | None = None) -> dict:
         return {"news": [], "events": [], "macro": []}
     return {"date": r["date"], "news": r.get("news", []), "events": r.get("events", []), "macro": r.get("macro", []),
             "market_view": r.get("market_view")}
+
+
+_ALERTS: dict = {"t": 0.0, "v": None}
+
+
+def live_alerts(refresh: bool = False) -> dict:
+    """即時警示（5 分鐘快取）：持股與今日建議以盤中即時價判斷，全市場漲跌停用最近收盤。"""
+    import time
+
+    from src.agents import alerts
+
+    if not refresh and _ALERTS["v"] is not None and time.time() - _ALERTS["t"] < 300:
+        return _ALERTS["v"]
+    r = load_report() or {}
+    out = alerts.collect(pfm.build_portfolio(), pfm.load_meta(), r.get("orders", []), r.get("us_snapshot", []),
+                         on_demand.current_target())
+    _ALERTS.update(t=time.time(), v=out)
+    return out

@@ -38,6 +38,25 @@ function Balance({ alloc }: { alloc: Json }) {
   )
 }
 
+function UrgentBanner() {
+  const { data } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000 })
+  const items: Json[] = (data?.alerts ?? []).filter((a: Json) => a.level === '嚴重' || a.level === '警告')
+  if (!items.length) return null
+  return (
+    <section className="mb-6 rounded-lg border border-up/40 bg-up/5 px-4 py-3" aria-label="緊急警示">
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <h2 className="font-bold text-up">{items.length} 則警示需要處理</h2>
+        <Link to="/alerts" className="text-sm">看全部</Link>
+      </div>
+      <ul className="space-y-1 text-[0.95rem]">
+        {items.slice(0, 4).map((a, i) => (
+          <li key={i}><span className={a.level === '嚴重' ? 'font-bold text-up' : 'font-bold text-warn'}>{a.level}</span>　{a.title}：{a.action}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 export default function Overview() {
   const { data: r, isLoading, error } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
   if (isLoading) return <Loading />
@@ -51,6 +70,7 @@ export default function Overview() {
   return (
     <>
       <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
+      <UrgentBanner />
       <Balance alloc={r.allocation} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">

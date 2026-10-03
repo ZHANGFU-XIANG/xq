@@ -210,6 +210,18 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
         ("大盤預測開盤", f"{tx.get('gap_pct', 0):+.2f}%", UP if tx.get("gap_pct", 0) > 0 else DOWN if tx.get("gap_pct", 0) < 0 else INK),
     ], [text["market_summary"], text["outlook"]])
 
+    al_ = facts.get("alerts") or {}
+    if al_.get("alerts"):
+        lines = [f"【{a['level']}】{a['title']}：{a['reasons'][0]} → {a['action']}" for a in al_["alerts"][:8]]
+        s = deck._blank(f"警示提醒（嚴重 {al_['counts'].get('嚴重', 0)}／警告 {al_['counts'].get('警告', 0)}）")
+        deck.text(s, Inches(0.5), Inches(1.2), Inches(12.3), Inches(5.7), lines, 14)
+    if al_.get("limit_up") or al_.get("limit_down"):
+        rows = [[f"{'漲停' if q['chg_pct'] > 0 else '跌停'}｜{q['code']} {q['name']}", q.get("industry") or "", (q.get("reason") or "")[:60]]
+                for q in (al_.get("limit_down", [])[:4] + al_.get("limit_up", [])[:8]) if q.get("reason")]
+        if rows:
+            deck.table(f"今日漲跌停與原因（漲停 {al_['limit_up_count']}／跌停 {al_['limit_down_count']}）", ["標的", "產業", "可能原因"],
+                       rows, [2.2, 1.4, 6], size=11)
+
     al = facts["allocation"]
     s = deck._blank(f"攻守配置：進攻 {al['offense'] * 100:.0f}%／穩健 {al['defense'] * 100:.0f}%")
     deck.text(s, Inches(0.5), Inches(1.2), Inches(6.0), Inches(5.6), al["reasons"], 13, title="比例如何決定", fill=LIGHT)

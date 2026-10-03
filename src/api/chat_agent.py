@@ -31,6 +31,7 @@ SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資�
 3. 給買進建議時，要說明：屬於進攻籃或穩健籃與原因、建議股數（張＋零股）、限價、停損、出場計畫、主要風險。
 4. 使用者說已成交（例如「我買了 2330 一張 1000 元」）時呼叫 record_trade；要重新產生報告時呼叫 run_analysis。這兩個工具只會建立待確認動作，請提醒使用者在畫面上按「確認」。
 5. 「如果買/賣…會怎樣」用 simulate_trades 試算，說明成本、持股率與競賽規則影響。
+5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
 7. 註明資料日期；不確定或工具沒有的資料就直說沒有。回答精簡、條列、可執行。不要輸出 JSON 或英文欄位名稱。"""
 
@@ -50,6 +51,8 @@ TOOLS = [
     {"name": "get_macro", "description": "最新國際大事與對持股的影響金額、後續決策",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_rules", "description": "競賽規則", "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_alerts", "description": "即時警示：持股跌停／跌破停損／負面新聞與建議賣出股數、今日建議買進前的風險、全市場漲跌停與原因、注意／處置股",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "get_model_health", "description": "模型回測表現、實際命中率與調整 Agent 紀錄",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "simulate_trades", "description": "試算一組假設買賣後的現金、交易成本、持股率、雙籃比例與規則檢查（不會真的下單或記錄）",
@@ -111,6 +114,11 @@ def call_tool(name: str, args: dict) -> dict:
             return apidata.macro_latest()
         if name == "get_rules":
             return rules()
+        if name == "get_alerts":
+            a = apidata.live_alerts()
+            return {k: a[k] for k in ("generated_at", "trading_now", "quotes_date", "counts", "alerts", "limit_up_count",
+                                      "limit_down_count", "up_industries", "down_industries", "attention_watch")} | {
+                "limit_up_top": a["limit_up"][:10], "limit_down_top": a["limit_down"][:10]}
         if name == "get_model_health":
             return apidata.model_health()
         if name == "simulate_trades":

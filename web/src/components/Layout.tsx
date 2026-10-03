@@ -7,6 +7,7 @@ import ChatPanel, { useChat } from './Chat'
 const NAV = [
   { to: '/', label: '總覽', end: true },
   { to: '/daily', label: '每日建議' },
+  { to: '/alerts', label: '警示提醒' },
   { to: '/stock', label: '個股' },
   { to: '/news', label: '新聞' },
   { to: '/portfolio', label: '持股' },
@@ -86,6 +87,8 @@ function ThemeToggle() {
 export default function Layout() {
   const chat = useChat()
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status'), refetchInterval: 60_000 })
+  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000, enabled: !!status?.warm })
+  const urgent = alerts ? (alerts.counts?.['嚴重'] ?? 0) + (alerts.counts?.['警告'] ?? 0) : 0
   const [menu, setMenu] = useState(false)
   const onChatPage = useLocation().pathname === '/chat'
   const drawer = chat.open && !onChatPage
@@ -95,7 +98,10 @@ export default function Layout() {
         <div className="flex items-center justify-between px-4 py-3 md:block md:py-5">
           <NavLink to="/" className="title block text-lg text-white no-underline">投資擂台研究台</NavLink>
           <div className="hidden text-xs leading-relaxed text-white/60 md:mt-1 md:block">2026 德明X富達模擬投資競賽<br />分析目標日 {status?.target_date ?? '—'}</div>
-          <button className="rounded px-2 py-1 text-sm md:hidden" onClick={() => setMenu(!menu)} aria-expanded={menu}>選單</button>
+          <div className="flex items-center gap-2 md:hidden">
+            {urgent > 0 && <NavLink to="/alerts" className="rounded-full bg-up px-2.5 py-0.5 text-xs font-bold text-white no-underline">{urgent} 則警示</NavLink>}
+            <button className="rounded px-2 py-1 text-sm" onClick={() => setMenu(!menu)} aria-expanded={menu}>選單</button>
+          </div>
         </div>
         <div className={`${menu ? 'block' : 'hidden'} px-3 pb-3 md:block md:flex-1`}>
           <StockSearch onDone={() => setMenu(false)} />
@@ -104,6 +110,7 @@ export default function Layout() {
               <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMenu(false)}
                 className={({ isActive }) => `rounded-md px-3 py-2 text-[0.95rem] no-underline ${isActive ? 'bg-white/15 font-medium text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}>
                 {n.label}
+                {n.to === '/alerts' && urgent > 0 && <span className="ml-2 rounded-full bg-up px-1.5 text-xs font-bold text-white">{urgent}</span>}
               </NavLink>
             ))}
           </nav>

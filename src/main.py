@@ -20,7 +20,7 @@ import sys
 import pandas as pd
 
 from src import pipeline
-from src.agents import (alpha_model, attribution, compliance, filings, macro, market_data, news, recovery, sizer, tuner,
+from src.agents import (alerts, alpha_model, attribution, compliance, filings, macro, market_data, news, recovery, sizer, tuner,
                         writer)
 from src.config import DATA_DIR, FACTS_DIR, REPORT_DIR, is_trading_day, next_trading_day, now_tw, rules, stock_meta
 from src.llm.client import get_client
@@ -174,6 +174,13 @@ def run_daily(mode: str, today: dt.date) -> dict:
                   "vol20": (s["alpha"]["features"] or {}).get("vol20"), "signal": s["def_signal"]}
                  for s in sorted(ranked, key=lambda x: -x.get("def_score", -9)) if s.get("alpha") and s.get("eligible_def")][:15]
 
+    try:
+        alert_out = {k: v for k, v in alerts.collect(pf, meta, orders, us_snap, target).items() if k != "realtime"}
+    except Exception as e:  # noqa: BLE001  警示失敗不影響報告
+        log.warning("警示產生失敗：%s", e)
+        alert_out = {"alerts": [], "counts": {}, "limit_up": [], "limit_down": [], "up_industries": [],
+                     "down_industries": [], "limit_up_count": 0, "limit_down_count": 0, "attention_watch": []}
+
     facts = {
         "title": TITLES[mode], "mode": mode, "date": today.isoformat(), "target_date": target.isoformat(),
         "generated_at": gen.strftime("%Y-%m-%d %H:%M"),
@@ -189,7 +196,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
         "ranking": [{k: s[k] for k in ("code", "name", "score", "signal", "components")} for s in ranked],
         "attribution": att, "recovery": {k: rec[k] for k in ("items", "summary", "portfolio_exp_ret")},
         "macro": macro_imp, "macro_sens": sens,
-        "orders": orders, "compliance": checks, "tuner": tune,
+        "orders": orders, "compliance": checks, "tuner": tune, "alerts": alert_out,
         "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": st["futures_reserve"],
                     "cash_after": buys["cash_after"], "loan_capacity_left": buys["loan_capacity_left"]},
         "portfolio": {"nav": round(nav), "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
@@ -233,7 +240,10 @@ def run_daily(mode: str, today: dt.date) -> dict:
             w.writerow(["買進" if o["action"] == "BUY" else "賣出", o["code"], o["name"], o["lots"], o["odd"],
                         o["shares"], o["limit_price"], o.get("stop", ""), "是" if o.get("margin") else "否", o["amount"]])
 
-    body = "\n".join([f"{TITLES[mode]} {today}", "", text["market_summary"], text["outlook"], "",
+    alert_lines = [f"- [{a['level']}] {a['title']}：{a['reasons'][0]} → {a['action']}"
+                   for a in alert_out["alerts"] if a["level"] in ("嚴重", "警告")]
+    body = "\n".join([f"{TITLES[mode]} {today}", ""] + (["【警示】"] + alert_lines + [""] if alert_lines else []) +
+                     [text["market_summary"], text["outlook"], "",
                       f"【攻守配置】進攻籃 {alloc['offense'] * 100:.0f}%／穩健籃 {alloc['defense'] * 100:.0f}%",
                       text.get("allocation_analysis", ""), "",
                       "【今日漲跌分析】", text["daily_move_analysis"], "", "【虧損補回計畫】", text["recovery_plan"], "",

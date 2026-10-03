@@ -1,0 +1,13 @@
+{
+  "name": "投資擂台研究台",
+  "short_name": "研究台",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14213D",
+  "theme_color": "#14213D",
+  "lang": "zh-Hant-TW",
+  "icons": [
+    { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

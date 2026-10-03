@@ -5,6 +5,7 @@ import ChatPanel, { ChatProvider } from './components/Chat'
 import Layout from './components/Layout'
 import { Loading, PageTitle } from './components/ui'
 import { get } from './lib/api'
+import Alerts from './pages/Alerts'
 import Daily from './pages/Daily'
 import Login from './pages/Login'
 import Model from './pages/Model'
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="daily/:key" element={<Daily />} />
             <Route path="stock" element={<Stock />} />
             <Route path="stock/:code" element={<Stock />} />
+            <Route path="alerts" element={<Alerts />} />
             <Route path="news" element={<News />} />
             <Route path="portfolio" element={<Portfolio />} />
             <Route path="model" element={<Model />} />

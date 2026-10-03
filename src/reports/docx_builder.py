@@ -207,6 +207,27 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
                   f"{p['vol20'] * 100:.2f}%" if p["vol20"] is not None else "-", f"{p['def_score']:+.2f}", p["signal"]]
                  for p in facts["def_picks"]])
 
+    # 市場警示與持股風險
+    al_ = facts.get("alerts") or {}
+    if al_:
+        d.h1("市場警示與持股風險")
+        if not al_.get("alerts"):
+            d.para("目前沒有需要處理的警示。")
+        for a in al_.get("alerts", []):
+            color = UP if a["level"] == "嚴重" else (RGBColor(0xA8, 0x6A, 0x00) if a["level"] == "警告" else None)
+            d.para(f"［{a['level']}｜{a['scope']}］{a['title']}", bold=True, color=color)
+            d.bullets(a["reasons"] + [f"建議：{a['action']}"] + ([a["why_qty"]] if a.get("why_qty") else []))
+            for n in (a.get("news") or [])[:2]:
+                d.link_bullet(n["title"], n["url"])
+        d.para(f"全市場：漲停 {al_.get('limit_up_count', 0)} 檔、跌停 {al_.get('limit_down_count', 0)} 檔"
+               + (f"（資料日 {al_['quotes_date']}）" if al_.get("quotes_date") else ""), size=9.5)
+        for side, label in (("limit_up", "漲停"), ("limit_down", "跌停")):
+            rows = [q for q in al_.get(side, []) if q.get("reason")][:8]
+            if rows:
+                d.table(["標的", "產業", "漲跌", label + "可能原因"],
+                        [[f"{q['code']} {q['name']}", q.get("industry") or "", f"{q['chg_pct']:+.2f}%", q["reason"][:90]]
+                         for q in rows], [3, 2.4, 1.6, 9], color_col=2)
+
     # 二、漲跌歸因
     att = facts["attribution"]
     d.h1(f"二、為何今日會漲／會跌（{att['date']}）")

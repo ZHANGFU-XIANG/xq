@@ -35,6 +35,7 @@ def _warm():
         sync.pull()
         on_demand.context()  # 預載全市場日 K 與當日模型
         WARM["ready"] = True
+        data.live_alerts()  # 預先計算警示（含新聞），首次開啟警示頁不必等待
     except Exception as e:  # noqa: BLE001
         WARM["error"] = str(e)[:200]
         log.exception("預載失敗")
@@ -116,6 +117,11 @@ def news(key: str | None = None):
 @app.get("/api/portfolio", dependencies=[api])
 def portfolio():
     return data.portfolio()
+
+
+@app.get("/api/alerts", dependencies=[api])
+def alerts_(refresh: bool = False):
+    return data.live_alerts(refresh)
 
 
 @app.get("/api/model", dependencies=[api])
