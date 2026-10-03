@@ -34,6 +34,32 @@ def _finmind_headers() -> dict:
     return {"Authorization": f"Bearer {tok}"} if tok else {}
 
 
+def _isin_info() -> dict[str, dict]:
+    """備援：證交所 ISIN 公開清單（上市 strMode=2、上櫃 strMode=4），不需金鑰、沒有次數限制。
+    CFI 代碼 ES 開頭＝普通股，CE 開頭＝ETF；權證、債券等其他類別略過。"""
+    import html
+
+    info: dict[str, dict] = {}
+    for mode, market in ((2, "TWSE"), (4, "TPEx")):
+        r = requests.get(f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={mode}", timeout=60)
+        text = r.content.decode("cp950", errors="replace")
+        for row in re.findall(r"<tr>(.*?)</tr>", text, re.S):
+            cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+            if len(cells) < 6 or "　" not in cells[0]:
+                continue
+            code, name = cells[0].split("　", 1)
+            cfi, ind = cells[5], cells[4]
+            if cfi.startswith("ES") and ind:
+                is_etf = False
+            elif cfi.startswith("CE"):
+                is_etf, ind = True, "ETF"
+            else:
+                continue
+            info[code.strip()] = {"code": code.strip(), "name": name.strip(), "industry": ind, "raw_industry": ind,
+                                  "market": market, "is_etf": is_etf}
+    return info
+
+
 def stock_info() -> dict[str, dict]:
     """{code: {name, industry, market(TWSE/TPEx), is_etf}}，每日快取。"""
     global _info
@@ -58,10 +84,18 @@ def stock_info() -> dict[str, dict]:
             info[code] = {"code": code, "name": row["stock_name"], "industry": "ETF" if is_etf else ind,
                           "raw_industry": ind, "market": "TWSE" if row["type"] == "twse" else "TPEx", "is_etf": is_etf}
     except Exception as e:  # noqa: BLE001
-        log.error("取得股票清單失敗：%s", e)
-        if INFO_PKL.exists():
+        log.warning("FinMind 股票清單失敗（%s），改用證交所 ISIN 清單", str(e)[:120])
+    if len(info) < 500:  # FinMind 額度用完時會回傳錯誤訊息而不是清單
+        try:
+            info = _isin_info()
+            log.info("證交所 ISIN 清單：%d 檔", len(info))
+        except Exception as e:  # noqa: BLE001
+            log.error("取得股票清單失敗：%s", e)
+    if len(info) < 500:
+        if INFO_PKL.exists():  # 兩個來源都失敗：沿用舊快取（不論多舊）
             _info = pickle.loads(INFO_PKL.read_bytes())
             return _info
+        return info  # 不寫入快取，下次再試
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     INFO_PKL.write_bytes(pickle.dumps(info))
     _info = info

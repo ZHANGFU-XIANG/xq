@@ -100,3 +100,21 @@ def test_news_finance_filter():
     assert not is_finance({"source": g, "title": "北京在寮國設立首個境外空軍設施 - 經濟日報"})  # 媒體名不算內容
     assert not is_finance({"source": g, "title": "黃仁勳愛女驚傳新婚 | 財經 | CTWANT - CTWANT"})
     assert not is_finance({"source": "中央社國際", "title": "奈及利亞中部發生重大車禍 造成20人喪命"})
+
+
+def test_stock_info_falls_back_and_never_caches_empty(monkeypatch, tmp_path):
+    from src.agents import universe
+
+    class Bad:
+        def json(self):
+            return {"msg": "Requests reach the upper limit"}
+
+    monkeypatch.setattr(universe, "_info", None)
+    monkeypatch.setattr(universe, "INFO_PKL", tmp_path / "info.pkl")
+    monkeypatch.setattr(universe.requests, "get", lambda *a, **k: Bad())
+    monkeypatch.setattr(universe, "_isin_info", lambda: {})
+    assert universe.stock_info() == {} and not (tmp_path / "info.pkl").exists()
+    big = {str(1000 + i): {"code": str(1000 + i), "name": "x", "industry": "半導體業", "raw_industry": "半導體業",
+                           "market": "TWSE", "is_etf": False} for i in range(600)}
+    monkeypatch.setattr(universe, "_isin_info", lambda: big)
+    assert len(universe.stock_info()) == 600 and (tmp_path / "info.pkl").exists()
