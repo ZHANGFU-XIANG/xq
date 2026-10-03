@@ -89,3 +89,14 @@ def test_verifier_blocks_invented_numbers():
     assert not ok and "1600" in bad and "45.3" in bad
     ok, bad = verify("法人連續買超 7 日", facts)  # 小整數也必須有出處
     assert not ok and "7" in bad
+
+
+def test_news_finance_filter():
+    from src.agents.news import is_finance
+
+    g = "Google新聞:中國 經濟"
+    assert is_finance({"source": g, "title": "9月就業僅增2.9萬人 Fed可能放緩升息 - news.cnyes.com"})
+    assert is_finance({"source": "鉅亨網台股", "title": "台積電法說會前瞻"})
+    assert not is_finance({"source": g, "title": "北京在寮國設立首個境外空軍設施 - 經濟日報"})  # 媒體名不算內容
+    assert not is_finance({"source": g, "title": "黃仁勳愛女驚傳新婚 | 財經 | CTWANT - CTWANT"})
+    assert not is_finance({"source": "中央社國際", "title": "奈及利亞中部發生重大車禍 造成20人喪命"})

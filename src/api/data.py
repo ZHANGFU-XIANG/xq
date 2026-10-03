@@ -142,7 +142,18 @@ def news(date: str | None = None) -> dict:
     r = load_report(date)
     if not r:
         return {"news": [], "events": [], "macro": []}
-    return {"date": r["date"], "news": r.get("news", []), "events": r.get("events", []), "macro": r.get("macro", []),
+    from src.agents.news import is_finance
+
+    def keep(events):  # 事件只保留財經新聞佐證；全部被濾掉的事件不顯示
+        out = []
+        for e in events or []:
+            ns = [n for n in e.get("news", []) if is_finance(n)]
+            if ns or not e.get("news"):
+                out.append({**e, "news": ns})
+        return out
+
+    return {"date": r["date"], "news": [n for n in r.get("news", []) if is_finance(n)], "events": keep(r.get("events")),
+            "macro": keep(r.get("macro")),
             "market_view": r.get("market_view"), "us_snapshot": r.get("us_snapshot", []),
             "market_summary": (r.get("text") or {}).get("market_summary")}
 

@@ -35,6 +35,34 @@ def _parse_time(entry) -> dt.datetime | None:
     return None
 
 
+# ---------------------------------------------------------------- 只留金融經濟新聞
+FINANCE_SOURCES = ("鉅亨網", "中央社財經", "Yahoo股市")  # 本身就是財經版
+FINANCE_WORDS = (
+    "股", "債", "殖利率", "利率", "升息", "降息", "央行", "聯準會", "Fed", "FOMC", "通膨", "CPI", "PCE", "PMI", "GDP",
+    "就業", "非農", "失業", "經濟", "景氣", "匯", "美元", "台幣", "日圓", "人民幣", "歐元", "油價", "原油", "OPEC", "天然氣",
+    "金價", "黃金", "期貨", "關稅", "貿易", "出口", "進口", "外銷", "反傾銷", "制裁", "產能", "營收", "財報", "獲利", "虧損",
+    "EPS", "毛利", "目標價", "法人", "外資", "投信", "自營商", "市值", "IPO", "併購", "收購", "增資", "減資", "配息", "除息",
+    "ETF", "基金", "半導體", "晶片", "晶圓", "記憶體", "伺服器", "訂單", "出貨", "供應鏈", "投資", "資金", "銀行", "金融",
+    "房貸", "比特幣", "加密貨幣", "Nasdaq", "那斯達克", "道瓊", "標普", "費半", "日經", "華爾街", "漲", "跌",
+)
+NOT_FINANCE_WORDS = ("新婚", "婚禮", "車禍", "命案", "颱風", "地震", "氣象", "玄學", "拜佛", "選舉登場", "戰機", "空軍", "飛彈")
+
+
+def headline(title: str) -> str:
+    """Google News 標題尾巴的「 - 媒體名」與「| 財經 |」等分類字樣不算內容。"""
+    t = re.sub(r"\s+-\s+[^-]+$", "", title or "")
+    return re.sub(r"[|｜]\s*(財經|新聞|國際|證券)\s*[|｜]?", " ", t)
+
+
+def is_finance(item: dict) -> bool:
+    t = headline(item.get("title", ""))
+    if any(w in t for w in NOT_FINANCE_WORDS):
+        return False
+    if str(item.get("source", "")).startswith(FINANCE_SOURCES):
+        return True
+    return any(w.lower() in t.lower() for w in FINANCE_WORDS)
+
+
 def _cnyes_api() -> list[dict]:
     out = []
     for cat in ("tw_stock", "us_stock", "tech"):
@@ -77,7 +105,7 @@ def fetch_news(now: dt.datetime) -> list[dict]:
         items += cnyes.result()
 
     cutoff = now - dt.timedelta(hours=cfg["lookback_hours"])
-    items = [i for i in items if i["title"] and i["url"] and (i["time"] is None or i["time"] >= cutoff)]
+    items = [i for i in items if i["title"] and i["url"] and (i["time"] is None or i["time"] >= cutoff) and is_finance(i)]
     items.sort(key=lambda i: i["time"] or now, reverse=True)
     deduped: list[dict] = []
     for it in items:  # 標題相似度 > 0.8 視為同一則
