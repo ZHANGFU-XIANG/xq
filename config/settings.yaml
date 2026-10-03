@@ -1,4 +1,8 @@
 llm:
+  # 供應商順序：開源模型優先（NVIDIA build.nvidia.com → Groq），Gemini（閉源）只當最後備援
+  providers: [nvidia, groq, gemini]
+  # NVIDIA 免費開發者方案（約 40 次／分鐘，無點數制）；依序嘗試，額度用完或不支援就換下一個
+  nvidia_models: [moonshotai/kimi-k2.6, deepseek-ai/deepseek-v4.1-flash, z-ai/glm-5.3, nvidia/nemotron-3-super-120b-a12b]
   # 依序嘗試；模型下架或過載(503)時自動換下一個，只需改這裡
   gemini_models: [gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest]
   groq_models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]

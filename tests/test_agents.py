@@ -150,3 +150,17 @@ def test_overheated_stock_not_bought_in_offense():
          "alpha": {"features": {"rsi14": 90, "r20": 0.1}}}
     strategy.rank([s])
     assert s["signal"] == "過熱不追"
+
+
+def test_tuning_log_dedupes_no_change_checks(tmp_path, monkeypatch):
+    from src.agents import tuner
+
+    monkeypatch.setattr(tuner, "TUNE_LOG", tmp_path / "log.json")
+    tuner._append_log({"date": "2026-10-03", "issues": [], "changes": [], "note": "無需調整"})
+    tuner._append_log({"date": "2026-10-03", "issues": [], "changes": [{"param": "x", "before": 1, "after": 2}], "note": "改"})
+    tuner._append_log({"date": "2026-10-03", "issues": [], "changes": [], "note": "無需調整"})
+    tuner._append_log({"date": "2026-10-04", "issues": [], "changes": [], "note": "無需調整"})
+    tuner._append_log({"date": "2026-10-04", "issues": [], "changes": [], "note": "無需調整"})
+    h = tuner.history()
+    assert [(e["date"], bool(e["changes"])) for e in h] == [("2026-10-03", False), ("2026-10-03", True), ("2026-10-04", False)]
+    assert h[1]["checks"] == 2 and h[2]["checks"] == 2

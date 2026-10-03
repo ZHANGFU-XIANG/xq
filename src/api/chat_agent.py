@@ -470,6 +470,52 @@ def _compact(out, budget: int = GROQ_TOOL_CHARS) -> str:
     return s if len(s) <= budget else s[:budget] + "…（已截斷）"
 
 
+NV_TOOL_CHARS = 12000  # NVIDIA 開源模型的上下文較大，工具結果可以給多一點
+
+
+def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
+    """NVIDIA build.nvidia.com 開源模型（OpenAI 相容 function calling）；額度用完或不支援工具就換下一個模型。"""
+    from src.llm import openai_compat as oc
+
+    key = os.environ["NVIDIA_API_KEY"]
+    base = oc.PROVIDERS["nvidia"]["base_url"]
+    tools = [{"type": "function", "function": t} for t in TOOLS]
+    sys_msg = {"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}
+    models = [m for m in settings()["llm"].get("nvidia_models", []) if model_ok(m)]
+    last_err = None
+    for model in models:
+        msgs = [sys_msg] + messages[-12:]
+        outputs: list = []
+        try:
+            for _ in range(MAX_STEPS):
+                msg = oc.chat(base, key, model, msgs, tools=tools, temperature=0)
+                calls = msg["tool_calls"]
+                if not calls:
+                    text = re.sub(r"<think>.*?</think>", "", msg["content"], flags=re.S).strip()
+                    if not text:
+                        raise RuntimeError("模型沒有回答內容")
+                    return text, outputs
+                msgs.append({"role": "assistant", "content": msg["content"] or "", "tool_calls": calls})
+                for tc in calls:
+                    name = tc["function"]["name"]
+                    args = json.loads(tc["function"].get("arguments") or "{}")
+                    emit({"type": "tool", "name": name, "args": args})
+                    out = _tag(call_tool(name, args), start + len(outputs) + 1, name)
+                    outputs.append({"tool": name, "args": args, "result": out})
+                    emit({"type": "tool_result", "name": name, "ok": "error" not in out,
+                          "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
+                    msgs.append({"role": "tool", "tool_call_id": tc.get("id", name), "content": _compact(out, NV_TOOL_CHARS)})
+            return "工具呼叫次數過多，請把問題拆小一點再問。", outputs
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            log.warning("NVIDIA %s 失敗：%s", model, str(e)[:200])
+            if "429" in str(e):
+                mark_exhausted(model, "429")
+            if outputs and any(o["result"].get("pending_action") for o in outputs if isinstance(o["result"], dict)):
+                raise  # 已建立待確認動作，不要換模型重做
+    raise RuntimeError(str(last_err) if last_err else "沒有可用的 NVIDIA 模型")
+
+
 def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     from groq import Groq
 
@@ -536,8 +582,8 @@ def run(messages: list[dict], emit, loop=None) -> dict:
     if not client.available():
         return {"type": "answer", "text": "尚未設定 GEMINI_API_KEY / GROQ_API_KEY，AI 助理無法使用。", "verified": False}
     user_text = messages[-1]["content"]
-    loops = [loop] if loop else ([_gemini_loop] if os.getenv("GEMINI_API_KEY") else []) + \
-        ([_groq_loop] if os.getenv("GROQ_API_KEY") else [])
+    by_name = {"nvidia": _nvidia_loop, "groq": _groq_loop, "gemini": _gemini_loop}
+    loops = [loop] if loop else [by_name[p] for p in client.providers() if p in by_name]
     text, outputs, err = "", [], None
     for fn in loops:
         try:

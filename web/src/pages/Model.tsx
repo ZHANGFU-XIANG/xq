@@ -27,6 +27,20 @@ function DataSources() {
   )
 }
 
+/** 調整紀錄依日期合併：同一天只顯示一列；有修改就列出修改，健康檢查只顯示次數。 */
+function groupByDate(log: Json[]) {
+  const by = new Map<string, { date: string; changes: Json[]; issues: Json[]; notes: string[]; checks: number }>()
+  for (const e of log) {
+    const g = by.get(e.date) ?? { date: e.date, changes: [] as Json[], issues: [] as Json[], notes: [] as string[], checks: 0 }
+    g.changes.push(...(e.changes ?? []))
+    g.issues.push(...(e.issues ?? []))
+    g.checks += e.checks ?? 1
+    if (e.changes?.length && e.note) g.notes.push(e.note)
+    by.set(e.date, g)
+  }
+  return [...by.values()].sort((x, y) => (x.date < y.date ? 1 : -1))
+}
+
 export default function Model() {
   const { data: m, isLoading, error } = useQuery<Json>({ queryKey: ['model'], queryFn: () => get('/api/model') })
   if (isLoading) return <Loading />
@@ -103,11 +117,14 @@ export default function Model() {
       <Section title="調整 Agent 紀錄">
         {!m.tuning_log?.length ? <Empty>還沒有調整紀錄。</Empty> : (
           <div className="space-y-4">
-            {[...m.tuning_log].reverse().map((e: Json, i: number) => (
-              <div key={i}>
-                <div className="font-medium">{e.date}　{e.changes?.length ? `修改 ${e.changes.length} 項參數` : e.note || '無需調整'}</div>
-                <Bullets items={[...(e.issues ?? []).map((x: Json) => `偵測：${x.detail}`), ...(e.changes ?? []).map((c: Json) => `修改 ${c.param}：${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}${c.reason ? `（${c.reason}）` : ''}`)]} />
-                {e.changes?.length > 0 && e.note && <p className="mt-1 text-sm text-ink-2">{e.note}</p>}
+            {groupByDate(m.tuning_log).map((g) => (
+              <div key={g.date}>
+                <div className="font-medium">
+                  {g.date}　{g.changes.length ? `修改 ${g.changes.length} 項參數` : g.issues.length ? `偵測到 ${g.issues.length} 項問題，未修改` : '無需調整'}
+                  <span className="ml-2 text-sm font-normal text-muted">當天健康檢查 {g.checks} 次</span>
+                </div>
+                <Bullets items={[...g.issues.map((x: Json) => `偵測：${x.detail}`), ...g.changes.map((c: Json) => `修改 ${c.param}：${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}${c.reason ? `（${c.reason}）` : ''}`)]} />
+                {g.notes.map((n, i) => <p key={i} className="mt-1 text-sm text-ink-2">{n}</p>)}
               </div>
             ))}
           </div>

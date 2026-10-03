@@ -56,3 +56,43 @@ def test_sentiment_drops_unsourced_and_invented(monkeypatch):
     out = news.analyze_sentiment(items, {"3037": "欣興"})
     assert len(out["events"]) == 1 and out["events"][0]["multi_source"]
     assert out["by_code"]["3037"]["score"] == 2.0
+
+
+def test_openai_compat_extract_json_and_provider_order(monkeypatch):
+    from src.llm import client as lc
+    from src.llm import openai_compat as oc
+
+    assert oc.extract_json('<think>想一下</think>好的 ```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert oc.extract_json('結果如下 {"a": {"b": 2}} 以上') == '{"a": {"b": 2}}'
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("GEMINI_API_KEY", "g-test")
+    c = lc.LLMClient()
+    assert c.providers() == ["nvidia", "groq", "gemini"]  # 開源優先，Gemini 最後備援
+
+
+def test_nvidia_structured_falls_back_to_next_model(monkeypatch):
+    from pydantic import BaseModel
+
+    from src.llm import client as lc
+    from src.llm import openai_compat as oc
+
+    class Out(BaseModel):
+        x: int
+
+    calls = []
+
+    def fake_chat(base, key, model, msgs, **kw):
+        calls.append(model)
+        if len(calls) == 1:
+            raise oc.APIError(429, "rate limit")
+        return {"content": '{"x": 7}', "tool_calls": []}
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(oc, "chat", fake_chat)
+    monkeypatch.setattr(lc.LLMClient, "_throttle_nv", lambda self: None)
+    monkeypatch.setattr(lc, "_COOLDOWN", {})
+    r = lc.LLMClient().structured("p", Out)
+    assert r.x == 7 and len(calls) == 2 and calls[0] != calls[1]

@@ -292,8 +292,17 @@ def apply(changes: list[dict], issues: list[dict], today: dt.date, note: str = "
 
 
 def _append_log(entry: dict) -> None:
+    """寫入調整紀錄。「無需調整」的健康檢查同一天只留一筆（累計檢查次數），不會重複出現；
+    當天已有實際修改時，健康檢查只計次、不另外新增「無需調整」。"""
     log_ = json.loads(TUNE_LOG.read_text(encoding="utf-8")) if TUNE_LOG.exists() else []
-    log_.append(entry)
+    if not entry.get("changes") and not entry.get("issues"):
+        same_day = [e for e in log_ if e.get("date") == entry["date"]]
+        target = next((e for e in reversed(same_day) if e.get("changes")), None) or             next((e for e in reversed(same_day) if not e.get("changes") and not e.get("issues")), None)
+        if target is not None:
+            target["checks"] = target.get("checks", 1) + 1
+            TUNE_LOG.write_text(json.dumps(log_, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+            return
+    log_.append({**entry, "checks": 1})
     TUNE_LOG.write_text(json.dumps(log_, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
 
 
