@@ -202,8 +202,13 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
     hit = _CACHE.get(key)
     if hit:
         return hit[1]
+    from src.agents import mops
+
+    def gather(kv):  # 新聞標題＋公開資訊觀測站近 14 日重大訊息（火災、增資、財報更正等）
+        return _news_titles(kv[0], kv[1], 6) + mops.material_news(kv[0], 14)[:5]
+
     with ThreadPoolExecutor(6) as ex:
-        lists = list(ex.map(lambda kv: _news_titles(kv[0], kv[1], 6), stocks.items()))
+        lists = list(ex.map(gather, stocks.items()))
     pool, idx = [], 1
     for (code, name), items in zip(stocks.items(), lists):
         for n in items:
@@ -217,6 +222,7 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
             res = client.structured(
                 "以下是各股票近 7 日新聞標題。請找出『對股價不利的事件或基本面消息』，每則判斷都要引用新聞編號。\n"
                 "算：營收／獲利衰退或下修、財報更正、虧損、違約、弊案、訴訟、處分、大股東申讓或減資、大客戶流失、產品問題、"
+                "工廠災害停工、現金增資或發行可轉債（股權稀釋）、"
                 "法人調降評等或目標價、被列注意／處置。\n"
                 "不算：單純描述股價下跌或技術面走勢、每日法人買賣超統計、與該公司無關的同名新聞或廣告、利多新聞。"
                 "若某檔沒有符合的新聞就不要列出。\n\n" + "\n".join(lines), RiskResult,

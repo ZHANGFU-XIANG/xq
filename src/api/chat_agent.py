@@ -28,6 +28,7 @@ SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資�
 規則：
 1. 回答任何股價、張數、金額、比例、機率等數字前，必須先呼叫工具取得；只能使用工具結果中的數字，禁止自行估算或憑記憶。
 2. 使用者問到任何股票（包含每日建議沒有的），先用 find_stock 找代號，再用 analyze_stock 取得分析與操作建議。
+2b. 問公司在做什麼、財報、EPS、營收、股利、重大訊息時，用 company_profile（公開資訊觀測站官方資料）。
 3. 給買進建議時，要說明：屬於進攻籃或穩健籃與原因、建議股數（張＋零股）、限價、停損、出場計畫、主要風險。
 4. 使用者說已成交（例如「我買了 2330 一張 1000 元」）時呼叫 record_trade；要重新產生報告時呼叫 run_analysis。這兩個工具只會建立待確認動作，請提醒使用者在畫面上按「確認」。
 5. 「如果買/賣…會怎樣」用 simulate_trades 試算，說明成本、持股率與競賽規則影響。
@@ -39,6 +40,8 @@ TOOLS = [
     {"name": "find_stock", "description": "用股票名稱或代號搜尋台股（上市櫃、ETF）",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "stock_profile", "description": "個股基本盤：價量、52 週高低、本益比/淨值比/殖利率、月營收、法人、融資券、模型分數",
+     "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
+    {"name": "company_profile", "description": "公開資訊觀測站公司資料：主要業務、董事長、資本額、成立／上市日、近 8 季營收毛利率營益率 EPS、最新財報摘要、月營收、重大訊息、內部人持股、股利",
      "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
     {"name": "analyze_stock", "description": "個股完整分析與操作建議：進攻/穩健雙籃分數與理由、一個月模型、隔夜預測、今日漲跌歸因、國際因子敏感度、新聞，以及買進張數或持股賣出建議",
      "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
@@ -102,6 +105,13 @@ def call_tool(name: str, args: dict) -> dict:
             return {"results": on_demand.resolve(args["query"])}
         if name == "stock_profile":
             return on_demand.profile(args["code"])
+        if name == "company_profile":
+            from src.agents import mops
+
+            c = mops.company(args["code"])
+            if not c.get("error"):
+                c["news"] = [{k: n[k] for k in ("date", "title")} for n in c["news"][:8]]
+            return c
         if name == "analyze_stock":
             return on_demand.analyze(args["code"])
         if name == "get_daily_report":

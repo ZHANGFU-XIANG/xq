@@ -155,6 +155,27 @@ def analysis(code: str):
     return on_demand.analyze(code)
 
 
+@app.get("/api/stock/{code}/company", dependencies=[api])
+def company(code: str):
+    from src.agents import mops
+
+    return mops.company(code)
+
+
+class MopsNews(BaseModel):
+    marketKind: str
+    companyId: str
+    enterDate: str
+    serialNumber: str
+
+
+@app.post("/api/mops/news", dependencies=[api])
+def mops_news(body: MopsNews):
+    from src.agents import mops
+
+    return mops.news_detail(body.model_dump())
+
+
 @app.get("/api/stock/{code}/news", dependencies=[api])
 def stock_news(code: str):
     return on_demand.search_news(f"{on_demand.stock_meta(code)['name']} {code}", 15)

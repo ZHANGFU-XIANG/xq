@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
+import Company from '../components/Company'
 import KLine from '../components/KLine'
 import { BasketTag, Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Panel, Section, Stat } from '../components/ui'
 import { get, type Json } from '../lib/api'
@@ -164,6 +165,7 @@ export default function Stock() {
       </div>
       <Panel className="mb-8"><KLine code={code} height={420} /></Panel>
       <Section title="基本盤"><Profile p={p} /></Section>
+      {!p.is_etf && <Company code={code} />}
       <Analysis code={code} />
     </>
   )
