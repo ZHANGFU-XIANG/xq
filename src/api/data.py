@@ -1,0 +1,116 @@
+"""讀取每日報告（facts JSON）與投資組合狀態，整理成前端／AI 助理需要的格式。"""
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+
+from src.agents import on_demand
+from src.config import FACTS_DIR, REPORT_DIR, rules, stock_meta
+from src.state import params
+from src.state import portfolio as pfm
+
+
+def report_files() -> list[dict]:
+    out = []
+    for fp in sorted(FACTS_DIR.glob("*.json"), reverse=True):
+        date, title = fp.stem.split("_", 1)
+        out.append({"date": date, "title": title, "key": fp.stem})
+    return out
+
+
+@lru_cache(maxsize=32)
+def _load(key: str, mtime: float) -> dict:
+    return json.loads((FACTS_DIR / f"{key}.json").read_text(encoding="utf-8"))
+
+
+def load_report(key: str | None = None) -> dict | None:
+    files = report_files()
+    if not files:
+        return None
+    if key is None:
+        pre = [f for f in files if f["title"] == "盤前報告"]
+        key = (pre or files)[0]["key"]
+    elif len(key) == 10:  # 只給日期 → 該日盤前報告優先
+        same = [f for f in files if f["date"] == key]
+        if not same:
+            return None
+        key = next((f["key"] for f in same if f["title"] == "盤前報告"), same[0]["key"])
+    fp = FACTS_DIR / f"{key}.json"
+    if not fp.exists():
+        return None
+    data = _load(key, fp.stat().st_mtime)
+    stem = fp.stem
+    month = data["date"][:7]
+    data = dict(data)
+    data["files"] = {ext: f"{month}/{stem}{suffix}" for ext, suffix in
+                     (("docx", ".docx"), ("pptx", ".pptx"), ("csv", "_下單清單.csv"))
+                     if (REPORT_DIR / month / f"{stem}{suffix}").exists()}
+    data["key"] = key
+    return data
+
+
+def report_summary(date: str | None = None) -> dict:
+    r = load_report(date)
+    if not r:
+        return {"error": "查無報告"}
+    return {
+        "date": r["date"], "title": r["title"], "allocation": {k: r["allocation"][k] for k in ("offense", "defense", "reasons")},
+        "taiex_prediction": r["predictions"].get("TAIEX"),
+        "orders": [{k: o.get(k) for k in ("action", "basket_name", "code", "name", "shares", "lots", "odd", "limit_price",
+                                          "stop", "amount", "weight_pct", "why_sell")} for o in r["orders"]],
+        "compliance": r["compliance"], "top_picks": r["top_picks"][:10], "def_picks": r.get("def_picks", [])[:8],
+        "summary": r.get("text", {}).get("market_summary"), "outlook": r.get("text", {}).get("outlook"),
+    }
+
+
+def portfolio() -> dict:
+    pf = pfm.build_portfolio()
+    meta = pfm.load_meta()
+    prices = {}
+    for c in pf.positions:
+        df = on_demand.price_df(c)
+        if not df.empty:
+            prices[c] = float(df.Close.iloc[-1])
+    nav = pf.nav(prices)
+    pos = []
+    for c, p in pf.positions.items():
+        price = prices.get(c, p.avg_cost)
+        pos.append({"code": c, "name": stock_meta(c)["name"], "shares": p.shares, "avg_cost": round(p.avg_cost, 2),
+                    "price": price, "market_value": round(p.shares * price), "pnl": round(p.shares * price - p.cost_basis),
+                    "pnl_pct": round((price / p.avg_cost - 1) * 100, 2) if p.avg_cost else 0,
+                    "weight_pct": round(p.shares * price / nav * 100, 2) if nav else 0,
+                    "basket": params.basket(meta.get(c, {}).get("basket") or "offense")["name"],
+                    "stop": meta.get(c, {}).get("stop"), "margin_loan": round(p.margin_loan)})
+    initial = rules()["capital"]["initial"]
+    return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
+            "futures_cash": round(pf.futures_cash), "holding_ratio": round(pf.holding_ratio(prices), 4),
+            "margin_loan": round(pf.margin_loan()), "realized_pnl": round(pf.realized_pnl), "trade_count": pf.trade_count,
+            "traded_symbols": sorted(pf.traded_symbols), "positions": pos, "trades": pf.trades[-50:][::-1],
+            "nav_history": pfm.load_history()}
+
+
+def macro_latest() -> dict:
+    r = load_report()
+    if not r:
+        return {"error": "查無報告"}
+    return {"date": r["date"], "events": r.get("macro", []), "analysis": r.get("text", {}).get("macro_analysis"),
+            "hypothetical": r.get("hypothetical")}
+
+
+def model_health() -> dict:
+    from src.agents import tuner
+
+    r = load_report() or {}
+    am = r.get("alpha_model", {})
+    return {"date": r.get("date"), "backtest": am.get("metrics"), "base_rate": am.get("base_rate"),
+            "n_stocks": am.get("n_stocks"), "feature_ic": am.get("feature_ic"),
+            "live": (r.get("tuner") or {}).get("stats"), "tuning_log": tuner.history()[-10:],
+            "learned_params": params.learned()}
+
+
+def news(date: str | None = None) -> dict:
+    r = load_report(date)
+    if not r:
+        return {"news": [], "events": [], "macro": []}
+    return {"date": r["date"], "news": r.get("news", []), "events": r.get("events", []), "macro": r.get("macro", []),
+            "market_view": r.get("market_view")}

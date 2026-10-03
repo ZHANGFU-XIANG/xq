@@ -1,0 +1,117 @@
+name: invest-agent
+
+on:
+  schedule:
+    - cron: "0 23 * * 0-4"   # 台灣 07:00（週一～週五）盤前報告
+    - cron: "20 0 * * 1-5"   # 台灣 08:20 開盤前更新
+    - cron: "45 7 * * 1-5"   # 台灣 15:45 盤後檢討＋隔日預掛單
+    - cron: "30 8 * * 5"     # 台灣週五 16:30 週報
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 執行模式
+        type: choice
+        options: [premarket, preopen, postclose, weekly, tune, record]
+        default: premarket
+      force:
+        description: 非交易日也執行
+        type: boolean
+        default: false
+      rollback:
+        description: "[tune] 回復上一次調整前的參數"
+        type: boolean
+        default: false
+      code:
+        description: "[record] 股票代號"
+        required: false
+      side:
+        description: "[record] BUY / SELL"
+        required: false
+      shares:
+        description: "[record] 股數（1 張 = 1000）"
+        required: false
+      price:
+        description: "[record] 成交價"
+        required: false
+      margin:
+        description: "[record] 融資"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: invest-agent
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Taipei
+      PYTHONIOENCODING: utf-8
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+      REPORT_TO: ${{ secrets.REPORT_TO }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Restore market data cache
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: market-${{ github.run_id }}
+          restore-keys: market-
+      - name: Install CJK fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
+      - run: pip install -r requirements.txt
+      - name: Decide mode
+        id: mode
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 23 * * 0-4") echo "mode=premarket" >> "$GITHUB_OUTPUT" ;;
+            "20 0 * * 1-5") echo "mode=preopen" >> "$GITHUB_OUTPUT" ;;
+            "45 7 * * 1-5") echo "mode=postclose" >> "$GITHUB_OUTPUT" ;;
+            "30 8 * * 5")   echo "mode=weekly" >> "$GITHUB_OUTPUT" ;;
+            *)              echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Run
+        run: |
+          MODE="${{ steps.mode.outputs.mode }}"
+          if [ "$MODE" = "record" ]; then
+            ARGS="--code ${{ inputs.code }} --side ${{ inputs.side }} --shares ${{ inputs.shares }} --price ${{ inputs.price }}"
+            [ "${{ inputs.margin }}" = "true" ] && ARGS="$ARGS --margin"
+            python -m src.main record $ARGS
+          elif [ "$MODE" = "tune" ]; then
+            if [ "${{ inputs.rollback }}" = "true" ]; then python -m src.main tune --rollback; else python -m src.main tune; fi
+          else
+            FORCE=""
+            [ "${{ inputs.force }}" = "true" ] && FORCE="--force"
+            python -m src.main "$MODE" $FORCE
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-${{ steps.mode.outputs.mode }}-${{ github.run_id }}
+          path: |
+            reports/**/*.docx
+            reports/**/*.pptx
+            reports/**/*.csv
+          if-no-files-found: ignore
+      - name: Commit state and reports
+        run: |
+          git config user.name "invest-agent-bot"
+          git config user.email "invest-agent-bot@users.noreply.github.com"
+          for f in data/trades.csv data/position_meta.json data/nav_history.json data/pending_orders.json \
+                   data/prediction_log.csv data/tuning_log.json config/learned_params.yaml data/facts reports; do
+            if [ -e "$f" ]; then git add "$f"; fi
+          done
+          git diff --cached --quiet || (git commit -m "chore: ${{ steps.mode.outputs.mode }} $(date +%F)" && git pull --rebase && git push)

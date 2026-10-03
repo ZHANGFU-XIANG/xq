@@ -1,0 +1,191 @@
+llm:
+  # 依序嘗試；模型下架或過載(503)時自動換下一個，只需改這裡
+  gemini_models: [gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest]
+  groq_models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]
+  temperature: 0
+  min_interval_sec: 7               # 免費層速率限制（約 10 RPM）
+  max_retries: 2
+
+# ---------------------------------------------------------------- 全市場選股
+universe:
+  include_etf: true
+  exclude_industries: [ETN, Index, 所有證券, 存託憑證, 大盤, 創新板股票]
+  exclude_name_keywords: [反1, 反向, 正2, 槓桿, 期貨, 債]   # 槓桿/反向/債券/期貨 ETF 不納入模型
+  prefilter_min_value: 20000000     # 最近交易日成交值 ≥ 2,000 萬才下載歷史
+  min_avg_value20: 50000000         # 20 日均成交值 ≥ 5,000 萬
+  min_price: 10
+  history_years: 3
+
+alpha:
+  horizon: 20                       # 預測未來 20 個交易日（約一個月）
+  high_window: 252                  # 「創新高」= 超過過去 252 日（52 週）最高價
+  sample_every: 5                   # 每 5 日取一個樣本，降低自相關
+  top_k: 20                         # 回測用：每期前 20 名
+  n_folds: 4
+  fold_days: 60
+  candidates: 40                    # 進入深度分析（法人/營收/新聞/隔夜預測）的檔數
+
+# ---------------------------------------------------------------- 攻守配置（動態）
+allocation:
+  base_offense: 0.60                # 基準：進攻 60% / 穩健 40%（佔目標持股市值）
+  min_offense: 0.40
+  max_offense: 0.70
+  overheat: {taiex_rsi: 75, taiex_r20: 0.08, taiex_dist_ma60: 0.10}   # 大盤過熱訊號，每項成立進攻 −5%
+  strong: {taiex_above_ma60: true, taiex_r20_min: 0.02}               # 大盤健康上漲且無失誤 → 進攻 +5%
+  drawdown_steps: [[0.04, 0.10], [0.08, 0.20]]                        # 總資產回撤 ≥4% 進攻 −10%，≥8% −20%
+  late_days: 15                     # 剩餘交易日 ≤ 15 時：已正報酬 → 進攻 −10% 保住晉級；仍虧損 → 進攻 +10% 爭取轉正
+
+baskets:
+  offense:
+    name: 進攻籃
+    max_positions: 6
+    max_weight: 0.25
+    allow_margin: true
+    buy_threshold: 0.30
+    take_profit: [[0.10, 0.3333], [0.20, 0.5]]
+    anti_chase: {max_rsi: 82, max_r20: 0.45, pullback_rsi: 75}   # 超過上限不買；RSI > 75 限價等回檔
+  defense:
+    name: 穩健籃
+    max_positions: 4
+    max_weight: 0.20
+    allow_margin: false
+    buy_threshold: 0.20
+    take_profit: [[0.06, 0.3333], [0.12, 0.5]]
+    candidates: 25
+    eligible: {max_rsi: 68, c_ma20: [-0.06, 0.06], max_beta: 1.1}
+
+# 穩健籃評分權重
+defense_weights:
+  up: 0.35                          # 一個月收正報酬機率
+  drawdown: 0.25                    # 預期最大回檔小
+  lowvol: 0.15                      # 低波動
+  institutional: 0.15               # 法人籌碼
+  revenue: 0.10                     # 營收穩定成長
+
+# 進攻籃綜合分數權重（調整 Agent 可在範圍內修改，實際值見 config/learned_params.yaml）
+score_weights:
+  alpha: 0.35                       # 模型預期一個月超額報酬
+  newhigh: 0.20                     # 一個月內創 52 週新高機率
+  institutional: 0.15               # 三大法人近 5 日買賣超
+  revenue: 0.10                     # 月營收年增率
+  overnight: 0.10                   # 美股 → 台股隔夜預測
+  sentiment: 0.10                   # 個股新聞
+
+strategy:
+  style: aggressive
+  target_holding_ratio: 0.90        # 目標持股率（規則下限 70%，保留緩衝）
+  max_holding_ratio: 1.00           # 持股率上限（>100% 代表使用融資槓桿）
+  max_positions: 10                 # 兩籃合計上限（各籃上限見 baskets）
+  min_positions: 5
+  risk_per_trade: 0.015             # 每筆最大可承受虧損 = 總資產 × 1.5% × 信心係數
+  max_weight: 0.25                  # 單一標的上限
+  sector_max_weight: 0.50           # 單一產業上限
+  liquidity_cap: 0.02               # 不超過 20 日均量 2%
+  atr_mult_stop: 2.0
+  max_stop_pct: 0.10
+  buy_score_threshold: 0.30
+  sell_score_threshold: -0.30
+  swap_margin: 0.015                # 換股：新標的預期報酬需高出「原標的 + 換股成本」1.5%
+  allow_margin: true
+  max_margin_loan_ratio: 0.30       # 融資借款上限佔總資產
+  allow_odd_lot: true
+  take_profit: [[0.10, 0.3333], [0.20, 0.5]]   # [漲幅, 賣出剩餘部位比例]（月持有，停利放寬）
+  futures_reserve: 300000           # 期貨帳戶保留金額；其餘建議轉入證券戶以提高持股率
+  etf_fillers: ["0050", "006208"]   # 持股率或標的數不足時的補位 ETF（稅 0.1%）
+  limit_buffer: 0.005               # 買進限價 = 預測開盤價 × (1 + 0.5%)
+  min_order_pct: 0.01               # 單筆買進金額 < 總資產 1% 不下單
+
+predictor:
+  history_years: 2
+  min_hit_rate: 0.55                # 回測方向命中率低於此值則降權
+  ridge_alpha: 5.0
+
+# ---------------------------------------------------------------- 調整 Agent
+tuner:
+  overnight_window: 10              # 近 10 次隔夜預測
+  overnight_min_hit: 0.45           # 方向命中率低於此值 → 失準
+  big_miss_bands: 3.0               # 大盤跳空誤差 > 3 倍誤差帶 → 重大失誤
+  alpha_min_matured: 20             # 至少 20 筆到期的月預測才評估
+  alpha_min_excess: -0.03           # 推薦標的平均超額報酬 < -3% → 失準
+  max_drawdown: 0.08                # 總資產自高點回落 > 8% → 降低風險
+  big_loss_nav: 0.015               # 單一標的單日虧損 > 總資產 1.5% → 重大失誤
+  accept_improvement: 0.05          # 新參數需比現行回測指標進步 5% 以上才採用
+  bounds:
+    risk_per_trade: [0.008, 0.02]
+    max_weight: [0.15, 0.25]
+    atr_mult_stop: [1.5, 3.0]
+    score_weight: [0.05, 0.50]
+
+# ---------------------------------------------------------------- 新聞與國際大事
+news:
+  max_items: 180
+  lookback_hours: 24
+  rss:
+    - {name: 鉅亨網台股, url: "https://news.cnyes.com/rss/v1/news/category/tw_stock"}
+    - {name: 鉅亨網美股, url: "https://news.cnyes.com/rss/v1/news/category/us_stock"}
+    - {name: 鉅亨網國際, url: "https://news.cnyes.com/rss/v1/news/category/wd_stock"}
+    - {name: 鉅亨網外匯, url: "https://news.cnyes.com/rss/v1/news/category/forex"}
+    - {name: 中央社財經, url: "https://feeds.feedburner.com/rsscna/finance"}
+    - {name: 中央社國際, url: "https://feeds.feedburner.com/rsscna/intworld"}
+    - {name: Yahoo股市, url: "https://tw.stock.yahoo.com/rss?category=tw-market"}
+  google_news_queries: [台股 法人, 聯準會 利率, 關稅 貿易, 油價 OPEC, 美元 台幣 匯率, 中國 經濟, 地緣政治 戰爭, 輝達 NVIDIA]
+
+# 國際因子：用來量化「國際大事 → 持股」的影響幅度（歷史敏感度 β）
+macro_factors:
+  US_RATES: {ticker: "^TNX", name: 美國10年債殖利率, mode: diff}
+  USD_TWD: {ticker: "TWD=X", name: 美元兌台幣, mode: pct}
+  OIL: {ticker: "CL=F", name: 西德州原油, mode: pct}
+  US_TECH: {ticker: "^SOX", name: 費城半導體, mode: pct}
+  US_MARKET: {ticker: "^GSPC", name: 標普500, mode: pct}
+  CHINA: {ticker: "FXI", name: 中國大型股ETF, mode: pct}
+  JAPAN: {ticker: "^N225", name: 日經225, mode: pct}
+  RISK: {ticker: "^VIX", name: VIX恐慌指數, mode: pct}
+  GOLD: {ticker: "GC=F", name: 黃金, mode: pct}
+
+us_watch:
+  indices: {"^SOX": 費城半導體, "^IXIC": 那斯達克, "^GSPC": 標普500, "NQ=F": 那斯達克期貨, "^VIX": VIX恐慌指數, "TWD=X": 美元兌台幣, "^TNX": 美10年債殖利率, "CL=F": 西德州原油, "GC=F": 黃金, "^N225": 日經225, "FXI": 中國大型股ETF}
+  stocks: {NVDA: 輝達, AAPL: 蘋果, MSFT: 微軟, GOOGL: Alphabet, AMZN: 亞馬遜, META: Meta, AVGO: 博通, AMD: 超微, TSM: 台積電ADR, SMCI: 美超微, MU: 美光, QCOM: 高通, ARM: 安謀, DELL: 戴爾, TSLA: 特斯拉, XBI: 美國生技ETF, XLF: 美國金融ETF, ITA: 美國國防ETF}
+
+# 產業 → 隔夜美股驅動因子（全市場個股自動套用；watchlist 可個別覆寫）
+industry_drivers:
+  半導體業: [TSM, ^SOX, NVDA]
+  電子零組件業: [NVDA, ^SOX, AAPL]
+  電腦及週邊設備業: [NVDA, DELL, SMCI]
+  通信網路業: [AVGO, ^IXIC]
+  光電業: [AAPL, ^IXIC]
+  電子通路業: [^SOX, ^IXIC]
+  資訊服務業: [MSFT, ^IXIC]
+  其他電子業: [^SOX, ^IXIC]
+  電子工業: [^SOX, ^IXIC]
+  生技醫療業: [XBI, ^GSPC]
+  化學生技醫療: [XBI, ^GSPC]
+  金融保險: [XLF, ^TNX]
+  汽車工業: [TSLA, ^GSPC]
+  電機機械: [ITA, ^GSPC]
+  航運業: [CL=F, ^GSPC]
+  塑膠工業: [CL=F, ^GSPC]
+  油電燃氣業: [CL=F, ^GSPC]
+  化學工業: [CL=F, ^GSPC]
+  ETF: [TSM, ^SOX, ^GSPC]
+  default: [^GSPC, ^SOX]
+
+# 個別覆寫（選用）
+watchlist:
+  - {code: "2330", name: 台積電, drivers: [TSM, NVDA, ^SOX]}
+  - {code: "2454", name: 聯發科, drivers: [QCOM, ARM, ^SOX]}
+  - {code: "2317", name: 鴻海, drivers: [NVDA, AAPL, SMCI]}
+  - {code: "2382", name: 廣達, drivers: [NVDA, SMCI, DELL]}
+  - {code: "3231", name: 緯創, drivers: [NVDA, SMCI, DELL]}
+  - {code: "6669", name: 緯穎, drivers: [NVDA, META, MSFT]}
+  - {code: "2345", name: 智邦, drivers: [AVGO, META, ^IXIC]}
+  - {code: "3661", name: 世芯-KY, drivers: [AVGO, NVDA, ^SOX]}
+  - {code: "2408", name: 南亞科, drivers: [MU, ^SOX]}
+  - {code: "5274", name: 信驊, drivers: [NVDA, SMCI, ^SOX]}
+
+# 法說會 / 財報 PDF：放在 data/pdfs/{代號}_任意名稱.pdf，或列出網址
+filings:
+  urls: []
+
+email:
+  enabled: true
+  to: []                            # 也可用環境變數 REPORT_TO（逗號分隔）

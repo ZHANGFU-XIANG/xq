@@ -1,0 +1,54 @@
+# 2026 德明X富達投資擂台 全國大專院校組模擬投資競賽 — 競賽規則
+# 來源：https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則
+competition:
+  name: 2026 德明X富達投資擂台 全國大專院校組模擬投資競賽
+  start: 2026-10-05
+  end: 2026-11-27
+  trading_days: 38
+  build_period_end: 2026-10-16      # 建倉期：此日(含)之前不罰持股率
+  presentation_upload_deadline: 2026-12-16
+  final_date: 2026-12-19
+
+capital:
+  initial: 10000000
+  securities: 8000000
+  futures: 2000000                  # 可自由出入金
+
+instruments:
+  allowed: [上市櫃股票, ETF, 大台, 小台, 微台, 台指選擇權, 股票期貨]
+  forbidden: [上市櫃權證]
+
+hours:
+  securities: ["09:00", "13:30"]
+  futures: ["08:45", "13:45"]
+  preorder_after: "15:30"           # 前一日 15:30 之後可預掛單
+
+costs:
+  stock_tax: 0.003                  # 含現股當沖
+  etf_tax: 0.001
+  commission: 0.001425
+  min_commission: 20                # 假設值，依平台實際為準
+  index_futures_tax: 0.00002
+  options_tax: 0.0001
+
+credit:
+  margin_ratio: 0.60                # 融資成數 60%（自備 40%）
+  short_margin_ratio: 0.90          # 融券保證金成數 90%
+
+requirements:
+  min_trades: 10                    # 買、賣各算一筆
+  min_symbols: 5
+  min_holding_ratio: 0.70
+
+penalties:
+  holding_ratio_penalty: 0.002      # 每次扣報酬率 0.2%，每日收盤評估，只算實際持股
+
+ranking:
+  only_positive_return: true
+  presentation_top_n: 20
+  presentation_minutes: 6
+  weight_ranking: 0.5
+  weight_presentation: 0.5
+
+# 交易所休市日（競賽期間）：2026 國慶 10/10 逢週六→10/9 補假；光復節 10/25 逢週日→10/26 補假
+holidays: [2026-10-09, 2026-10-26]

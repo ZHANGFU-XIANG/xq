@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nav: #14213D;
+  --color-ink: #14213D;
+  --color-ink-2: #3B4763;
+  --color-muted: #6B7489;
+  --color-line: #D9DEE7;
+  --color-mist: #EEF1F5;
+  --color-paper: #FFFFFF;
+  --color-up: #C8323A;
+  --color-down: #178A55;
+  --color-offense: #6B46A8;
+  --color-defense: #2F6690;
+  --color-link: #2450C7;
+  --color-warn: #A86A00;
+  --font-sans: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+  --font-serif: "Noto Serif TC", "PMingLiU", serif;
+}
+
+:root {
+  color-scheme: light;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: var(--color-mist);
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-nav: #0A1222;
+    --color-ink: #E6EAF2;
+    --color-ink-2: #B9C1D3;
+    --color-muted: #8C95AA;
+    --color-line: #2C3650;
+    --color-mist: #0F1729;
+    --color-paper: #172138;
+    --color-up: #F0626A;
+    --color-down: #3DBE84;
+    --color-offense: #A98BE0;
+    --color-defense: #6AA6D6;
+    --color-link: #7FA2FF;
+    --color-warn: #E0A33A;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-nav: #0A1222;
+  --color-ink: #E6EAF2;
+  --color-ink-2: #B9C1D3;
+  --color-muted: #8C95AA;
+  --color-line: #2C3650;
+  --color-mist: #0F1729;
+  --color-paper: #172138;
+  --color-up: #F0626A;
+  --color-down: #3DBE84;
+  --color-offense: #A98BE0;
+  --color-defense: #6AA6D6;
+  --color-link: #7FA2FF;
+  --color-warn: #E0A33A;
+}
+
+body { margin: 0; background: var(--color-mist); min-height: 100vh; }
+.num { font-variant-numeric: tabular-nums; }
+.title { font-family: var(--font-serif); font-weight: 700; letter-spacing: 0.02em; }
+@layer base {
+  a { color: var(--color-link); }
+  :focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; border-radius: 4px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.prose-answer p { margin: 0.4em 0; }
+.prose-answer ul { padding-left: 1.2em; list-style: disc; margin: 0.3em 0; }
+.prose-answer ol { padding-left: 1.4em; list-style: decimal; margin: 0.3em 0; }
+.prose-answer strong { font-weight: 700; }
+.prose-answer .unverified { color: var(--color-warn); text-decoration: underline dotted; }

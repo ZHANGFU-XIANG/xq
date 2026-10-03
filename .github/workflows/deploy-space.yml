@@ -1,0 +1,41 @@
+name: deploy-space
+
+# 程式碼推到 main 時，建置前端並同步到 Hugging Face Space（Gradio SDK，由 app.py 啟動 FastAPI）。
+# 資料與報告不推，Space 啟動後每 10 分鐘自行從 GitHub 同步。
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["data/**", "reports/**", "config/learned_params.yaml"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web
+        run: cd web && npm ci && npm run build
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}   # 例如 ZHANGFU-XIANG/xq
+        run: |
+          set -e
+          test -n "$HF_TOKEN" && test -n "$HF_SPACE" || { echo "請先設定 secrets.HF_TOKEN 與 vars.HF_SPACE"; exit 1; }
+          mkdir /tmp/space
+          rsync -a --exclude .git --exclude data/facts --exclude reports --exclude data/cache \
+                --exclude web/node_modules --exclude Dockerfile --exclude .dockerignore ./ /tmp/space/
+          printf '%s\n' '---' 'title: 投資擂台研究台' 'emoji: 📈' 'colorFrom: indigo' 'colorTo: blue' \
+            'sdk: gradio' 'sdk_version: 6.29.1' 'python_version: "3.12"' 'app_file: app.py' 'pinned: false' \
+            'startup_duration_timeout: 1h' '---' '2026 德明X富達投資擂台 隊伍研究台（需密碼）。' > /tmp/space/README.md
+          cd /tmp/space
+          sed -i '/^web\/dist\/$/d' .gitignore
+          git init -q -b main
+          git config user.name deploy-bot && git config user.email deploy-bot@users.noreply.github.com
+          git add -A && git add -f web/dist && git commit -qm "deploy ${GITHUB_SHA::7}"
+          git push -f "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main

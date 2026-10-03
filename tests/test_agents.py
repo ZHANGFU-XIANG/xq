@@ -1,0 +1,150 @@
+"""新 Agent 的單元測試：一個月模型標籤、漲跌歸因、虧損補回、國際因子、調整 Agent。"""
+import datetime as dt
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from src.agents import alpha_model, attribution, macro, recovery, tuner
+from src.state import params
+from src.state.portfolio import build_portfolio
+
+
+def _df(closes, start="2025-01-01"):
+    idx = pd.bdate_range(start, periods=len(closes))
+    c = pd.Series(closes, index=idx, dtype=float)
+    return pd.DataFrame({"Open": c, "High": c * 1.01, "Low": c * 0.99, "Close": c, "Volume": 1e6})
+
+
+def test_newhigh_label_uses_only_future_window():
+    # 前 300 日平盤 100，之後第 305 日跳到 120 → 只有 t 在 [285, 304] 時未來 20 日內會創新高
+    closes = [100.0] * 305 + [120.0] * 30
+    df = _df(closes)
+    mkt = df.Close
+    f = alpha_model.stock_features(df, mkt, horizon=20, hw=252, is_etf=False)
+    y = f["y_newhigh"]
+    assert y.iloc[284] == 0 and y.iloc[285] == 1 and y.iloc[304] == 1
+    assert np.isnan(y.iloc[-1])  # 最後 20 日沒有完整未來資料 → 無標籤
+    # 特徵不得使用未來：dist_hi 在 t=304 應為 100/101-1
+    assert f["dist_hi"].iloc[304] == pytest.approx(100 / 101 - 1)
+
+
+def test_attribution_parts_sum_to_return():
+    n = 200
+    rng = np.random.default_rng(1)
+    mk = 100 * np.cumprod(1 + rng.normal(0, 0.01, n))
+    taiex = _df(mk)
+    panel = {}
+    for i, code in enumerate(["2330", "2303", "2454", "3711"]):
+        panel[code] = _df(50 * np.cumprod(1 + rng.normal(0, 0.02, n)))
+    target = taiex.index[-1] + pd.Timedelta(days=1)
+    att = attribution.attribute({"2330": 1000}, panel, taiex, list(panel), target, {}, {})
+    r = att["rows"][0]
+    assert r["mkt_pct"] + r["ind_pct"] + r["idio_pct"] == pytest.approx(r["ret_pct"], abs=0.02)
+    assert r["pnl"] == pytest.approx(1000 * (r["close"] - r["prev_close"]), abs=10)  # 價格顯示已取到 2 位小數
+
+
+def _ranked_alt(exp_ret, p):
+    return [{"code": "9999", "name": "替代股", "signal": "買進候選", "score": 0.8,
+             "alpha": {"exp_ret": exp_ret, "p_newhigh": p}}]
+
+
+def test_recovery_swaps_only_when_benefit_exceeds_cost():
+    pf = build_portfolio([{"date": "d", "code": "2303", "side": "BUY", "shares": "1000", "price": "100", "margin": "0"}])
+    prices = {"2303": 90.0}
+    a = {"2303": {"exp_ret": 0.01, "p_newhigh": 0.2, "combo": 0.5}}
+    scores = {"2303": {"score": 0.1, "name": "聯電", "features": {"close": 90, "ma20": 95}}}
+    meta = {"2303": {"stop": 80}}
+    res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.10, 0.6), 10_000_000, 10_000_000, {})
+    assert res["actions"]["2303"]["decision"] == "換股"
+    # 替代標的優勢不足（扣成本後 < 1.5%）→ 續抱
+    res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
+    assert "2303" not in res["actions"]
+    # 跌破停損 → 停損換股
+    res = recovery.plan(pf, {"2303": 79.0}, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
+    assert res["actions"]["2303"]["decision"] == "停損換股"
+
+
+def test_macro_ignores_insignificant_correlation():
+    ev = [{"event": "油價下跌", "factor": "OIL", "direction": -1, "horizon": "短期", "news": []}]
+    sens = {"1303": {"OIL": {"beta": 0.5, "sigma": 0.02, "impact_1sd_pct": 1.0, "corr": 0.30}},
+            "2330": {"OIL": {"beta": 0.5, "sigma": 0.02, "impact_1sd_pct": 1.0, "corr": 0.05}}}
+    out = macro.impacts(ev, {"1303": 1_000_000, "2330": 1_000_000}, sens, 10_000_000, {}, {})[0]
+    rows = {r["code"]: r for r in out["rows"]}
+    assert rows["1303"]["impact_pct"] == -1.0 and rows["1303"]["amount"] == -10_000
+    assert rows["2330"]["amount"] == 0 and "未達統計顯著" in rows["2330"]["decision"]
+
+
+@pytest.fixture
+def isolated(tmp_path, monkeypatch):
+    monkeypatch.setattr(tuner, "LOG_CSV", tmp_path / "log.csv")
+    monkeypatch.setattr(tuner, "TUNE_LOG", tmp_path / "tune.json")
+    monkeypatch.setattr(params, "LEARNED", tmp_path / "learned.yaml")
+    monkeypatch.setattr(tuner, "load_history", lambda: [{"date": "2026-10-05", "nav": 10_000_000},
+                                                        {"date": "2026-10-06", "nav": 9_000_000}])
+    return tmp_path
+
+
+def test_tuner_detects_drawdown_and_reduces_risk_then_rollback(isolated):
+    issues = tuner.health({"overnight": [], "alpha": []})
+    assert any(i["type"] == "drawdown" for i in issues)
+    before = params.strategy()["risk_per_trade"]
+    changes = tuner.tune_risk(issues)
+    tuner.apply(changes, issues, dt.date(2026, 10, 6))
+    after = params.strategy()["risk_per_trade"]
+    assert after == pytest.approx(before * 0.8)
+    assert params.strategy()["max_weight"] < 0.25
+    assert tuner.rollback() == "2026-10-06"
+    assert params.strategy()["risk_per_trade"] == before
+
+
+def test_tuner_flags_overnight_failures(isolated):
+    over = [{"code": "TAIEX", "kind": "gap", "target_date": f"2026-10-{d:02d}", "pred": "0.5", "real": -0.6,
+             "hit": False, "err_bands": 1.0} for d in range(5, 15)]
+    issues = tuner.health({"overnight": over, "alpha": []})
+    assert any(i["type"] == "overnight" for i in issues)
+
+
+def test_tuner_weight_shift_bounded(isolated):
+    rng = np.random.default_rng(0)
+    alpha = []
+    for _ in range(40):
+        good = rng.normal()
+        alpha.append({"components": {"alpha": good, "newhigh": rng.normal(), "institutional": rng.normal(),
+                                     "revenue": rng.normal(), "overnight": -good, "sentiment": rng.normal()},
+                      "real_excess": good * 0.05})
+    ch = tuner.tune_weights({"alpha": alpha})
+    assert ch and ch["after"]["alpha"] > ch["before"]["alpha"] and ch["after"]["overnight"] < ch["before"]["overnight"]
+    assert all(0.0 < v <= 0.5 for v in ch["after"].values())
+
+
+def _taiex_series(rets):
+    idx = pd.bdate_range("2025-01-01", periods=len(rets))
+    c = pd.Series(100 * np.cumprod(1 + np.array(rets)), index=idx)
+    return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c, "Volume": 1.0})
+
+
+def test_allocation_reacts_to_overheat_drawdown_and_endgame():
+    from src.agents import allocation
+    calm = _taiex_series([0.0005, -0.0004] * 60)
+    t = calm.index[-1] + pd.Timedelta(days=1)
+    base = allocation.decide(calm, t, [], 10_000_000, 10_000_000, 30, [])
+    assert base["offense"] == 0.60
+    hot = _taiex_series([0.0] * 80 + [0.01] * 25)  # 連漲 → RSI、20 日漲幅、距季線都過熱
+    r = allocation.decide(hot, hot.index[-1] + pd.Timedelta(days=1), [], 10_000_000, 10_000_000, 30, [])
+    assert r["offense"] == 0.45 and any("過熱" in x for x in r["reasons"])
+    hist = [{"date": "d", "nav": 10_500_000}]
+    r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%
+    assert r["offense"] == 0.40
+    r = allocation.decide(calm, t, [], 10_000_000, 10_300_000, 10, [])  # 尾聲且為正報酬 → 保住晉級
+    assert r["offense"] == 0.50
+    r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 爭取轉正
+    assert r["offense"] == 0.70
+
+
+def test_overheated_stock_not_bought_in_offense():
+    from src.agents import strategy
+    s = {"code": "1", "score": 0.9, "risks": [], "eligible_def": False, "def_score": 0,
+         "alpha": {"features": {"rsi14": 90, "r20": 0.1}}}
+    strategy.rank([s])
+    assert s["signal"] == "過熱不追"

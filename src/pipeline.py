@@ -1,0 +1,86 @@
+"""共用流程：每日報告（src/main.py）與即時個股分析／AI 助理（src/agents/on_demand.py）都經過這裡，
+確保兩者用同一套資料、模型與評分邏輯。"""
+from __future__ import annotations
+
+import datetime as dt
+import threading
+
+import pandas as pd
+
+from src.agents import allocation, alpha_model, compliance, market_data, predictor, strategy, tuner, universe
+from src.config import rules, stock_meta
+from src.state import portfolio as pfm
+
+_CTX: dict[dt.date, dict] = {}
+_LOCK = threading.Lock()
+
+
+def market_context(target: dt.date, use_memory: bool = False) -> dict:
+    """全市場資料與一個月模型。use_memory=True 時同一目標日只算一次（給常駐的 API 伺服器用）。"""
+    if use_memory:
+        with _LOCK:  # 伺服器多個請求同時進來時只算一次
+            if target not in _CTX:
+                ctx = market_context(target, use_memory=False)
+                _CTX.clear()
+                _CTX[target] = ctx
+            return _CTX[target]
+    us_hist = market_data.us_history()
+    panel = universe.load_panel()
+    market_data.set_panel(panel)
+    codes = universe.liquid_universe(panel, target)
+    etf = {c for c in codes if stock_meta(c)["is_etf"]}
+    tx = market_data.taiex(3)
+    alpha_out = alpha_model.run(panel, codes, tx.Close, target, etf)
+    return {"us_hist": us_hist, "panel": panel, "codes": codes, "etf": etf, "taiex": tx, "alpha": alpha_out,
+            "target": target}
+
+
+def score_codes(codes: list[str], ctx: dict, target: dt.date, senti_by_code: dict | None = None) -> dict:
+    """特徵 → 月營收 → 隔夜預測 → 進攻/穩健雙籃評分 → 排序。"""
+    senti_by_code = senti_by_code or {}
+    alpha_out = ctx["alpha"]
+    a_preds = alpha_out["predictions"]
+    us_snap = market_data.us_snapshot(ctx["us_hist"], target)
+    us_by = {r["ticker"]: r for r in us_snap}
+    feats = {c: market_data.tw_features(c, target) for c in codes}
+    feats = {c: f for c, f in feats.items() if f}
+    revenue = {c: market_data.tw_revenue(c) for c in feats if not stock_meta(c)["is_etf"]}
+    preds = predictor.predict(list(feats), ctx["us_hist"], target)
+    scored = [strategy.score_stock(c, feats[c], a_preds.get(c), preds.get(c), senti_by_code.get(c), revenue.get(c),
+                                   us_by, alpha_out["base_rate"]) for c in feats]
+    for s in scored:
+        s.update(strategy.score_defense(s, alpha_out["up_base_rate"]))
+    ranked = strategy.rank(scored)
+    return {"feats": feats, "prices": {c: f["close"] for c, f in feats.items()}, "revenue": revenue, "preds": preds,
+            "ranked": ranked, "scores": {s["code"]: s for s in ranked}, "us_snap": us_snap, "us_by": us_by}
+
+
+def candidate_codes(ctx: dict, pf: pfm.Portfolio) -> list[str]:
+    from src.state import params
+
+    a_preds = ctx["alpha"]["predictions"]
+    top = sorted(a_preds, key=lambda c: -a_preds[c]["combo"])[: params.alpha()["candidates"]]
+    top_def = sorted([c for c in a_preds if a_preds[c]["eligible_def"]],
+                     key=lambda c: -a_preds[c]["def_combo"])[: params.basket("defense")["candidates"]]
+    return list(dict.fromkeys(list(pf.positions) + top + top_def + params.strategy()["etf_fillers"]))
+
+
+def basket_of(pf: pfm.Portfolio, meta: dict, scores: dict) -> dict[str, str]:
+    """持股所屬籃子：進場時記錄；舊部位依兩籃分數較高者歸類（會回寫 meta）。"""
+    out = {}
+    for c in pf.positions:
+        b = meta.get(c, {}).get("basket")
+        if not b:
+            s = scores.get(c, {})
+            b = "defense" if s.get("def_score", -9) > s.get("score", -9) else "offense"
+            if c in meta:
+                meta[c]["basket"] = b
+        out[c] = b
+    return out
+
+
+def current_allocation(ctx: dict, target: dt.date, today: dt.date, nav: float) -> dict:
+    recent = [e for e in tuner.history() if e.get("issues")]
+    last_issues = recent[-1]["issues"] if recent and recent[-1]["date"] >= (today - dt.timedelta(days=5)).isoformat() else []
+    return allocation.decide(ctx["taiex"], pd.Timestamp(target), pfm.load_history(), rules()["capital"]["initial"], nav,
+                             compliance.remaining_trading_days(today), last_issues)

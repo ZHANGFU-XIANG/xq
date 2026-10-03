@@ -1,0 +1,140 @@
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { BasketTag, Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
+import { get, type Json } from '../lib/api'
+import { fmtInt, fmtPct, fmtRatio, fmtWan, qty, tone } from '../lib/format'
+
+function Balance({ alloc }: { alloc: Json }) {
+  const off = Math.round(alloc.offense * 100)
+  const def = 100 - off
+  const reasons: string[] = alloc.reasons.filter((r: string) => !r.startsWith('今日配置'))
+  return (
+    <section className="mb-8" aria-label="今日攻守配置">
+      <div className="mb-2 flex items-end justify-between">
+        <div className="title text-[2.4rem] leading-none md:text-[3.2rem]">
+          <span className="text-offense">攻 {off}</span>
+          <span className="mx-3 text-line">／</span>
+          <span className="text-defense">守 {def}</span>
+        </div>
+        <div className="hidden text-right text-sm text-muted md:block">
+          加權 RSI {alloc.taiex.rsi14}　20 日 {fmtPct(alloc.taiex.r20_pct, 1)}　距季線 {fmtPct(alloc.taiex.dist_ma60_pct, 1)}
+        </div>
+      </div>
+      <div className="flex h-4 overflow-hidden rounded-full" role="img" aria-label={`進攻 ${off}%，穩健 ${def}%`}>
+        <div className="bg-offense" style={{ width: `${off}%` }} />
+        <div className="w-1 bg-mist" />
+        <div className="bg-defense" style={{ width: `${def}%` }} />
+      </div>
+      <div className="mt-1 flex justify-between text-sm">
+        <span className="text-offense">進攻籃：追強勢、一個月內創新高</span>
+        <span className="text-right text-defense">穩健籃：收正報酬機率高、回檔小</span>
+      </div>
+      <ol className="mt-3 space-y-1 border-l-2 border-line pl-4 text-[0.95rem] text-ink-2">
+        {reasons.map((r, i) => (
+          <li key={i}>{r}</li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+export default function Overview() {
+  const { data: r, isLoading, error } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
+  if (isLoading) return <Loading />
+  if (error) return <ErrorNote error={error} />
+  if (!r) return <Empty>還沒有任何報告。報告會在交易日 07:00 自動產生。</Empty>
+  const pf = r.portfolio
+  const tx = r.predictions.TAIEX
+  const buys = r.orders.filter((o: Json) => o.action === 'BUY')
+  const sells = r.orders.filter((o: Json) => o.action === 'SELL')
+  const fails = r.compliance.filter((c: Json) => c.status !== '通過')
+  return (
+    <>
+      <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
+      <Balance alloc={r.allocation} />
+
+      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
+        <Stat label="總資產" value={fmtWan(pf.nav)} />
+        <Stat label="累積報酬" value={fmtPct(pf.return_pct)} valueClass={tone(pf.return_pct)} />
+        <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />
+        <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub="只算實際成交" />
+        <Stat label="大盤開盤預測" value={fmtPct(tx?.gap_pct)} valueClass={tone(tx?.gap_pct)}
+          sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}，開盤後${tx.after_open}` : undefined} />
+      </div>
+
+      <Section title="今日交易建議" aside={<Link to={`/daily/${r.key}`}>看完整理由與 K 線</Link>}>
+        {!r.orders.length && <Empty>今天沒有標的達到進出場條件。</Empty>}
+        {sells.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {sells.map((o: Json) => (
+              <div key={o.code} className="rounded-lg border-l-4 border-down bg-paper px-4 py-3">
+                <div className="flex flex-wrap items-baseline gap-x-3"><span className="font-bold text-down">賣出</span><StockLink code={o.code} name={o.name} /><span className="num">{qty(o.lots, o.odd)}</span><span className="num text-muted">限價 {o.limit_price}</span></div>
+                <div className="mt-1 text-sm text-ink-2">{o.why_sell}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-[0.95rem]">
+            <thead className="text-left text-sm text-muted">
+              <tr className="border-b border-line">
+                <th className="py-2 font-normal">籃子</th><th className="font-normal">標的</th><th className="text-right font-normal">數量</th>
+                <th className="text-right font-normal">限價</th><th className="text-right font-normal">停損</th><th className="text-right font-normal">金額</th><th className="text-right font-normal">權重</th>
+              </tr>
+            </thead>
+            <tbody>
+              {buys.map((o: Json) => (
+                <tr key={o.code} className="border-b border-line/70">
+                  <td className="py-2.5"><BasketTag basket={o.basket} /></td>
+                  <td><Link to={`/daily/${r.key}?code=${o.code}`} className="text-ink no-underline hover:text-link"><span className="num text-muted">{o.code}</span> {o.name}</Link></td>
+                  <td className="num text-right">{qty(o.lots, o.odd)}</td>
+                  <td className="num text-right">{o.limit_price}</td>
+                  <td className="num text-right text-down">{o.stop}</td>
+                  <td className="num text-right">{fmtInt(o.amount)}</td>
+                  <td className="num text-right">{fmtPct(o.weight_pct, 1, false)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {r.funding.transfer_from_futures > 0 && (
+          <p className="mt-3 text-sm text-ink-2">下單前先把期貨戶 {fmtInt(r.funding.transfer_from_futures)} 元轉到證券戶（保留 {fmtInt(r.funding.futures_reserve)} 元），持股率才拉得上去。</p>
+        )}
+      </Section>
+
+      <div className="grid gap-8 md:grid-cols-2">
+        <Section title="市場重點">
+          <p className="mb-2 leading-relaxed">{r.text?.market_summary}</p>
+          <p className="leading-relaxed text-ink-2">{r.text?.outlook}</p>
+        </Section>
+        <Section title="競賽規則檢查" aside={fails.length ? `${fails.length} 項需注意` : '全部通過'}>
+          <ul className="space-y-1.5 text-[0.95rem]">
+            {r.compliance.map((c: Json) => (
+              <li key={c.item} className="flex gap-2">
+                <span className={`shrink-0 font-medium ${c.status === '通過' ? 'text-down' : c.status === '注意' ? 'text-warn' : 'text-up'}`}>{c.status}</span>
+                <span><span className="font-medium">{c.item}</span>　<span className="text-ink-2">{c.detail}</span></span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      </div>
+
+      <Section title="美股隔夜" aside={`${r.us_snapshot[0]?.date ?? ''} 收盤`}>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[0.95rem] sm:grid-cols-3 md:grid-cols-4">
+          {r.us_snapshot.map((u: Json) => (
+            <div key={u.ticker} className="flex justify-between border-b border-line/60 py-1">
+              <span className="truncate pr-2">{u.name}</span>
+              <Change value={u.change_pct} />
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {r.tuner?.issues?.length > 0 && (
+        <Section title="調整 Agent 提醒">
+          <Bullets items={r.tuner.issues.map((i: Json) => i.detail)} />
+        </Section>
+      )}
+    </>
+  )
+}
