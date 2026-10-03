@@ -119,6 +119,11 @@ def portfolio():
     return data.portfolio()
 
 
+@app.get("/api/intraday", dependencies=[api])
+def intraday_(refresh: bool = False):
+    return data.live_intraday(refresh)
+
+
 @app.get("/api/alerts", dependencies=[api])
 def alerts_(refresh: bool = False):
     return data.live_alerts(refresh)
@@ -199,6 +204,16 @@ def chat(body: ChatReq, request: Request):
     if not msgs or msgs[-1]["role"] != "user":
         raise HTTPException(400, "缺少問題")
     return EventSourceResponse(chat_agent.stream(msgs))
+
+
+class XQImport(BaseModel):
+    text: str
+    complete: bool = True
+
+
+@app.post("/api/xq/import", dependencies=[api])
+def xq_import_(body: XQImport):
+    return chat_agent.xq_sync_preview(body.text, body.complete)
 
 
 @app.post("/api/actions/{aid}/confirm", dependencies=[api])

@@ -32,6 +32,7 @@ SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資�
 3. 給買進建議時，要說明：屬於進攻籃或穩健籃與原因、建議股數（張＋零股）、限價、停損、出場計畫、主要風險。
 4. 使用者說已成交（例如「我買了 2330 一張 1000 元」）時呼叫 record_trade；要重新產生報告時呼叫 run_analysis。這兩個工具只會建立待確認動作，請提醒使用者在畫面上按「確認」。
 5. 「如果買/賣…會怎樣」用 simulate_trades 試算，說明成本、持股率與競賽規則影響。
+5c. 使用者貼上看起來像 XQ 庫存表格的內容時，呼叫 import_xq_holdings（text 原樣傳入），說明差異並提醒按確認同步。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
 7. 註明資料日期；不確定或工具沒有的資料就直說沒有。回答精簡、條列、可執行。不要輸出 JSON 或英文欄位名稱。"""
@@ -68,6 +69,9 @@ TOOLS = [
          "code": {"type": "string"}, "side": {"type": "string", "enum": ["BUY", "SELL"]}, "shares": {"type": "integer"},
          "price": {"type": "number"}, "margin": {"type": "boolean"}, "date": {"type": "string", "description": "YYYY-MM-DD，預設今天"}},
          "required": ["code", "side", "shares", "price"]}},
+    {"name": "import_xq_holdings", "description": "解析使用者從 XQ 全球贏家庫存畫面複製貼上的表格，與系統持股比對，產生需確認的同步調整",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "使用者貼上的原始表格文字"}},
+                    "required": ["text"]}},
     {"name": "run_analysis", "description": "重新執行分析並產生報告（建立待確認動作）",
      "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["premarket", "postclose", "weekly", "tune"]}},
                     "required": ["mode"]}},
@@ -90,6 +94,25 @@ def _record(args: dict) -> dict:
     return {"pending_action": aid, "summary": f"記錄成交：{row['date']} {'買進' if row['side'] == 'BUY' else '賣出'} "
             f"{code} {name} {row['shares']:,} 股 @ {row['price']}" + ("（融資）" if row["margin"] else ""),
             "status": "等待使用者在畫面上按確認"}
+
+
+def xq_sync_preview(text: str, complete: bool = True) -> dict:
+    """解析 XQ 貼上的庫存並與系統比對；有差異時建立待確認動作。"""
+    from src.agents import xq_import
+
+    parsed = xq_import.parse(text)
+    if not parsed["rows"]:
+        return {"error": "沒有解析到任何持股。請在 XQ 庫存畫面全選（Ctrl+A）後複製（Ctrl+C），連同表頭一起貼上。",
+                "skipped": parsed["skipped"]}
+    rec = xq_import.reconcile(parsed, complete)
+    out = {"parsed": parsed["rows"], "columns": parsed["columns"], **rec}
+    if rec["adjustments"]:
+        aid = uuid.uuid4().hex[:10]
+        PENDING[aid] = {"kind": "xq_sync", "payload": rec["adjustments"], "created": time.time()}
+        out["pending_action"] = aid
+        out["summary"] = "依 XQ 庫存同步：" + "、".join(
+            f"{'補記買進' if a['side'] == 'BUY' else '補記賣出'} {a['code']} {a['shares']:,} 股@{a['price']}" for a in rec["adjustments"])
+    return out
 
 
 def _run(args: dict) -> dict:
@@ -137,6 +160,8 @@ def call_tool(name: str, args: dict) -> dict:
             return _record(args)
         if name == "run_analysis":
             return _run(args)
+        if name == "import_xq_holdings":
+            return xq_sync_preview(args["text"])
         return {"error": f"未知工具 {name}"}
     except Exception as e:  # noqa: BLE001
         log.exception("工具 %s 失敗", name)
@@ -151,6 +176,11 @@ def confirm(aid: str) -> dict:
         return {"ok": False, "message": "動作不存在或已過期（30 分鐘），請重新詢問"}
     if act["kind"] == "record_trade":
         return {"ok": True, "message": sync.record_trade(act["payload"])}
+    if act["kind"] == "xq_sync":
+        rows = sorted(act["payload"], key=lambda r: r["side"] != "SELL")  # 先賣後買
+        for r in rows:
+            sync.record_trade(r)
+        return {"ok": True, "message": f"已依 XQ 庫存寫入 {len(rows)} 筆調整"}
     return {"ok": True, "message": sync.run_workflow(act["payload"]["mode"])}
 
 

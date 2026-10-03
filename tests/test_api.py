@@ -178,3 +178,20 @@ def test_cloud_cookie_is_iframe_compatible(client, monkeypatch):
     r = client.post("/api/login", json={"password": "pw"})
     sc = r.headers["set-cookie"].lower()
     assert "samesite=none" in sc and "secure" in sc and "partitioned" in sc and "httponly" in sc
+
+
+def test_xq_sync_requires_confirmation_and_sells_first(monkeypatch, tmp_path):
+    from src.state import portfolio as pfm
+
+    monkeypatch.setattr(pfm, "TRADES_CSV", tmp_path / "t.csv")
+    pfm.append_trades([{"date": "2026-10-05", "code": "3037", "side": "BUY", "shares": 1000, "price": 1300, "margin": 0}])
+    written = []
+    monkeypatch.setattr(sync, "record_trade", lambda row: written.append(row) or "ok")
+    out = chat_agent.xq_sync_preview("代碼\t名稱\t庫存股數\t成本均價\n2330\t台積電\t1000\t2450\n")
+    assert out["pending_action"] and not written
+    assert chat_agent.confirm(out["pending_action"])["ok"]
+    assert [w["side"] for w in written] == ["SELL", "BUY"] and written[0]["code"] == "3037"
+
+
+def test_xq_sync_rejects_unparseable_text():
+    assert "error" in chat_agent.xq_sync_preview("隨便一段文字，沒有代碼")

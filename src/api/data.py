@@ -132,3 +132,19 @@ def live_alerts(refresh: bool = False) -> dict:
                          on_demand.current_target())
     _ALERTS.update(t=time.time(), v=out)
     return out
+
+
+_INTRA: dict = {"t": 0.0, "v": None}
+
+
+def live_intraday(refresh: bool = False) -> dict:
+    """盤中建議（即時報價，2 分鐘快取）。"""
+    import time
+
+    from src.agents import intraday
+
+    if not refresh and _INTRA["v"] is not None and time.time() - _INTRA["t"] < 120:
+        return _INTRA["v"]
+    out = intraday.run(load_report())
+    _INTRA.update(t=time.time(), v=out)
+    return out

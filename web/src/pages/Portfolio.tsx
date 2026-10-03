@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createChart, LineSeries, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
+import XQImport from '../components/XQImport'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, fmtRatio, fmtWan, tone } from '../lib/format'
@@ -53,7 +54,7 @@ export default function Portfolio() {
       </div>
 
       <Section title="目前持股">
-        {!p.positions.length ? <Empty>還沒有持股。在競賽平台成交後，到 AI 助理說「我買了 2330 一張 1000 元」即可記錄。</Empty> : (
+        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入持股」同步，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-[0.95rem]">
               <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
@@ -78,6 +79,8 @@ export default function Portfolio() {
           </div>
         )}
       </Section>
+
+      <Section title="從 XQ 匯入持股" aside="以 XQ 帳務為準同步"><XQImport /></Section>
 
       <Section title="累積報酬走勢"><NavCurve hist={p.nav_history} /></Section>
 
