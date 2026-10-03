@@ -118,3 +118,34 @@ def test_stock_info_falls_back_and_never_caches_empty(monkeypatch, tmp_path):
                            "market": "TWSE", "is_etf": False} for i in range(600)}
     monkeypatch.setattr(universe, "_isin_info", lambda: big)
     assert len(universe.stock_info()) == 600 and (tmp_path / "info.pkl").exists()
+
+
+def test_finmind_circuit_breaker(monkeypatch):
+    import time as _t
+
+    from src.agents import market_data as md
+
+    calls = []
+
+    class Lim:
+        def json(self):
+            return {"status": 402, "msg": "Requests reach the upper limit."}
+
+    monkeypatch.setattr(md.requests, "get", lambda *a, **k: calls.append(1) or Lim())
+    monkeypatch.setattr(md.time, "sleep", lambda s: None)
+    monkeypatch.setitem(md._FM_BLOCK, "until", 0.0)
+    t0 = _t.time()
+    assert md._finmind("X", "2330", "2026-01-01").empty and md._finmind("X", "2454", "2026-01-01").empty
+    assert len(calls) == 1 and not md.finmind_available() and _t.time() - t0 < 2
+    monkeypatch.setitem(md._FM_BLOCK, "until", 0.0)
+
+
+def test_cached_skips_empty(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from src.agents import market_data as md
+
+    monkeypatch.setattr(md, "CACHE_DIR", tmp_path)
+    md._cached("k_empty", lambda: pd.DataFrame())
+    md._cached("k_full", lambda: {"a": 1})
+    assert not (tmp_path / "k_empty.pkl").exists() and (tmp_path / "k_full.pkl").exists()

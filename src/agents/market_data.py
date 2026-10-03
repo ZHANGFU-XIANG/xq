@@ -26,6 +26,9 @@ def _cached(key: str, fn, max_age_hours: float = 6):
     if path.exists() and (time.time() - path.stat().st_mtime) < max_age_hours * 3600:
         return pickle.loads(path.read_bytes())
     val = fn()
+    empty = val is None or (hasattr(val, "empty") and val.empty) or (isinstance(val, (dict, list)) and not val)
+    if empty:  # 抓取失敗（例如 FinMind 額度用完）不快取，額度恢復後就能重新取得
+        return val
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path.write_bytes(pickle.dumps(val))
     return val
@@ -105,7 +108,17 @@ def nq_live() -> dict | None:
 
 
 # ---------------------------------------------------------------- 台股
+_FM_BLOCK = {"until": 0.0}
+FM_COOLDOWN = 900  # 額度用完後 15 分鐘內不再呼叫，直接回空資料（避免每檔重試 18 秒拖垮整個計算）
+
+
+def finmind_available() -> bool:
+    return time.time() >= _FM_BLOCK["until"]
+
+
 def _finmind(dataset: str, data_id: str, start: str) -> pd.DataFrame:
+    if not finmind_available():
+        return pd.DataFrame()
     params = {"dataset": dataset, "data_id": data_id, "start_date": start}
     headers = {}
     if os.getenv("FINMIND_TOKEN"):
@@ -116,7 +129,12 @@ def _finmind(dataset: str, data_id: str, start: str) -> pd.DataFrame:
             j = r.json()
             if j.get("status") == 200:
                 return pd.DataFrame(j["data"])
-            log.warning("FinMind %s %s: %s", dataset, data_id, j.get("msg"))
+            msg = str(j.get("msg", ""))
+            log.warning("FinMind %s %s: %s", dataset, data_id, msg)
+            if "upper limit" in msg or j.get("status") == 402:
+                _FM_BLOCK["until"] = time.time() + FM_COOLDOWN
+                log.warning("FinMind 額度用完，%d 分鐘內暫停呼叫", FM_COOLDOWN // 60)
+                return pd.DataFrame()
         except Exception as e:  # noqa: BLE001
             log.warning("FinMind %s %s 失敗: %s", dataset, data_id, e)
         time.sleep(3 * (attempt + 1))
