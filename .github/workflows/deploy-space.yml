@@ -23,7 +23,7 @@ jobs:
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}   # 例如 ZHANGFU-XIANG/xq
+          HF_SPACE: ${{ vars.HF_SPACE }}   # 例如 avad8/xq
         run: |
           set -e
           test -n "$HF_TOKEN" && test -n "$HF_SPACE" || { echo "請先設定 secrets.HF_TOKEN 與 vars.HF_SPACE"; exit 1; }

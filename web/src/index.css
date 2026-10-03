@@ -75,4 +75,8 @@ body { margin: 0; background: var(--color-mist); min-height: 100vh; }
 .prose-answer ul { padding-left: 1.2em; list-style: disc; margin: 0.3em 0; }
 .prose-answer ol { padding-left: 1.4em; list-style: decimal; margin: 0.3em 0; }
 .prose-answer strong { font-weight: 700; }
+.prose-answer .md-table { overflow-x: auto; margin: 0.5em 0; }
+.prose-answer table { border-collapse: collapse; font-size: 0.88rem; white-space: nowrap; }
+.prose-answer th, .prose-answer td { border-bottom: 1px solid var(--color-line); padding: 0.3em 0.6em; text-align: left; }
+.prose-answer th { color: var(--color-muted); font-weight: 500; }
 .prose-answer .unverified { color: var(--color-warn); text-decoration: underline dotted; }

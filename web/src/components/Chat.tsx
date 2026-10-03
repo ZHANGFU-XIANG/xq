@@ -51,8 +51,27 @@ function renderMd(text: string) {
   let list: 'ul' | 'ol' | null = null
   const inline = (s: string) =>
     s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/([\d,.+-]+%?)〔未核實〕/g, '<span class="unverified" title="此數字在工具資料中找不到">$1</span>')
+  let table: string[][] = []
+  const flushTable = () => {
+    if (!table.length) return
+    const [head, ...body] = table
+    html += '<div class="md-table"><table><thead><tr>' + head.map((c) => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>'
+    html += body.map((r) => '<tr>' + r.map((c) => `<td>${inline(c)}</td>`).join('') + '</tr>').join('')
+    html += '</tbody></table></div>'
+    table = []
+  }
   for (const raw of lines) {
     const l = raw.trim()
+    if (l.startsWith('|') && l.endsWith('|')) {
+      if (list) {
+        html += `</${list}>`
+        list = null
+      }
+      const cells = l.slice(1, -1).split('|').map((c) => c.trim())
+      if (!cells.every((c) => /^:?-{2,}:?$/.test(c))) table.push(cells)
+      continue
+    }
+    flushTable()
     const ul = l.match(/^[*-]\s+(.*)$/)
     const ol = l.match(/^\d+[.、]\s*(.*)$/)
     if (ul || ol) {
@@ -72,6 +91,7 @@ function renderMd(text: string) {
     if (l) html += `<p>${inline(l)}</p>`
   }
   if (list) html += `</${list}>`
+  flushTable()
   return { __html: html }
 }
 
