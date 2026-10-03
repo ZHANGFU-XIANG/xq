@@ -54,7 +54,7 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
-5g. 問 ETF 時用 get_etf_view；問期貨、台指期、選擇權、避險時用 get_futures_view，並照實說明回測有沒有優勢；沒有優勢就直說不建議。
+5g. 問 ETF 時用 get_etf_view，比例一律用 today_etf_share_pct（今日實際比例），不要把「基準比例」當成今日比例；個別 ETF 用 analyze_stock（含折溢價、類別、ETF 籃張數）；問期貨、台指期、選擇權、避險時用 get_futures_view，並照實說明回測有沒有優勢；沒有優勢就直說不建議。
 5h. 使用者說期貨／選擇權成交時，用 record_trade 並填 contract（例如 TMF202610、TXO202610P46000）；說轉帳到期貨戶或證券戶時用 record_transfer。
 5e. 問「還有什麼可以注意／潛在標的／候補」時呼叫 get_potential_picks；問某檔為什麼沒被推薦時，用 analyze_stock，依其中 today_status 回答：排第幾名、和最後一檔入選者的分數差距、拖累分數的項目（weakest_components 與 risks），不要自行推測其他原因。
 5f. 這是連續對話：使用者說「它」「這檔」「剛剛那檔」「第二個」時，指前文提到的股票或項目，直接沿用，不要再問一次；需要數字時仍要重新呼叫工具。
@@ -80,6 +80,7 @@ SOURCE_DESC = {
     "get_etf_view": "本系統 ETF 籃計算（證交所 ETF 預估淨值、一個月模型）",
     "get_futures_view": "本系統期貨建議（期交所 MIS 即時報價與 OpenAPI 保證金、加權指數 5 年回測）",
     "record_transfer": "待確認動作",
+    "get_futures_quote": "期交所 MIS 即時報價與 OpenAPI 保證金",
     "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
 }
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
@@ -215,6 +216,8 @@ TOOLS = [
          "amount": {"type": "number"}, "date": {"type": "string"}}, "required": ["direction", "amount"]}},
     {"name": "get_etf_view", "description": "ETF 籃建議：今日配置比例與理由、候選 ETF 的類別、分數、折溢價、建議張數",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_futures_quote", "description": "期貨／選擇權行情與規格：TX 大台、MTX 小台、TMF 微台的各月報價、基差、保證金、每點價值、槓桿、結算日；TXO 則回傳賣權報價表",
+     "parameters": {"type": "object", "properties": {"root": {"type": "string", "enum": ["TX", "MTX", "TMF", "TXO"]}}, "required": ["root"]}},
     {"name": "get_futures_view", "description": "期貨與選擇權建議：方向模型機率、回測是否有優勢、模式（衝名次／補回虧損／保名次）、建議口數、保證金、賣權避險",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "import_xq_holdings", "description": "解析使用者從 XQ 全球贏家庫存畫面複製貼上的表格，與系統持股比對，產生需確認的同步調整",
@@ -368,6 +371,10 @@ def call_tool(name: str, args: dict) -> dict:
             return _transfer(args)
         if name == "get_etf_view":
             return apidata.etf_view()
+        if name == "get_futures_quote":
+            d = apidata.futures_detail(args["root"])
+            d.pop("system_view", None)
+            return d
         if name == "get_futures_view":
             return apidata.futures_view()
         if name == "run_analysis":

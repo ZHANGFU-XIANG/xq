@@ -1,5 +1,6 @@
 # 2026 德明X富達投資擂台 全國大專院校組模擬投資競賽 — 競賽規則
 # 來源：https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則
+#       簡章與辦法 PDF（2026/07/09 版）、常見問題與規則 Q&A PDF（2026/08/30 版），2026-10-04 核對
 competition:
   name: 2026 德明X富達投資擂台 全國大專院校組模擬投資競賽
   start: 2026-10-05
@@ -20,6 +21,9 @@ instruments:
 
 hours:
   securities: ["09:00", "13:30"]
+  odd_lot_intraday: ["09:10", "13:30"]   # Q&A：盤中零股
+  odd_lot_after: ["13:40", "14:30"]      # 盤後零股
+  after_hours_fixed: ["14:00", "14:30"]  # 盤後定價
   futures: ["08:45", "13:45"]
   preorder_after: "15:30"           # 前一日 15:30 之後可預掛單
 
@@ -36,9 +40,19 @@ credit:
   short_margin_ratio: 0.90          # 融券保證金成數 90%
 
 requirements:
-  min_trades: 10                    # 買、賣各算一筆
+  min_trades: 10                    # 買、賣各算一筆（Q&A：初賽期間累計 10 筆以上）
   min_symbols: 5
+  symbols_rule_start: 2026-10-19    # 簡章 20(9)：「競賽開始後第三周起投資組合至少涵蓋 5 個標的物」
   min_holding_ratio: 0.70
+  final_day:                        # Q&A：最後一日收盤後不可清空部位
+    min_held_symbols: 5             # 必須仍持有 5 個以上不同標的
+    max_cash_ratio: 0.30            # 現金必須低於總資產 30%
+  liquidity_note: 嚴禁針對流動性欠佳標的進行異常交易，績效不具代表性者可被取消資格（Q&A 貳-六）
+  futures_allowed: true             # Q&A：大專院校組可交易期貨（含選擇權及股票衍生性商品）
+
+ranking_schedule:
+  weekly: 每週五收盤後結算，平台公告的是「未審核」排名；簡章寫每週一公布上週五排名
+  threshold_check: 交易競賽門檻檢核表於競賽最後一週公布
 
 futures:
   count_in_holding: false           # 持股率是否計入期貨名目價值（官網未明說，先保守不算）

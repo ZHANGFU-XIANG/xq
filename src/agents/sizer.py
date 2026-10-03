@@ -78,7 +78,7 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
         stage = m.get("tp_stage", 0)
         s = scores.get(code, {})
         score = basket_score(s, basket)
-        label = "穩健分數" if basket == "defense" else "綜合分數"
+        label = {"defense": "穩健分數", "etf": "ETF 分數"}.get(basket, "綜合分數")
         weight = pos.shares * price / nav if nav else 0
         tp = bcfg["take_profit"]
         sell, why, why_qty = 0, "", ""
@@ -420,7 +420,7 @@ def _buy_order(p: dict, shares: int, lots: int, odd: int, amount: float, cost: f
     bcfg = params.basket(basket)
     c = p["c"]
     code = c["code"]
-    label = "穩健分數" if basket == "defense" else "綜合分數"
+    label = {"defense": "穩健分數", "etf": "ETF 分數"}.get(basket, "綜合分數")
     entry, stop = p["entry"], round_tick(p["entry"] - p["stop_dist"], p["etf"])
     raw_shares = p["raw"]
     why_qty = [

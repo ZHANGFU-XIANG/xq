@@ -75,3 +75,20 @@ def test_rule_alerts_trades_and_symbols():
     late = alerts.rule_alerts(_pf(), [], dt.date(2026, 11, 23))
     assert all(x["level"] == "嚴重" for x in late)
     assert t
+
+
+def test_symbols_rule_starts_week3_and_final_day_rules():
+    import datetime as dt
+
+    from src.agents import compliance
+
+    pf = _pf()
+    checks = compliance.check(pf, {"2303": 100}, [], dt.date(2026, 10, 17), 10_000_000)
+    sym = next(c for c in checks if c["item"].startswith("交易過的標的"))
+    assert sym["status"] == "注意" and "10/19" in sym["detail"]
+    late = compliance.check(pf, {"2303": 100}, [], dt.date(2026, 11, 25), 10_000_000)
+    items = {c["item"]: c for c in late}
+    assert items["最後一日收盤仍持有 ≥ 5 檔"]["status"] == "未通過"
+    assert items["最後一日現金 < 總資產 30%"]["status"] == "未通過"
+    a = alerts.rule_alerts(pf, [], dt.date(2026, 11, 25))
+    assert any("最後一天收盤" in x["title"] and x["level"] == "嚴重" for x in a)

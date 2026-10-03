@@ -23,8 +23,9 @@ def _sig(p_up=0.5, long_ok=False, short_ok=False, above=True):
 def env(monkeypatch):
     monkeypatch.setattr(fd, "margins", lambda: MARGINS)
     monkeypatch.setattr(fd, "quote", lambda root, ym=None: {"price": 48000.0, "contract": f"{root}{ym}"})
-    monkeypatch.setattr(fd, "put_chain", lambda ym: [{"strike": 46000.0, "contract": f"TXO{ym}P46000", "price": 100.0},
-                                                     {"strike": 47000.0, "contract": f"TXO{ym}P47000", "price": 180.0}])
+    monkeypatch.setattr(fd, "put_chain", lambda ym: [{"strike": 45000.0, "contract": f"TXO{ym}P45000", "price": 60.0, "bid": 20.0, "ask": 60.0},
+                                                     {"strike": 46000.0, "contract": f"TXO{ym}P46000", "price": 100.0, "bid": 98.0, "ask": 100.0},
+                                                     {"strike": 47000.0, "contract": f"TXO{ym}P47000", "price": 180.0, "bid": 175.0, "ask": 180.0}])
     monkeypatch.setattr(pfm, "load_history", lambda: [])
     return monkeypatch
 

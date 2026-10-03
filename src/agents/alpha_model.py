@@ -222,7 +222,7 @@ def walk_forward(data: pd.DataFrame, hp: dict) -> dict:
 def _cache_key(asof: dt.date, codes: list[str], hp: dict) -> str:
     h = hashlib.md5((",".join(codes) + json.dumps(hp, sort_keys=True) + json.dumps(params.alpha(), sort_keys=True)
                        + json.dumps(params.get("baskets"), sort_keys=True)).encode())
-    return f"alpha_{asof}_{h.hexdigest()[:10]}"
+    return f"alpha_v2_{asof}_{h.hexdigest()[:10]}"  # v2：每檔取最近 5 天內最新一筆
 
 
 def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: dt.date, etf_codes: set[str],
@@ -242,7 +242,9 @@ def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: 
     clf, reg = _fit(train, hp)
     dclf, dreg = _fit_def(train.dropna(subset=["y_dd"]), hp)
     last_date = data["date"].max()
-    latest = data[data["date"] == last_date].dropna(subset=["r60", "dist_hi"]).copy()
+    # 每檔取最近 5 天內自己的最新一筆（部分 ETF／個股的資料會晚一天更新，只取全市場最新日期會漏掉它們）
+    recent = data[data["date"] >= pd.Timestamp(last_date) - pd.Timedelta(days=5)]
+    latest = recent.sort_values("date").groupby("code").tail(1).dropna(subset=["r60", "dist_hi"]).copy()
     latest["p_newhigh"] = clf.predict_proba(latest[FEATURES])[:, 1]
     latest["exp_excess"] = reg.predict(latest[FEATURES])
     latest["alpha_rank"] = latest["exp_excess"].rank(pct=True)

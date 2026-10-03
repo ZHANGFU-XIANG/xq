@@ -399,7 +399,11 @@ def etf_view() -> dict:
     prem = etf_agent.premiums()
     a_preds = ctx["alpha"]["predictions"]
     cands = sorted([c for c in a_preds if c in ctx["etf"]], key=lambda c: -a_preds[c].get("p_up", 0))[:10]
-    return {"etf_share": a.get("etf"), "etf_reasons": a.get("etf_reasons"),
+    share = a.get("etf")
+    return {"today_etf_share_pct": round(share * 100) if share is not None else None,
+            "base_etf_share_pct": round(params.allocation()["etf"]["base"] * 100),
+            "note": "回答比例時一律使用 today_etf_share_pct（今日實際比例），base 只是調整前的基準",
+            "etf_reasons": a.get("etf_reasons"),
             "planned_orders": [{k: o.get(k) for k in ("code", "name", "planned_shares", "limit_price", "status", "advice")}
                                for o in orders],
             "candidates": [{"code": c, "name": stock_meta(c)["name"],
@@ -411,3 +415,92 @@ def etf_view() -> dict:
 def futures_view() -> dict:
     lp = live_intraday()
     return {"derivatives": lp.get("derivatives"), "funding": lp.get("funding")}
+
+
+FUTURES_INFO = {
+    "TX": {"name": "臺股期貨（大台）", "aliases": ("台指期", "臺指期", "大台", "臺股期貨", "台股期貨", "TX", "TXF", "台指")},
+    "MTX": {"name": "小型臺指（小台）", "aliases": ("小台", "小型台指", "小型臺指", "MTX", "MXF")},
+    "TMF": {"name": "微型臺指（微台）", "aliases": ("微台", "微型台指", "微型臺指", "TMF")},
+    "TXO": {"name": "臺指選擇權", "aliases": ("選擇權", "台指選", "臺指選", "TXO", "賣權", "買權", "PUT", "CALL")},
+}
+
+
+def futures_search(q: str) -> list[dict]:
+    q = q.strip().upper()
+    out = []
+    for root, info in FUTURES_INFO.items():
+        if q and any(q in a.upper() or a.upper() in q for a in info["aliases"]):
+            out.append({"code": root, "name": info["name"], "sector": "期貨" if root != "TXO" else "選擇權",
+                        "kind": "futures"})
+    return out
+
+
+def _ma(vals: list[float], n: int, i: int):
+    return round(sum(vals[i - n + 1:i + 1]) / n, 1) if i >= n - 1 else None
+
+
+def futures_kline(root: str, days: int = 260) -> dict:
+    """期貨近月連續日 K（期交所歷史行情；選擇權用台指期近月代表標的走勢）＋建議價位線＋成交紀錄。"""
+    from src.agents import futures_data
+
+    base = "TX" if root == "TXO" else root
+    hist = futures_data.history(base, max(days, 70))
+    closes = [h["close"] for h in hist]
+    candles = [{**{k: h[k] for k in ("time", "open", "high", "low", "close")}, "volume": int(h["volume"]),
+                "ma5": _ma(closes, 5, i), "ma20": _ma(closes, 20, i), "ma60": _ma(closes, 60, i), "inst": None}
+               for i, h in enumerate(hist)][-days:]
+    trades = [t for t in pfm.load_trades() if str(t.get("code", "")).upper() == root]
+    markers = [{"time": t["date"], "side": t["side"], "shares": int(float(t["shares"])), "price": float(t["price"])} for t in trades]
+    lines = []
+    d = (_INTRA["v"] or {}).get("derivatives") or {}
+    for o in d.get("orders", []):
+        if o["code"] == base or root in ("TX", o["code"]):
+            lines += [{"label": f"建議進場 {o['contract']}", "price": o["limit_price"], "kind": "entry"},
+                      {"label": "停損", "price": o["stop"], "kind": "stop"},
+                      {"label": "停利", "price": o["take_profit"], "kind": "tp"}]
+    if root == "TXO" and d.get("hedge"):
+        lines.append({"label": f"賣權履約價 {int(d['hedge']['strike'])}（開始有保護）", "price": d["hedge"]["strike"], "kind": "stop"})
+    return {"code": root, "name": FUTURES_INFO.get(root, {}).get("name", root), "candles": candles, "markers": markers,
+            "lines": lines, "source": "期交所期貨每日交易行情（近月合約連續；每日取成交量最大的月合約）"
+            + ("；選擇權以台指期近月代表標的走勢" if root == "TXO" else "")}
+
+
+def futures_detail(root: str) -> dict:
+    from src.agents import futures_data as fd
+    from src.config import rules as _rules
+
+    root = root.upper()
+    spec = _rules()["futures"]["contracts"].get(root, {})
+    margins = fd.margins()
+    out = {"root": root, "name": FUTURES_INFO.get(root, {}).get("name", root), "multiplier": spec.get("multiplier"),
+           "tax": "股價類期貨交易稅 0.002%" if root != "TXO" else "選擇權交易稅 0.01%（競賽規則）",
+           "commission_assumed": _rules()["futures"]["commission_per_contract"].get(root),
+           "trading_hours": "08:45～13:45（競賽平台接受前一日 15:30 後預掛）"}
+    if root == "TXO":
+        months = [fd.front_month(), fd.front_month(min_days=40)]
+        spot = fd.futures_quotes("TX").get("spot")
+        chains = {}
+        for ym in dict.fromkeys(months):
+            ch = fd.put_chain(ym)
+            if spot:
+                ch = [r for r in ch if spot * 0.88 <= r["strike"] <= spot * 1.02]
+            chains[ym] = [{**r, "dist_pct": round((r["strike"] / spot - 1) * 100, 2) if spot else None,
+                           "premium_per_lot": round(r["price"] * 50) if r.get("price") else None} for r in ch]
+        out.update(spot=spot, months=[{"ym": ym, "settlement": str(fd.settlement_date(ym)),
+                                       "days_left": fd.days_to_settlement(ym)} for ym in chains],
+                   puts=chains, note="只做買方：買進賣權的最大損失＝權利金；價外越多越便宜、保護越晚開始")
+    else:
+        q = fd.futures_quotes(root)
+        rows = []
+        for ym, m in sorted(q["months"].items())[:4]:
+            rows.append({"ym": ym, "contract": f"{root}{ym}", **m, "settlement": str(fd.settlement_date(ym)),
+                         "days_left": fd.days_to_settlement(ym),
+                         "basis": round(m["price"] - q["spot"], 1) if q.get("spot") and m.get("price") else None})
+        mg = margins.get(root, {})
+        front = rows[0] if rows else {}
+        out.update(spot=q.get("spot"), source=q.get("source"), months=rows, margin=mg,
+                   notional=round(front["price"] * spec["multiplier"]) if front.get("price") else None,
+                   leverage=round(front["price"] * spec["multiplier"] / mg["initial"], 1) if front.get("price") and mg.get("initial") else None)
+    plan = (_INTRA["v"] or {}).get("derivatives")
+    out["system_view"] = plan
+    return out

@@ -199,3 +199,65 @@ def marks(pf) -> dict[str, float]:
         if p:
             out[c] = p
     return out
+
+
+# ---------------------------------------------------------------- 歷史日 K（近月連續）
+def _hist_chunk(root: str, start: dt.date, end: dt.date) -> list[list[str]]:
+    """期交所「期貨每日交易行情」下載（一次最多約 30 天）。過去的區間永久快取。"""
+    import csv
+    import io
+    import pickle
+
+    from src.config import CACHE_DIR
+
+    path = CACHE_DIR / f"fut_{root}_{start:%Y%m%d}_{end:%Y%m%d}.pkl"
+    if path.exists():
+        return pickle.loads(path.read_bytes())
+    try:
+        r = requests.post("https://www.taifex.com.tw/cht/3/futDataDown", timeout=60,
+                          headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.taifex.com.tw/cht/3/dlFutDataDown"},
+                          data={"down_type": "1", "commodity_id": root, "commodity_id2": "",
+                                "queryStartDate": start.strftime("%Y/%m/%d"), "queryEndDate": end.strftime("%Y/%m/%d")})
+        rows = list(csv.reader(io.StringIO(r.content.decode("cp950", errors="replace"))))[1:]
+        providers._mark(f"{TAIFEX} 歷史行情", bool(rows))
+    except Exception as e:  # noqa: BLE001
+        providers._mark(f"{TAIFEX} 歷史行情", False, str(e))
+        return []
+    if rows and end < now_tw().date() - dt.timedelta(days=1):
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pickle.dumps(rows))
+    return rows
+
+
+def history(root: str, days: int = 260) -> list[dict]:
+    """近月連續日 K：每天取一般交易時段、成交量最大的月合約（不含價差與週合約）。"""
+    def fetch():
+        today = now_tw().date()
+        start = today - dt.timedelta(days=int(days * 1.5))
+        rows, end = [], today
+        while end > start:
+            s = max(start, end - dt.timedelta(days=29))
+            # 對齊到固定區間，過去的區間才能快取命中
+            rows += _hist_chunk(root, s, end)
+            end = s - dt.timedelta(days=1)
+        best: dict[str, list[str]] = {}
+        for r in rows:
+            if len(r) < 18 or r[17].strip() != "一般" or "/" in r[2] or "W" in r[2]:
+                continue
+            try:
+                vol = float(r[9])
+            except ValueError:
+                continue
+            if r[0] not in best or vol > float(best[r[0]][9]):
+                best[r[0]] = r
+        out = []
+        for d in sorted(best):
+            r = best[d]
+            o, h, lo, c = (_f(x) for x in r[3:7])
+            if not all((o, h, lo, c)):
+                continue
+            out.append({"time": d.replace("/", "-"), "open": o, "high": h, "low": lo, "close": c, "volume": float(r[9]),
+                        "contract": f"{root}{r[2].strip()}", "settlement": _f(r[10]), "oi": _f(r[11])})
+        return out[-days:]
+
+    return _cache(f"hist_{root}_{days}", 1800, fetch) or []

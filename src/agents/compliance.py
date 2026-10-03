@@ -60,9 +60,22 @@ def check(pf: Portfolio, prices: dict, orders: list[dict], today: dt.date, nav: 
             held_after.add(o["code"])
         elif o.get("holding_after", 1) == 0:
             held_after.discard(o["code"])
+    sym_start = dt.date.fromisoformat(str(req.get("symbols_rule_start", build_end)))
+    before = today < sym_start
     add("交易過的標的 ≥ 5（每日收盤追蹤）", len(symbols) >= req["min_symbols"],
         f"已成交 {len(pf.traded_symbols)} 檔＋本次建議 = {len(symbols)} 檔；執行後持有 {len(held_after)} 檔"
-        + ("（建倉期不罰）" if in_build else "（未達每次扣報酬率 0.2%）"), warn=in_build)
+        + (f"（第三週 {sym_start.month}/{sym_start.day} 起才檢查）" if before else "（未達每次扣報酬率 0.2%）"), warn=before)
+
+    # 最後一日規定（Q&A）：收盤後仍須持有 ≥5 檔、現金 < 30%
+    fd = req.get("final_day") or {}
+    if fd and remaining_trading_days(today) <= 5:
+        cash_after = pf.cash - sum(o["shares"] * o["limit_price"] * (1 if o["action"] == "BUY" else -1) for o in orders
+                                   if o.get("asset", "STOCK") in ("STOCK", "ETF"))
+        cash_ratio = max(0.0, cash_after + pf.futures_cash) / nav if nav else 1
+        add(f"最後一日收盤仍持有 ≥ {fd['min_held_symbols']} 檔", len(held_after) >= fd["min_held_symbols"],
+            f"執行後持有 {len(held_after)} 檔；最後一天收盤後不可清空部位")
+        add(f"最後一日現金 < 總資產 {fd['max_cash_ratio'] * 100:.0f}%", cash_ratio < fd["max_cash_ratio"],
+            f"預估現金（含期貨戶）佔總資產 {cash_ratio * 100:.1f}%")
 
     # 交易筆數進度
     done = pf.trade_count + len(orders)

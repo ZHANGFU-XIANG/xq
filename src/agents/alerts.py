@@ -408,6 +408,18 @@ def rule_alerts(pf, orders: list[dict], today: dt.date) -> list[dict]:
     syms = set(pf.traded_symbols)
     after = syms | {o["code"] for o in orders}
     lack = req["min_symbols"] - len(syms)
+    build_end = dt.date.fromisoformat(str(req.get("symbols_rule_start", build_end))) - dt.timedelta(days=1)
+    fd = req.get("final_day") or {}
+    if fd and remain <= 5:
+        held = {c for c, p in pf.positions.items() if p.shares > 0}
+        cash_ratio = (pf.cash + pf.futures_cash) / max(1.0, pf.cash + pf.futures_cash + sum(
+            p.cost_basis for p in pf.positions.values()))
+        out.append({
+            "scope": "規則", "level": "嚴重" if len(held) < fd["min_held_symbols"] or cash_ratio >= fd["max_cash_ratio"] else "提醒",
+            "title": f"比賽剩 {remain} 個交易日：最後一天收盤要持有 ≥ {fd['min_held_symbols']} 檔、現金 < {fd['max_cash_ratio'] * 100:.0f}%",
+            "reasons": [f"目前持有 {len(held)} 檔、現金（含期貨戶）約佔 {cash_ratio * 100:.0f}%",
+                        "Q&A 規定：最後一日收盤後不可清空部位，未達標直接剔除排名"],
+            "action": "最後幾天不要全部出清；要獲利了結也保留至少 5 檔、現金低於 30%"})
     if lack > 0:
         in_build = today <= build_end
         out.append({

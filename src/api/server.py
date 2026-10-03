@@ -187,7 +187,21 @@ def get_rules():
 # ---------------------------------------------------------------- 個股
 @app.get("/api/stock/search", dependencies=[api])
 def search(q: str):
-    return on_demand.resolve(q) if q.strip() else []
+    return (data.futures_search(q) + on_demand.resolve(q)) if q.strip() else []
+
+
+@app.get("/api/futures/{root}", dependencies=[api])
+def futures_detail(root: str):
+    if root.upper() not in data.FUTURES_INFO:
+        raise HTTPException(404, "目前支援 TX、MTX、TMF、TXO")
+    return data.futures_detail(root)
+
+
+@app.get("/api/futures/{root}/kline", dependencies=[api])
+def futures_kline(root: str, days: int = 260):
+    if root.upper() not in data.FUTURES_INFO:
+        raise HTTPException(404, "目前支援 TX、MTX、TMF、TXO")
+    return data.futures_kline(root.upper(), min(max(days, 30), 500))
 
 
 @app.get("/api/stock/{code}/profile", dependencies=[api])

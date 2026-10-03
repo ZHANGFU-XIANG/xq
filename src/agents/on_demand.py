@@ -183,8 +183,14 @@ def analyze(code: str) -> dict:
                        "components": s["def_components"], "reasons": s["def_reasons"], "risks": s["def_risks"]},
            "model": {k: a[k] for k in ("p_newhigh", "exp_excess", "exp_ret", "p_up", "exp_dd", "hi252", "dist_hi")} if a else None,
            "overnight": sc["preds"].get(code), "revenue": s.get("revenue"),
-           "allocation": {"offense": alloc["offense"], "defense": alloc["defense"]},
+           "allocation": {"offense": alloc["offense"], "defense": alloc["defense"], "etf": alloc.get("etf")},
            "base_rates": {"newhigh": ctx["alpha"]["base_rate"], "up": ctx["alpha"]["up_base_rate"]}}
+    is_etf = bool(stock_meta(code).get("is_etf"))
+    if is_etf:
+        out["etf"] = {"category": s.get("etf_category"), "score": s.get("etf_score"), "signal": s.get("etf_signal"),
+                      "premium": s.get("etf_premium"), "reasons": s.get("etf_reasons", []), "risks": s.get("etf_risks", []),
+                      "tax_note": "ETF 證交稅 0.1%（股票 0.3%）",
+                      "basket_share_today": alloc.get("etf"), "basket_reasons": alloc.get("etf_reasons", [])}
     if not a:
         out["warning"] = "不在流動性股票池內（20 日均成交值不足 5,000 萬或資料不足），一個月模型不適用，僅供技術面參考"
 
@@ -213,6 +219,13 @@ def analyze(code: str) -> dict:
                           else f"{item['decision']}：{item['why']}" if item else "續抱")
         out["sell_order"] = mine
         out["recovery"] = item
+    elif is_etf:
+        order = sizer.size_single(s, "etf", pf, sc["prices"], sc["feats"], nav, alloc, bo)
+        sig = s.get("etf_signal")
+        out["verdict"] = ("建議買進（ETF 籃）" if sig == "買進候選" else
+                          f"溢價不追：{'；'.join(s.get('etf_risks', []))}" if sig == "溢價不追" else
+                          f"觀望：ETF 分數 {s.get('etf_score', 0):+.2f} 未達門檻 {params.basket('etf')['buy_threshold']:+.2f}")
+        out["buy_plan"] = order
     else:
         if s["signal"] == "買進候選":
             basket = "offense"

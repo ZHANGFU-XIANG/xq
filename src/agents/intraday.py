@@ -64,10 +64,12 @@ def _order_status(o: dict, rt: dict, held: int, market_open: bool = True) -> dic
             "planned_shares": o["shares"],
             "limit_price": limit, "price": price, "chg_pct": q.get("chg_pct"), "stop": o.get("stop"),
             "why": (o.get("why_sell") or (o.get("why_stock") or [""])[0])}
+    odd = o["shares"] % 1000
+    odd_note = f"（零股 {odd} 股要在盤中零股時段 09:10～13:30 另外下單）" if odd else ""
     if not market_open:  # 盤前／收盤後：可預掛單（平台接受前一日 15:30 後的預掛）
         verb = "買進" if o["action"] == "BUY" else "賣出"
         return {**base, "status": "可預掛單", "remaining": o["shares"],
-                "advice": f"開盤前預掛：限價 {limit} {verb} {sizer.fmt_shares(o['shares'])}；開盤後每 40 分鐘依即時價重算"}
+                "advice": f"開盤前預掛：限價 {limit} {verb} {sizer.fmt_shares(o['shares'])}{odd_note}；開盤後每 40 分鐘依即時價重算"}
     if o["action"] == "BUY":
         if held >= o["shares"] * 0.9 and o.get("existing_before", 0) == 0:
             return {**base, "status": "已成交", "advice": f"持股已有 {held:,} 股，這筆已完成"}

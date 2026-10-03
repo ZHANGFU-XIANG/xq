@@ -94,6 +94,7 @@ def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initi
     if abs(e_clip - e) > 1e-9:
         etf_reasons.append(f"限制在 ETF {ecfg['min'] * 100:.0f}%～{ecfg['max'] * 100:.0f}% 範圍內")
     e = e_clip
+    etf_reasons.append(f"今日 ETF 籃比例 {e * 100:.0f}%（佔股票＋ETF 目標持股；基準 {ecfg['base'] * 100:.0f}% 已依上述條件調整）")
     stock = 1 - e
     reasons.append(f"今日配置（佔股票＋ETF 目標持股）：進攻籃 {off * stock * 100:.0f}%、穩健籃 {(1 - off) * stock * 100:.0f}%、"
                    f"ETF 籃 {e * 100:.0f}%")

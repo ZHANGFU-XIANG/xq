@@ -317,7 +317,9 @@ def hedge_plan(sig: dict, nav: float, beta_value: float, alloc: dict | None, us_
     if not triggers or beta_value <= 0:
         return None
     ym = fd.front_month(today, min_days=c["min_days_to_expiry"])
-    chain = [r for r in fd.put_chain(ym) if r["price"]]
+    # 比賽禁止對流動性差的標的異常交易：只選有買賣報價、價差 ≤ 15% 的履約價
+    chain = [r for r in fd.put_chain(ym) if r["price"] and r.get("bid") and r.get("ask")
+             and (r["ask"] - r["bid"]) / r["ask"] <= 0.15]
     spot = sig["close"]
     target = spot * (1 - c["otm_pct"])
     cands = [r for r in chain if r["strike"] <= target]
