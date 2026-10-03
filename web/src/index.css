@@ -80,3 +80,6 @@ body { margin: 0; background: var(--color-mist); min-height: 100vh; }
 .prose-answer th, .prose-answer td { border-bottom: 1px solid var(--color-line); padding: 0.3em 0.6em; text-align: left; }
 .prose-answer th { color: var(--color-muted); font-weight: 500; }
 .prose-answer .unverified { color: var(--color-warn); text-decoration: underline dotted; }
+.prose-answer .cite { font-size: 0.7em; color: var(--color-link); margin-left: 0.15em; }
+.prose-answer .cite.bad { color: var(--color-warn); }
+.prose-answer .uncertain { border-left: 3px solid var(--color-warn); padding-left: 0.6em; color: var(--color-ink-2); }

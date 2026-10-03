@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import Iterator
@@ -24,8 +25,25 @@ log = logging.getLogger(__name__)
 MAX_STEPS = 6
 PENDING: dict[str, dict] = {}
 
-SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資助理，使用繁體中文與台灣用語。
-規則：
+SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的投資顧問助理，用專業、精簡、自然的繁體中文（台灣用語）回答，像資深營業員或研究員對客戶說明。
+
+服務範圍：
+只回答投資、股市、經濟、金融、產業與公司營運、競賽規則、本隊持股與交易相關的問題，以及和這些主題高度相關的問題（例如國際局勢、政策對市場的影響）。
+其他問題（閒聊、寫作、翻譯、程式、感情、娛樂、健康、法律等）一律婉拒：用一到兩句話說明這裡只提供投資與經濟相關的協助，並舉一個可以改問的例子；婉拒時不要呼叫工具。
+
+誠實與出處（最高優先）：
+A. 每個工具結果都有 source_id（例如 S1）。每個論點、數字、事件，都要在句末標註出處，格式「〔S1〕」；同一句用到多個來源寫「〔S1〕〔S3〕」。沒有出處可標的內容不要寫。
+B. 只能使用本輪工具結果或前文已核實內容裡的數字與事件；禁止估算、憑記憶、編造數據或描述工具沒有回傳的新聞事件。提到新聞要寫出新聞標題重點與日期。
+C. 因果關係只有在資料直接支持時才能下結論。資料只顯示數字時，只陳述數字本身，不要加上「顯示市場情緒」「代表資金湧入」這類解讀；真的需要解讀時，句首寫「推論：」。例如「法人賣超、股價同期下跌」只能寫成兩者同時發生，不能寫成因為賣超所以下跌。
+D. 模型的機率、預期報酬、預測開盤都要說明是「模型估計，不是保證」。
+E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無法確認：」開頭說明缺什麼；完全沒有資料時直接回答「目前沒有這項資料，無法回答」並說明原因（例如尚未公布），再提供工具查得到的最接近資料（例如最近已公布的數字），不要猜。
+
+寫作格式：
+- 不使用粗體、井字號標題、表情符號、分隔線、HTML 標籤，也不要用「當然」「好的」「以下是」「希望對你有幫助」「總結來說」「值得注意的是」這類客套或制式用語。
+- 第一句直接給結論；接著用「1. 2. 3.」列出依據（每點附出處）；最後一行以「建議：」開頭寫具體動作。比較多檔時可以用簡單表格。
+- 註明資料日期。不要輸出 JSON 或英文欄位名稱。
+
+工具使用規則：
 1. 回答任何股價、張數、金額、比例、機率等數字前，必須先呼叫工具取得；只能使用工具結果中的數字，禁止自行估算或憑記憶。
 2. 使用者問到任何股票（包含每日建議沒有的），先用 find_stock 找代號，再用 analyze_stock 取得分析與操作建議。
 2b. 問公司在做什麼、財報、EPS、營收、股利、重大訊息時，用 company_profile（公開資訊觀測站官方資料）。
@@ -38,7 +56,114 @@ SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資�
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
 5e. 問「還有什麼可以注意／潛在標的／候補」時呼叫 get_potential_picks；問某檔為什麼沒被推薦時，用 analyze_stock，依其中 today_status 回答：排第幾名、和最後一檔入選者的分數差距、拖累分數的項目（weakest_components 與 risks），不要自行推測其他原因。
 5f. 這是連續對話：使用者說「它」「這檔」「剛剛那檔」「第二個」時，指前文提到的股票或項目，直接沿用，不要再問一次；需要數字時仍要重新呼叫工具。
-7. 註明資料日期；不確定或工具沒有的資料就直說沒有。回答精簡、條列、可執行。不要輸出 JSON 或英文欄位名稱。"""
+7. 問到新聞、事件、國際局勢對股票的影響時，用 search_news 或 get_macro 取得真實新聞，並用 analyze_stock 的國際敏感度或歸因數據佐證影響幅度；沒有數據支持的影響不要寫。"""
+
+# 出處說明：讓使用者知道每個 source_id 背後是哪個資料來源
+SOURCE_DESC = {
+    "find_stock": "證交所／櫃買中心上市櫃清單",
+    "stock_profile": "證交所／櫃買中心日成交資料、FinMind（本益比、月營收、法人買賣超、融資券）",
+    "company_profile": "公開資訊觀測站",
+    "analyze_stock": "本系統模型計算（資料：證交所／櫃買日 K、FinMind 法人與月營收、Yahoo Finance 美股收盤）",
+    "get_daily_report": "本系統每日盤前報告",
+    "get_portfolio": "本隊成交紀錄（系統登錄）",
+    "search_news": "新聞（Google 新聞、鉅亨網等，附原文連結）",
+    "get_macro": "本系統國際大事分析（新聞＋Yahoo Finance 國際市場收盤）",
+    "get_rules": "競賽官方規則（德明財經科技大學競賽網站）",
+    "get_holding_advice": "本系統持股建議（證交所即時報價計算）",
+    "get_alerts": "證交所／櫃買中心即時報價、注意與處置股公告、新聞",
+    "get_model_health": "本系統模型回測與實際命中紀錄",
+    "simulate_trades": "本系統試算（競賽手續費 0.1425%、證交稅）",
+    "get_potential_picks": "本系統每日排名",
+    "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
+}
+RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
+
+
+def _tag(out, n: int, name: str):
+    """在工具結果最前面加上出處編號，模型引用時寫〔S{n}〕。"""
+    if not isinstance(out, dict):
+        out = {"result": out}
+    return {"source_id": f"S{n}", "source": SOURCE_DESC.get(name, name), **out}
+
+
+def _links(name: str, r: dict) -> list[dict]:
+    """出處可點的原文連結（新聞、觀測站、競賽規則）。"""
+    if name == "search_news":
+        return [{"title": n.get("title", ""), "url": n["url"]} for n in r.get("news", [])[:6] if n.get("url")]
+    if name == "analyze_stock":
+        return [{"title": n.get("title", ""), "url": n["url"]} for n in (r.get("news") or [])[:3] if n.get("url")]
+    if name == "get_macro":
+        return [{"title": n.get("title", ""), "url": n["url"]} for e in (r.get("macro") or [])[:3]
+                for n in (e.get("news") or [])[:1] if n.get("url")]
+    if name == "company_profile":
+        return [{"title": "公開資訊觀測站", "url": "https://mops.twse.com.tw/mops/#/web/t146sb05"}]
+    if name == "get_rules":
+        return [{"title": "競賽規則", "url": RULES_URL}]
+    return []
+
+
+_EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF️]")
+_FILLERS = re.compile(r"^(當然|好的|沒問題|以下是[^。：]*[。：]?|希望(以上|這些)?對你有(所)?幫助[。！]?)\s*")
+
+
+def _style(text: str) -> str:
+    """去除 AI 慣用符號：粗體、井字號標題、分隔線、HTML 換行、表情符號、制式開場白。"""
+    lines = []
+    for ln in text.replace("<br>", "；").replace("<br/>", "；").splitlines():
+        if re.fullmatch(r"\s*([-*_]\s*){3,}\s*", ln):
+            continue
+        ln = re.sub(r"^\s{0,3}#{1,6}\s*", "", ln)
+        ln = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), ln)
+        ln = _EMOJI.sub("", ln)
+        lines.append(ln.rstrip())
+    out = "\n".join(lines).strip()
+    out = _FILLERS.sub("", out)
+    return re.sub(r"\n{3,}", "\n\n", out)
+
+
+_DIG = str.maketrans("0123456789", "abcdefghij")
+_UNDIG = str.maketrans("abcdefghij", "0123456789")
+
+
+def _hide_cites(text: str) -> str:
+    """出處編號〔S12〕暫時改成不含數字的〔Sbc〕，避免被數字核對當成數據。"""
+    return re.sub(r"〔S(\d+)〕", lambda m: f"〔S{m.group(1).translate(_DIG)}〕", text)
+
+
+def _show_cites(text: str) -> str:
+    return re.sub(r"〔S([a-j]+)〕", lambda m: f"〔S{m.group(1).translate(_UNDIG)}〕", text)
+
+
+MODEL_TOOLS = {"analyze_stock", "get_daily_report", "get_potential_picks", "get_model_health", "stock_profile",
+               "get_holding_advice", "get_macro"}
+
+
+def _flag_uncited(text: str) -> tuple[str, int]:
+    """條列的每一點都要有出處；沒有出處、也沒標明「推論／無法確認」的，標示〔未附出處〕。"""
+    n = 0
+    out = []
+    for ln in text.splitlines():
+        body = re.sub(r"^\s*(\d+[.、]|[-*])\s*", "", ln)
+        is_point = body != ln.lstrip() or re.match(r"^\s*(\d+[.、]|[-*])\s", ln)
+        if is_point and body and "〔S" not in ln and not body.startswith(("推論", "無法確認", "建議")):
+            ln = ln.rstrip() + "〔未附出處〕"
+            n += 1
+        out.append(ln)
+    return "\n".join(out), n
+
+
+def _check_cites(text: str, n_sources: int) -> tuple[str, list[str]]:
+    """引用不存在的出處編號 → 標示「出處不明」。"""
+    bad = []
+
+    def repl(m):
+        i = int(m.group(1))
+        if 1 <= i <= n_sources:
+            return m.group(0)
+        bad.append(f"S{i}")
+        return "〔出處不明〕"
+
+    return re.sub(r"〔S(\d+)〕", repl, text), bad
 
 TOOLS = [
     {"name": "find_stock", "description": "用股票名稱或代號搜尋台股（上市櫃、ETF）",
@@ -204,7 +329,7 @@ def cancel(aid: str) -> dict:
 
 
 # ---------------------------------------------------------------- LLM 迴圈
-def _gemini_loop(messages: list[dict], emit) -> tuple[str, list]:
+def _gemini_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     from google import genai
     from google.genai import types
 
@@ -232,7 +357,7 @@ def _gemini_loop(messages: list[dict], emit) -> tuple[str, list]:
                 for fc in calls:
                     args = dict(fc.args or {})
                     emit({"type": "tool", "name": fc.name, "args": args})
-                    out = call_tool(fc.name, args)
+                    out = _tag(call_tool(fc.name, args), start + len(outputs) + 1, fc.name)
                     outputs.append({"tool": fc.name, "args": args, "result": out})
                     emit({"type": "tool_result", "name": fc.name, "ok": "error" not in out,
                           "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
@@ -265,7 +390,7 @@ def _compact(out, budget: int = GROQ_TOOL_CHARS) -> str:
     return s if len(s) <= budget else s[:budget] + "…（已截斷）"
 
 
-def _groq_loop(messages: list[dict], emit) -> tuple[str, list]:
+def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     from groq import Groq
 
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
@@ -286,7 +411,7 @@ def _groq_loop(messages: list[dict], emit) -> tuple[str, list]:
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments or "{}")
             emit({"type": "tool", "name": tc.function.name, "args": args})
-            out = call_tool(tc.function.name, args)
+            out = _tag(call_tool(tc.function.name, args), start + len(outputs) + 1, tc.function.name)
             outputs.append({"tool": tc.function.name, "args": args, "result": out})
             emit({"type": "tool_result", "name": tc.function.name, "ok": "error" not in out,
                   "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
@@ -332,29 +457,40 @@ def run(messages: list[dict], emit, loop=None) -> dict:
     # 前文（含先前已核實的回答）也算事實來源，延續對話時引用前面的數字不會被誤判
     facts = {"user": user_text, "tools": [o["result"] for o in outputs], "date": now_tw().date().isoformat(),
              "history": [m["content"] for m in messages[:-1]]}
-    ok, bad = verify(text, facts)
+    ok, bad = verify(_hide_cites(text), facts)
     if not ok and outputs and not loop:
         # 重寫一次：附上未出處數字，要求改用工具結果
         retry = messages + [{"role": "assistant", "content": text},
-                            {"role": "user", "content": f"你的回答中 {bad} 這些數字在工具結果中找不到，請只用工具結果的數字重寫（不要再呼叫寫入類工具）。"}]
+                            {"role": "user", "content": f"你的回答中 {bad} 這些數字在工具結果中找不到，請重新查詢並只用工具結果的數字重寫，每個論點標註出處；"
+                                                        "查不到的就寫「無法確認」（不要再呼叫寫入類工具）。"}]
         try:
-            text2, more = (loops[0])(retry, lambda e: None)
+            text2, more = (loops[0])(retry, lambda e: None, start=len(outputs))
             facts["tools"] += [o["result"] for o in more]
-            if verify(text2, facts)[0]:
+            outputs = outputs + more
+            if verify(_hide_cites(text2), facts)[0]:
                 text, ok, bad = text2, True, []
             else:
                 text = text2
         except Exception:  # noqa: BLE001
             pass
-    text, bad = _mark_unverified(text, facts)
+    text = _style(text)
+    text, uncited = _flag_uncited(text) if outputs else (text, 0)
+    used_model = any(o["tool"] in MODEL_TOOLS for o in outputs)
+    if used_model and re.search(r"預測|機率|預期|預估|命中率", text) and "不是保證" not in text:
+        text += "\n\n說明：文中的預測、機率與預期報酬是模型依歷史資料估計的結果，不是保證。"
+    text, bad = _mark_unverified(_hide_cites(text), facts)
+    text = _show_cites(text)
+    text, bad_cites = _check_cites(text, len(outputs))
     sources = []
-    for o in outputs:
+    for i, o in enumerate(outputs, 1):
         r = o["result"] if isinstance(o["result"], dict) else {}
-        sources.append({"tool": o["tool"], "args": o["args"],
-                        "date": r.get("data_date") or r.get("date") or r.get("asof")})
+        sources.append({"id": f"S{i}", "tool": o["tool"], "args": o["args"], "label": SOURCE_DESC.get(o["tool"], o["tool"]),
+                        "date": r.get("data_date") or r.get("date") or r.get("asof") or r.get("generated_at"),
+                        "links": _links(o["tool"], r), "cited": f"〔S{i}〕" in text})
     actions = [{"id": o["result"]["pending_action"], "summary": o["result"]["summary"]}
                for o in outputs if isinstance(o["result"], dict) and o["result"].get("pending_action")]
-    return {"type": "answer", "text": text, "verified": not bad, "unverified": bad, "sources": sources, "actions": actions}
+    return {"type": "answer", "text": text, "verified": not bad and not bad_cites and not uncited, "unverified": bad + bad_cites + ["未附出處"] * uncited,
+            "sources": sources, "actions": actions}
 
 
 def stream(messages: list[dict]) -> Iterator[str]:

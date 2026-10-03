@@ -9,7 +9,7 @@ type Msg = {
   progress?: string[]
   verified?: boolean
   unverified?: string[]
-  sources?: { tool: string; args: Record<string, unknown>; date?: string }[]
+  sources?: { id?: string; tool: string; label?: string; args: Record<string, unknown>; date?: string; links?: { title: string; url: string }[]; cited?: boolean }[]
   actions?: Action[]
 }
 
@@ -112,7 +112,11 @@ function renderMd(text: string) {
   let html = ''
   let list: 'ul' | 'ol' | null = null
   const inline = (s: string) =>
-    s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/([\d,.+-]+%?)〔未核實〕/g, '<span class="unverified" title="此數字在工具資料中找不到">$1</span>')
+    s.replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/([\d,.+-]+%?)〔未核實〕/g, '<span class="unverified" title="此數字在資料來源中找不到，無法證實">$1</span>')
+      .replace(/〔(S\d+)〕/g, '<sup class="cite">$1</sup>')
+      .replace(/〔出處不明〕/g, '<sup class="cite bad" title="引用了不存在的出處">出處不明</sup>')
+      .replace(/〔未附出處〕/g, '<sup class="cite bad" title="這一點沒有資料佐證，請自行查證">未附出處</sup>')
   let table: string[][] = []
   const flushTable = () => {
     if (!table.length) return
@@ -150,7 +154,7 @@ function renderMd(text: string) {
       html += `</${list}>`
       list = null
     }
-    if (l) html += `<p>${inline(l)}</p>`
+    if (l) html += l.startsWith('無法確認') ? `<p class="uncertain">${inline(l)}</p>` : `<p>${inline(l)}</p>`
   }
   if (list) html += `</${list}>`
   flushTable()
@@ -285,10 +289,29 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
                   )}
                 </div>
               ))}
+              {m.content && !!m.sources?.length && (
+                <details className="mt-1 text-xs text-ink-2">
+                  <summary className="cursor-pointer text-muted">出處（{m.sources.length}）</summary>
+                  <ol className="mt-1 space-y-1">
+                    {m.sources.map((src, k) => (
+                      <li key={k} className={src.cited === false ? 'opacity-60' : ''}>
+                        <span className="num mr-1 font-medium">{src.id ?? `S${k + 1}`}</span>
+                        {src.label ?? TOOL_NAMES[src.tool] ?? src.tool}
+                        {src.args?.code ? `｜${String(src.args.code)}` : src.args?.query ? `｜「${String(src.args.query)}」` : ''}
+                        {src.date ? `｜資料日期 ${src.date}` : ''}
+                        {!!src.links?.length && (
+                          <span className="ml-1">
+                            {src.links.map((l, j) => <a key={j} href={l.url} target="_blank" rel="noreferrer" className="mr-2">{l.title || '原文'}</a>)}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
               {m.content && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                  {m.verified ? <span className="text-down">數字已核對</span> : m.unverified?.length ? <span className="text-warn">有 {m.unverified.length} 個數字無法核對（虛線標示）</span> : null}
-                  {m.sources?.length ? <span>資料：{[...new Set(m.sources.map((s) => TOOL_NAMES[s.tool] ?? s.tool))].join('、')}{m.sources.find((s) => s.date)?.date ? `（${m.sources.find((s) => s.date)?.date}）` : ''}</span> : null}
+                  {m.verified ? <span className="text-down">數字已核對出處</span> : m.unverified?.length ? <span className="text-warn">有 {m.unverified.length} 處無法證實（虛線標示）</span> : null}
                 </div>
               )}
             </div>

@@ -220,3 +220,26 @@ def test_potential_excludes_orders(client, monkeypatch):
         ordered = {o["code"] for o in data.load_report()["orders"]}
         assert not ordered & {x["code"] for x in d["offense"] + d["defense"]}
         assert all(x["why_not_yet"] and x["trigger"] for x in d["offense"] + d["defense"])
+
+
+def test_answer_style_and_citations():
+    t = chat_agent._style("好的，以下是分析：\n### 結論\n**聯發科** 排第 33 名〔S2〕 🚀\n---\n建議：觀望")
+    assert "**" not in t and "#" not in t and "---" not in t and "🚀" not in t and not t.startswith("好的")
+    txt, bad = chat_agent._check_cites("A〔S1〕B〔S9〕", 2)
+    assert bad == ["S9"] and "〔出處不明〕" in txt and "〔S1〕" in txt
+    hidden = chat_agent._hide_cites("排名 33〔S12〕")
+    assert "12" not in hidden and chat_agent._show_cites(hidden) == "排名 33〔S12〕"
+
+
+def test_citation_numbers_not_flagged_and_sources_listed():
+    def fake(messages, emit, start=0):
+        out = chat_agent._tag({"price": 48.85}, start + 1, "stock_profile")
+        return "兆豐金收盤 48.85 元〔S1〕。", [{"tool": "stock_profile", "args": {"code": "2886"}, "result": out}]
+
+    r = chat_agent.run([{"role": "user", "content": "兆豐金多少錢"}], lambda e: None, loop=fake)
+    assert r["verified"] and r["sources"][0]["id"] == "S1" and r["sources"][0]["cited"]
+
+
+def test_uncited_points_flagged():
+    t, n = chat_agent._flag_uncited("結論。\n1. 收盤 48.85〔S1〕\n2. 其他來源也沒有公布\n推論：可能是假期\n3. 推論：市場觀望\n建議：觀望")
+    assert n == 1 and "2. 其他來源也沒有公布〔未附出處〕" in t and "〔S1〕〔未附出處〕" not in t
