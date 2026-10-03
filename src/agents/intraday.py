@@ -1,10 +1,13 @@
-"""IntradayAgent：盤中每小時操作建議（交易日 09:05～13:05），由使用者親手下單。
+"""IntradayAgent：盤中每 40 分鐘重新計算操作建議（09:00、09:40、10:20、11:00、11:40、12:20、13:00），使用者親手下單。
 
-以證交所即時報價檢查：
-- 今日計畫買進：現價 vs 限價 → 可以下單／不追價維持掛單／漲停買不到／已成交
-- 今日計畫賣出與持股警示：跌破停損、跌停、負面新聞 → 建議賣出股數與限價
-- 收盤前持股率：每日收盤檢查 ≥70%（建倉期後未達每次扣 0.2%），只算實際成交 → 不足時提醒要補多少
-全部規則化，不使用 LLM（不消耗額度、結果穩定）。
+每一輪：
+1. 以證交所即時報價重算整份計畫（on_demand.live_plan）：持股 加碼／續抱／減碼／全部出清＋新部位建倉
+   - 第一天沒有持股時就是「建倉建議」：依攻守比例、目標持股率 90% 配置
+   - 盤中已漲 ≥7% 或漲停的不追，跌停的暫緩
+2. 與早上盤前報告比較：新增、取消（附原因）、數量調整、與早盤相同
+3. 每筆給出「現在能不能下單」：現價 ≤ 限價 → 可以下單；高於限價 → 掛單等待
+4. 收盤前持股率檢查（只算實際成交；建倉期後 <70% 每次扣 0.2%）
+全部規則化，不使用 LLM。
 """
 from __future__ import annotations
 
@@ -12,13 +15,31 @@ import datetime as dt
 import json
 import logging
 
-from src.agents import alerts, sizer
-from src.config import DATA_DIR, now_tw, rules, stock_meta
+from src.agents import sizer
+from src.config import DATA_DIR, now_tw, rules
 from src.state import params
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
 OUT_DIR = DATA_DIR / "intraday"
+SLOTS = [(9, 0), (9, 40), (10, 20), (11, 0), (11, 40), (12, 20), (13, 0)]
+
+
+def current_slot(now: dt.datetime | None = None) -> str:
+    """目前所屬的 40 分鐘時段（建議在時段內固定，到下一個時段才更新）。"""
+    from src.config import is_trading_day
+
+    now = now or now_tw()
+    if not is_trading_day(now.date()):
+        return f"{now.date()} 休市"
+    if (now.hour, now.minute) > (13, 30):
+        return f"{now.date()} 收盤後"
+    hm = (now.hour, now.minute)
+    slot = None
+    for s in SLOTS:
+        if hm >= s:
+            slot = s
+    return f"{now.date()} {slot[0]:02d}:{slot[1]:02d}" if slot else f"{now.date()} 盤前"
 
 
 def _taiex_rt() -> dict | None:
@@ -35,18 +56,23 @@ def _taiex_rt() -> dict | None:
         return None
 
 
-def _order_status(o: dict, rt: dict, held: int) -> dict:
+def _order_status(o: dict, rt: dict, held: int, market_open: bool = True) -> dict:
     code, limit = o["code"], o["limit_price"]
     q = rt.get(code) or {}
     price = q.get("price")
     base = {"code": code, "name": o["name"], "action": o["action"], "basket": o.get("basket"), "planned_shares": o["shares"],
-            "limit_price": limit, "price": price, "chg_pct": q.get("chg_pct")}
+            "limit_price": limit, "price": price, "chg_pct": q.get("chg_pct"), "stop": o.get("stop"),
+            "why": (o.get("why_sell") or (o.get("why_stock") or [""])[0])}
+    if not market_open:  # 盤前／收盤後：可預掛單（平台接受前一日 15:30 後的預掛）
+        verb = "買進" if o["action"] == "BUY" else "賣出"
+        return {**base, "status": "可預掛單", "remaining": o["shares"],
+                "advice": f"開盤前預掛：限價 {limit} {verb} {sizer.fmt_shares(o['shares'])}；開盤後每 40 分鐘依即時價重算"}
     if o["action"] == "BUY":
-        if held >= o["shares"] * 0.9:
+        if held >= o["shares"] * 0.9 and o.get("existing_before", 0) == 0:
             return {**base, "status": "已成交", "advice": f"持股已有 {held:,} 股，這筆已完成"}
-        remain = o["shares"] - held
+        remain = o["shares"]
         if price is None:
-            return {**base, "status": "無報價", "advice": "暫無即時報價，維持原掛單"}
+            return {**base, "status": "無報價", "remaining": remain, "advice": f"暫無即時報價，掛限價 {limit} 買 {sizer.fmt_shares(remain)}"}
         if q.get("at_limit_up"):
             return {**base, "status": "漲停買不到", "advice": "已漲停，不追價；今日若未成交，收盤後重新評估"}
         gap = (price / limit - 1) * 100
@@ -55,77 +81,87 @@ def _order_status(o: dict, rt: dict, held: int) -> dict:
                     "advice": f"現價 {price} ≤ 限價 {limit}：可以下單買進 {sizer.fmt_shares(remain)}（限價 {limit}）"}
         if gap <= 1.0:
             return {**base, "status": "接近限價", "remaining": remain,
-                    "advice": f"現價 {price} 高於限價 {gap:.1f}%：維持限價 {limit} 掛單等回檔"}
+                    "advice": f"現價 {price} 高於限價 {gap:.1f}%：掛限價 {limit} 買 {sizer.fmt_shares(remain)} 等回檔"}
         return {**base, "status": "不追價", "remaining": remain,
-                "advice": f"現價 {price} 已高於限價 {gap:.1f}%：不追高，維持限價 {limit}；若收盤前仍未成交，明天依新報告調整"}
-    # SELL
+                "advice": f"現價 {price} 已高於限價 {gap:.1f}%：不追高，掛限價 {limit}；下一輪會依新價格重算"}
     if held == 0:
         return {**base, "status": "已成交", "advice": "已無持股，這筆已完成"}
     if price is None:
-        return {**base, "status": "無報價", "advice": "暫無即時報價，維持原賣單"}
+        return {**base, "status": "無報價", "advice": f"暫無即時報價，掛限價 {limit} 賣 {sizer.fmt_shares(min(held, o['shares']))}"}
     if q.get("at_limit_down"):
         return {**base, "status": "跌停賣不掉", "advice": f"跌停鎖住，掛跌停價 {q.get('limit_down')} 排隊，打開時優先成交"}
     return {**base, "status": "可以下單", "advice": f"賣出 {sizer.fmt_shares(min(held, o['shares']))}，限價 {limit}（現價 {price}）"}
 
 
+def _compare(plan_orders: list[dict], morning: list[dict], skipped: list[dict]) -> list[dict]:
+    """與早上盤前報告的訂單比較。"""
+    out = []
+    m = {(o["code"], o["action"]): o for o in morning}
+    p = {(o["code"], o["action"]): o for o in plan_orders}
+    skip_reason = {s["code"]: s["reason"] for s in skipped}
+    for k, o in p.items():
+        if k not in m:
+            out.append({"code": o["code"], "name": o["name"], "change": "新增", "detail": f"{'買進' if o['action'] == 'BUY' else '賣出'} {sizer.fmt_shares(o['shares'])}"})
+        elif abs(o["shares"] - m[k]["shares"]) > max(1, m[k]["shares"] * 0.1):
+            out.append({"code": o["code"], "name": o["name"], "change": "數量調整",
+                        "detail": f"{sizer.fmt_shares(m[k]['shares'])} → {sizer.fmt_shares(o['shares'])}（依現價重新配置）"})
+    for k, o in m.items():
+        if k not in p:
+            out.append({"code": o["code"], "name": o["name"], "change": "取消",
+                        "detail": skip_reason.get(o["code"], "依現價重算後分數或排名下降，不再列入")})
+    return out
+
+
 def run(report: dict | None) -> dict:
-    """report：今日最新的每日報告 facts（含計畫訂單）。"""
+    """report：最新每日報告（用來比較早盤計畫）。"""
+    from src.agents import on_demand
+
     now = now_tw()
+    lp = on_demand.live_plan(realtime=True)
     pf = pfm.build_portfolio()
-    meta = pfm.load_meta()
-    orders = [o for o in (report or {}).get("orders", []) if (report or {}).get("target_date") == now.date().isoformat()]
-    codes = list(dict.fromkeys(list(pf.positions) + [o["code"] for o in orders]))
-    rt = alerts.realtime(codes)
-    prices = {c: (rt.get(c) or {}).get("price") for c in pf.positions}
-    from src.agents import market_data, on_demand
+    rt = lp["rt"]
+    morning = [o for o in (report or {}).get("orders", []) if (report or {}).get("target_date") == now.date().isoformat()]
+    held = {c: p.shares for c, p in pf.positions.items()}
+    order_rows = []
+    for o in lp["orders"]:
+        o = {**o, "existing_before": held.get(o["code"], 0) if o["action"] == "BUY" else 0}
+        order_rows.append(_order_status(o, rt, held.get(o["code"], 0), current_slot(now)[-5:] not in ("盤前", "休市", "收盤後")))
+    changes = _compare(lp["orders"], morning, lp["skipped"]) if morning else []
 
-    for c in pf.positions:  # 無即時價時用最近收盤
-        if not prices.get(c):
-            df = on_demand.price_df(c)
-            prices[c] = float(df.Close.iloc[-1]) if not df.empty else pf.positions[c].avg_cost
-    nav = pf.nav(prices)
-    ratio = pf.holding_ratio(prices)
-    st = params.strategy()
-
-    order_rows = [_order_status(o, rt, pf.positions[o["code"]].shares if o["code"] in pf.positions else 0) for o in orders]
-    feats = {c: market_data.tw_features(c, on_demand.current_target()) for c in pf.positions}
-    hold_alerts = alerts.holding_alerts(pf, meta, rt, {c: prices[c] for c in pf.positions}, feats,
-                                        alerts.attention_lists(), alerts.news_risk({c: stock_meta(c)["name"] for c in pf.positions}))
-
-    # 收盤前持股率（只算實際成交）
+    nav, ratio = lp["nav"], lp["holding_ratio"]
     min_ratio = rules()["requirements"]["min_holding_ratio"]
     build_end = dt.date.fromisoformat(str(rules()["competition"]["build_period_end"]))
-    pending_buy = sum(r["remaining"] * (r["price"] or r["limit_price"]) for r in order_rows
-                      if r["action"] == "BUY" and r.get("remaining"))
+    st = params.strategy()
     ratio_note = None
     if ratio < min_ratio:
         need = (min_ratio - ratio) * nav
-        penalty = now.date() > build_end
         ratio_note = (f"目前實際持股率 {ratio * 100:.1f}%，低於 {min_ratio * 100:.0f}%，還差約 {need:,.0f} 元；"
-                      + ("收盤後會扣報酬率 0.2%，請在 13:30 前讓買單成交（可改用較積極的限價）"
-                         if penalty else "目前仍在建倉期（不罰），但請盡快建立部位"))
+                      + ("收盤後會扣報酬率 0.2%，請在 13:30 前讓買單成交（可改用較積極的限價）" if now.date() > build_end
+                         else "目前仍在建倉期（10/16 前不罰），但請盡快建立部位"))
     elif ratio < st["target_holding_ratio"] - 0.05:
         ratio_note = f"目前實際持股率 {ratio * 100:.1f}%，高於 70% 下限，但低於目標 {st['target_holding_ratio'] * 100:.0f}%"
 
+    building = not pf.positions
     actions = []
-    for a in hold_alerts:
-        if a.get("sell_shares"):
-            actions.append(f"【賣出】{a['title']}：{a['action']}（{a['reasons'][0]}）")
     for r in order_rows:
-        if r["status"] in ("可以下單",):
-            actions.append(f"【{'買進' if r['action'] == 'BUY' else '賣出'}】{r['code']} {r['name']}：{r['advice']}")
-    if ratio_note and ratio < min_ratio:
+        if r["status"] in ("可以下單", "可預掛單"):
+            tag = "預掛" if r["status"] == "可預掛單" else ("建倉" if building else ("買進" if r["action"] == "BUY" else "賣出"))
+            actions.append(f"【{tag}】{r['code']} {r['name']}：{r['advice']}")
+    if ratio_note and ratio < min_ratio and not building:
         actions.append(f"【持股率】{ratio_note}")
-    waits = [f"{r['code']} {r['name']}：{r['advice']}" for r in order_rows if r["status"] in ("接近限價", "不追價", "漲停買不到", "跌停賣不掉")]
-    out = {
-        "time": now.strftime("%Y-%m-%d %H:%M"), "is_last_check": now.hour >= 13,
-        "taiex": _taiex_rt(), "nav": round(nav), "holding_ratio": round(ratio, 4),
+    waits = [f"{r['code']} {r['name']}：{r['advice']}" for r in order_rows if r["status"] in ("接近限價", "不追價", "漲停買不到", "跌停賣不掉", "無報價")]
+    if lp["funding"]["transfer_from_futures"] > 0 and building:
+        actions.insert(0, f"【資金】下單前先把期貨戶 {lp['funding']['transfer_from_futures']:,} 元轉到證券戶，持股率才拉得上去")
+    return {
+        "time": now.strftime("%Y-%m-%d %H:%M"), "slot": current_slot(now),
+        "is_last_check": current_slot(now).endswith("13:00"), "market_open": current_slot(now)[-5:] not in ("盤前", "休市", "收盤後"),
+        "building": building, "taiex": _taiex_rt(), "nav": nav, "holding_ratio": ratio,
         "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
-        "orders": order_rows, "holding_alerts": hold_alerts, "actions": actions, "waits": waits,
-        "ratio_note": ratio_note, "pending_buy_value": round(pending_buy),
-        "summary": (f"{len(actions)} 項需要動作" if actions else "目前不需要動作，維持原掛單"),
+        "allocation": {k: lp["allocation"][k] for k in ("offense", "defense")},
+        "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
+        "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,
+        "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
     }
-    return out
 
 
 def save(out: dict) -> None:
@@ -136,15 +172,21 @@ def save(out: dict) -> None:
 
 def email_body(out: dict) -> str:
     tx = out.get("taiex") or {}
-    lines = [f"盤中建議 {out['time']}" + ("（收盤前最後檢查）" if out["is_last_check"] else ""),
-             f"加權指數 {tx.get('price', '—')}（{tx.get('chg_pct', 0):+.2f}%）｜總資產 {out['nav']:,} 元｜實際持股率 {out['holding_ratio'] * 100:.1f}%",
-             "", "要做的事：" if out["actions"] else "要做的事：無，維持原掛單"]
+    title = "建倉建議" if out["building"] else "盤中建議"
+    lines = [f"{title}（{out['slot'][-5:]} 時段，每 40 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
+             f"加權指數 {tx.get('price', '—')}（{tx.get('chg_pct', 0):+.2f}%）｜總資產 {out['nav']:,} 元｜實際持股率 {out['holding_ratio'] * 100:.1f}%"
+             f"｜攻守 {out['allocation']['offense'] * 100:.0f}/{out['allocation']['defense'] * 100:.0f}",
+             "", "現在可以做：" if out["actions"] else "現在可以做：無，維持原掛單"]
     lines += [f"- {a}" for a in out["actions"]]
     if out["waits"]:
-        lines += ["", "等待中："] + [f"- {w}" for w in out["waits"]]
-    others = [a for a in out["holding_alerts"] if not a.get("sell_shares")]
-    if others:
-        lines += ["", "持股提醒："] + [f"- {a['title']}：{a['reasons'][0]} → {a['action']}" for a in others]
+        lines += ["", "掛單等待："] + [f"- {w}" for w in out["waits"]]
+    if out["changes"]:
+        lines += ["", "和早上計畫相比："] + [f"- {c['change']}｜{c['code']} {c['name']}：{c['detail']}" for c in out["changes"]]
+    if out["skipped"]:
+        lines += ["", "今天不追："] + [f"- {s['code']} {s['name']}：{s['reason']}" for s in out["skipped"]]
+    holds = [h for h in out["holding_items"] if h["verdict"] == "續抱"]
+    if holds:
+        lines += ["", "續抱：" + "、".join(f"{h['code']} {h['name']}" for h in holds)]
     if out["ratio_note"] and not any(a.startswith("【持股率】") for a in out["actions"]):
         lines += ["", out["ratio_note"]]
     return "\n".join(lines)

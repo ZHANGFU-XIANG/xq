@@ -4,5 +4,33 @@
   "issues": [],
   "changes": [],
   "note": "無需調整"
+ },
+ {
+  "date": "2026-10-03",
+  "issues": [],
+  "note": "人工調整：一個月模型改用 5 年歷史資料並加入近期加權（半衰期 365 天）。同一組四段時間外回測：綜合分數 0.3167→0.3350、前 20 名平均超額報酬 6.89%→7.74%、創新高比例 80.6%→82.6%、穩健籃收正報酬比例 60.8%→62.1%，四段皆進步。",
+  "changes": [
+   {
+    "param": "alpha.history_and_recency",
+    "before": {
+     "history_years": 3,
+     "half_life_days": 0
+    },
+    "after": {
+     "history_years": 5,
+     "half_life_days": 365
+    },
+    "metric_before": 0.3167,
+    "metric_after": 0.335,
+    "reason": "延長歷史資料涵蓋更多多空循環，並以近期加權避免舊行情主導"
+   }
+  ],
+  "previous_learned": {}
+ },
+ {
+  "date": "2026-10-03",
+  "issues": [],
+  "changes": [],
+  "note": "無需調整"
  }
 ]

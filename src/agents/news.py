@@ -59,17 +59,22 @@ def fetch_news(now: dt.datetime) -> list[dict]:
         feeds.append({"name": f"Google新聞:{q}",
                       "url": "https://news.google.com/rss/search?q=" + urllib.parse.quote(q + " when:1d")
                              + "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"})
-    items: list[dict] = []
-    for f in feeds:
+    def one(f):
         try:
             parsed = feedparser.parse(f["url"])
-            for e in parsed.entries[:40]:
-                items.append({"source": f["name"], "title": _clean(e.get("title", "")),
-                              "summary": _clean(e.get("summary", ""))[:300], "url": e.get("link", ""),
-                              "time": _parse_time(e)})
+            return [{"source": f["name"], "title": _clean(e.get("title", "")),
+                     "summary": _clean(e.get("summary", ""))[:300], "url": e.get("link", ""),
+                     "time": _parse_time(e)} for e in parsed.entries[:40]]
         except Exception as e:  # noqa: BLE001
             log.warning("RSS %s 失敗: %s", f["name"], e)
-    items += _cnyes_api()
+            return []
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(8) as ex:  # 平行抓取，手動刷新時幾秒內完成
+        cnyes = ex.submit(_cnyes_api)
+        items: list[dict] = [it for lst in ex.map(one, feeds) for it in lst]
+        items += cnyes.result()
 
     cutoff = now - dt.timedelta(hours=cfg["lookback_hours"])
     items = [i for i in items if i["title"] and i["url"] and (i["time"] is None or i["time"] >= cutoff)]

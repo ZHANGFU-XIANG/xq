@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
 
@@ -12,16 +12,74 @@ function Sentiment({ v }: { v: number }) {
 
 export default function News() {
   const { data, isLoading, error } = useQuery<Json>({ queryKey: ['news'], queryFn: () => get('/api/news') })
+  // 即時新聞：進入或重新整理頁面時立即抓取，之後每 5 分鐘更新
+  const first = useRef(true)
+  const { data: live, isFetching: liveFetching, refetch } = useQuery<Json>({
+    queryKey: ['news-live'],
+    queryFn: () => {
+      const r = get(`/api/news/live?refresh=${first.current}`)
+      first.current = false
+      return r
+    },
+    refetchInterval: 300_000,
+    staleTime: 0,
+  })
   const [src, setSrc] = useState('')
   const [q, setQ] = useState('')
-  const sources = useMemo(() => [...new Set<string>((data?.news ?? []).map((n: Json) => n.source.split(':')[0]))], [data])
+  const allNews: Json[] = live?.news ?? data?.news ?? []
+  const sources = useMemo(() => [...new Set<string>(allNews.map((n: Json) => n.source.split(':')[0]))], [allNews])
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
-  const news = (data.news as Json[]).filter((n) => (!src || n.source.startsWith(src)) && (!q || n.title.includes(q)))
+  const news = allNews.filter((n) => (!src || n.source.startsWith(src)) && (!q || n.title.includes(q)))
+  const forceRefresh = () => {
+    first.current = true
+    refetch()
+  }
   return (
     <>
       <PageTitle aside={<span className="text-sm text-muted">{data.date} 盤前蒐集</span>}>新聞與國際大事</PageTitle>
       {data.market_view && <p className="title mb-8 max-w-3xl text-lg leading-relaxed">{data.market_view}</p>}
+
+      <Section title={`最新新聞（${news.length}）`}
+        aside={
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-xs">{live?.fetched_at ? `更新於 ${live.fetched_at}・每 5 分鐘` : ""}</span>
+            <button onClick={forceRefresh} disabled={liveFetching} className="rounded-md border border-line bg-paper px-2 py-1 text-ink disabled:opacity-50">{liveFetching ? "更新中" : "立即更新"}</button>
+            <label className="sr-only" htmlFor="news-src">來源</label>
+            <select id="news-src" value={src} onChange={(e) => setSrc(e.target.value)} className="rounded-md border border-line bg-paper px-2 py-1 text-ink">
+              <option value="">全部來源</option>
+              {sources.map((s) => <option key={s}>{s}</option>)}
+            </select>
+            <label className="sr-only" htmlFor="news-q">關鍵字</label>
+            <input id="news-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="關鍵字" className="w-28 rounded-md border border-line bg-paper px-2 py-1 text-ink" />
+          </span>
+        }>
+        <ul className="divide-y divide-line/60">
+          {news.map((n) => (
+            <li key={n.id} className="flex gap-3 py-2">
+              <span className="num w-20 shrink-0 text-sm text-muted">{n.time}</span>
+              <div className="min-w-0">
+                <a href={n.url} target="_blank" rel="noreferrer" className="leading-snug">{n.title}</a>
+                <div className="text-xs text-muted">{n.source}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {(data.us_snapshot?.length > 0 || data.market_summary) && (
+        <Section title="國際市場" aside={data.us_snapshot?.[0]?.date ? `${data.us_snapshot[0].date} 收盤` : undefined}>
+          {data.market_summary && <p className="mb-3 leading-relaxed">{data.market_summary}</p>}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[0.95rem] sm:grid-cols-3 md:grid-cols-4">
+            {data.us_snapshot.map((u: Json) => (
+              <div key={u.ticker} className="flex justify-between border-b border-line/60 py-1">
+                <span className="truncate pr-2">{u.name}</span>
+                <Change value={u.change_pct} />
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="國際大事對持股的影響" aside="影響金額依各股歷史敏感度計算">
         {!data.macro?.length && <Empty>沒有辨識出重大國際事件。</Empty>}
@@ -76,30 +134,6 @@ export default function News() {
         </ul>
       </Section>
 
-      <Section title={`全部新聞（${news.length}）`}
-        aside={
-          <span className="flex gap-2">
-            <label className="sr-only" htmlFor="news-src">來源</label>
-            <select id="news-src" value={src} onChange={(e) => setSrc(e.target.value)} className="rounded-md border border-line bg-paper px-2 py-1 text-ink">
-              <option value="">全部來源</option>
-              {sources.map((s) => <option key={s}>{s}</option>)}
-            </select>
-            <label className="sr-only" htmlFor="news-q">關鍵字</label>
-            <input id="news-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="關鍵字" className="w-28 rounded-md border border-line bg-paper px-2 py-1 text-ink" />
-          </span>
-        }>
-        <ul className="divide-y divide-line/60">
-          {news.map((n) => (
-            <li key={n.id} className="flex gap-3 py-2">
-              <span className="num w-20 shrink-0 text-sm text-muted">{n.time}</span>
-              <div className="min-w-0">
-                <a href={n.url} target="_blank" rel="noreferrer" className="leading-snug">{n.title}</a>
-                <div className="text-xs text-muted">{n.source}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Section>
     </>
   )
 }

@@ -22,7 +22,7 @@ from src.config import CACHE_DIR, settings
 
 log = logging.getLogger(__name__)
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
-PANEL_PKL = CACHE_DIR / "panel.pkl"
+PANEL_PKL = CACHE_DIR / f"panel_{settings()['universe']['history_years']}y.pkl"  # 年數變更時自動重建
 INFO_PKL = CACHE_DIR / "stock_info.pkl"
 CODE_RE = re.compile(r"^(\d{4}|00\d{2,4}[A-Z]?)$")
 

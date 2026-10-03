@@ -188,7 +188,7 @@ def tune_overnight(taiex: pd.DataFrame, us_hist: dict, target: dt.date) -> dict 
     from src.agents import predictor
 
     cur = params.predictor()
-    cands = [(a, y) for a in (1.0, 5.0, 20.0) for y in (1, 2)]
+    cands = [(a, y) for a in (1.0, 5.0, 20.0) for y in (1, 2, 3)]
     scores = {}
     for a, y in cands:
         scores[(a, y)] = predictor.recent_hit_rate(taiex, us_hist, target, ridge_alpha=a, years=y, window=60)

@@ -14,7 +14,7 @@ universe:
   prefilter_min_value: 20000000     # 最近交易日成交值 ≥ 2,000 萬才下載歷史
   min_avg_value20: 50000000         # 20 日均成交值 ≥ 5,000 萬
   min_price: 10
-  history_years: 3
+  history_years: 5                  # 2026-10-03 由 3 年改 5 年（搭配近期加權，回測四期全數進步）
 
 alpha:
   horizon: 20                       # 預測未來 20 個交易日（約一個月）
@@ -24,6 +24,7 @@ alpha:
   n_folds: 4
   fold_days: 60
   candidates: 40                    # 進入深度分析（法人/營收/新聞/隔夜預測）的檔數
+  hyperparams: {half_life_days: 365} # 近期樣本權重較高（一年前的樣本權重減半）
 
 # ---------------------------------------------------------------- 攻守配置（動態）
 allocation:

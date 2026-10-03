@@ -113,7 +113,8 @@ def news(date: str | None = None) -> dict:
     if not r:
         return {"news": [], "events": [], "macro": []}
     return {"date": r["date"], "news": r.get("news", []), "events": r.get("events", []), "macro": r.get("macro", []),
-            "market_view": r.get("market_view")}
+            "market_view": r.get("market_view"), "us_snapshot": r.get("us_snapshot", []),
+            "market_summary": (r.get("text") or {}).get("market_summary")}
 
 
 _ALERTS: dict = {"t": 0.0, "v": None}
@@ -134,17 +135,124 @@ def live_alerts(refresh: bool = False) -> dict:
     return out
 
 
-_INTRA: dict = {"t": 0.0, "v": None}
+_INTRA: dict = {"slot": None, "key": None, "v": None}
 
 
 def live_intraday(refresh: bool = False) -> dict:
-    """盤中建議（即時報價，2 分鐘快取）。"""
-    import time
-
+    """盤中建議：每 40 分鐘一個時段，時段內建議固定（行情另外即時刷新）；持股變動或手動重算時立即更新。"""
     from src.agents import intraday
 
-    if not refresh and _INTRA["v"] is not None and time.time() - _INTRA["t"] < 120:
+    slot = intraday.current_slot()
+    pf = pfm.build_portfolio()
+    key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
+    if not refresh and _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key:
         return _INTRA["v"]
     out = intraday.run(load_report())
-    _INTRA.update(t=time.time(), v=out)
+    _INTRA.update(slot=slot, key=key, v=out)
     return out
+
+
+_QUOTES: dict = {}
+INDEX_CHANNELS = {"TAIEX": ("tse_t00.tw", "加權指數"), "OTC": ("otc_o00.tw", "櫃買指數")}
+
+
+def live_quotes(codes: list[str]) -> dict:
+    """即時報價（證交所 MIS，8 秒快取）＋加權、櫃買指數。"""
+    import time
+
+    import requests
+
+    from src.agents import alerts
+
+    codes = sorted({c for c in codes if c})[:60]
+    key = ",".join(codes)
+    hit = _QUOTES.get(key)
+    if hit and time.time() - hit[0] < 8:
+        return hit[1]
+    quotes = alerts.realtime(codes) if codes else {}
+    idx = {}
+    try:
+        r = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
+                         params={"ex_ch": "|".join(c for c, _ in INDEX_CHANNELS.values()), "json": 1, "delay": 0}, timeout=10).json()
+        names = {ch.split(".")[0].split("_")[1]: (k, n) for k, (ch, n) in INDEX_CHANNELS.items()}
+        for m in r.get("msgArray", []):
+            k, n = names.get(m.get("c"), (None, None))
+            last = float(m.get("z") or m.get("y") or 0)
+            prev = float(m.get("y") or 0)
+            if k and last and prev:
+                idx[k] = {"name": n, "price": round(last, 2), "change": round(last - prev, 2),
+                          "chg_pct": round((last / prev - 1) * 100, 2), "time": m.get("t")}
+    except Exception:  # noqa: BLE001
+        pass
+    out = {"quotes": quotes, "indices": idx, "trading": alerts.is_trading_hours()}
+    _QUOTES[key] = (time.time(), out)
+    return out
+
+
+_NEWS: dict = {"t": 0.0, "v": None}
+
+
+def live_news(refresh: bool = False) -> dict:
+    """即時新聞：5 分鐘自動更新；refresh=True（使用者手動重新整理）時立即抓取，但 30 秒內不重複抓。"""
+    import time
+
+    from src.agents import news as news_agent
+    from src.config import now_tw
+
+    age = time.time() - _NEWS["t"]
+    if _NEWS["v"] is None or age > 300 or (refresh and age > 30):
+        items = news_agent.fetch_news(now_tw())
+        _NEWS.update(t=time.time(), v={"news": [{k: n[k] for k in ("id", "source", "title", "url", "time")} for n in items],
+                                       "fetched_at": now_tw().strftime("%H:%M:%S")})
+    return _NEWS["v"]
+
+
+_INTL: dict = {}
+
+
+def intl_impacts(codes: list[str]) -> dict:
+    """個股受國際市場影響的註記：歷史敏感度 β × 最近一個交易日的國際因子變動，只列統計顯著且影響 ≥0.4% 者。"""
+    import time
+
+    import pandas as pd
+
+    from src.agents import macro
+    from src.config import settings
+
+    ctx = on_demand.context()
+    target = pd.Timestamp(ctx["target"])
+    codes = sorted({c for c in codes if c})[:40]
+    key = (ctx["target"], ",".join(codes))
+    hit = _INTL.get(key)
+    if hit and time.time() - hit[0] < 1800:
+        return hit[1]
+    sens = macro.sensitivities(codes, ctx["panel"], ctx["us_hist"], target)
+    moves = {}
+    for k, cfg in settings()["macro_factors"].items():
+        df = ctx["us_hist"].get(cfg["ticker"])
+        if df is None:
+            continue
+        d = df[df.index < target] if cfg["ticker"] not in macro.ASIA else df[df.index <= target]
+        if len(d) < 2:
+            continue
+        last, prev = float(d.Close.iloc[-1]), float(d.Close.iloc[-2])
+        moves[k] = {"move": (last - prev) if cfg["mode"] == "diff" else (last / prev - 1), "name": cfg["name"],
+                    "date": str(d.index[-1].date()),
+                    "label": f"{last - prev:+.2f}" if cfg["mode"] == "diff" else f"{(last / prev - 1) * 100:+.2f}%"}
+    out = {}
+    for c in codes:
+        notes = []
+        for k, s in sens.get(c, {}).items():
+            if abs(s["corr"]) < macro.MIN_CORR or k not in moves:
+                continue
+            impact = s["beta"] * moves[k]["move"] * 100
+            if abs(impact) >= 0.4:
+                region = "日本" if k == "JAPAN" else "中國" if k == "CHINA" else "國際" if k in ("OIL", "GOLD", "USD_TWD") else "美國"
+                notes.append({"factor": moves[k]["name"], "region": region, "move": moves[k]["label"], "impact_pct": round(impact, 2),
+                              "text": f"{moves[k]['name']} {moves[k]['label']}，依歷史連動估 {impact:+.1f}%"})
+        notes.sort(key=lambda n: -abs(n["impact_pct"]))
+        if notes:
+            out[c] = notes[:2]
+    res = {"impacts": out, "factor_date": max((m["date"] for m in moves.values()), default=None)}
+    _INTL[key] = (time.time(), res)
+    return res

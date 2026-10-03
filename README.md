@@ -80,6 +80,10 @@ copy .env.example .env   # 填入金鑰
 .venv\Scripts\python -m src.main postclose
 # 週報（含完整模型調校）
 .venv\Scripts\python -m src.main weekly
+# 盤中建議（每 40 分鐘一輪；沒有持股時為建倉建議）
+.venv\Scripts\python -m src.main intraday
+# 回補過去 60 個交易日的預測紀錄（讓調整 Agent 一開始就有樣本）
+.venv\Scripts\python -m src.main backfill
 # 手動執行調整 Agent／回復上一次調整
 .venv\Scripts\python -m src.main tune
 .venv\Scripts\python -m src.main tune --rollback
@@ -125,7 +129,7 @@ cd web; npm install; npm run build; cd ..
 1. 建立 GitHub **private** repo 並推上此專案。
 2. Settings → Secrets and variables → Actions 新增：`GEMINI_API_KEY`、`GROQ_API_KEY`、`FINMIND_TOKEN`、
    `SMTP_USER`、`SMTP_APP_PASSWORD`、`REPORT_TO`。
-3. 排程（台灣時間）：07:00 盤前、08:20 開盤前更新、15:45 盤後（含調整 Agent 健康檢查）、週五 16:30 週報（含完整調校）。
+3. 排程（台灣時間）：07:00 盤前、08:20 開盤前更新、盤中 09:00 起每 40 分鐘（09:00／09:40／10:20／11:00／11:40／12:20／13:00）以即時價重算建議、15:45 盤後（含調整 Agent 健康檢查）、週五 16:30 週報（含完整調校）。全部在 GitHub Actions 雲端執行，電腦關機也照常運作。
    GitHub 排程可能延遲 10–30 分鐘。
 4. 成交後可在 Actions → invest-agent → Run workflow 選 `record` 填入成交資料（手機也能操作），
    或在本機 `record` 後 `git push`。

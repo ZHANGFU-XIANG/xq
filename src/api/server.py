@@ -130,6 +130,21 @@ def portfolio():
     return data.portfolio()
 
 
+@app.get("/api/quotes", dependencies=[api])
+def quotes(codes: str = ""):
+    return data.live_quotes(codes.split(","))
+
+
+@app.get("/api/intl", dependencies=[api])
+def intl(codes: str = ""):
+    return data.intl_impacts(codes.split(","))
+
+
+@app.get("/api/news/live", dependencies=[api])
+def news_live(refresh: bool = False):
+    return data.live_news(refresh)
+
+
 @app.get("/api/holding-advice", dependencies=[api])
 def holding_advice_(refresh: bool = False):
     return on_demand.portfolio_plan(refresh)

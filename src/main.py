@@ -3,7 +3,8 @@
 用法：
   python -m src.main premarket [--date YYYY-MM-DD] [--force]   盤前報告（07:00）
   python -m src.main preopen                                    開盤前更新（08:20，加入那指期即時報價）
-  python -m src.main intraday                                   盤中每小時建議（09:05～13:05，即時報價）
+  python -m src.main intraday                                   盤中建議（09:00 起每 40 分鐘，即時報價重算）
+  python -m src.main backfill                                   回補過去 60 個交易日的預測紀錄（給調整 Agent）
   python -m src.main postclose                                  盤後檢討＋調整 Agent 健康檢查＋隔日預掛單（15:45）
   python -m src.main weekly                                     週報＋完整模型調校
   python -m src.main tune [--rollback]                          手動執行調整 Agent／回復上一版參數
@@ -323,7 +324,7 @@ def main(argv=None) -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["premarket", "preopen", "intraday", "postclose", "weekly", "tune", "record"])
+    ap.add_argument("mode", choices=["premarket", "preopen", "intraday", "postclose", "weekly", "tune", "record", "backfill"])
     ap.add_argument("--date")
     ap.add_argument("--force", action="store_true", help="非交易日也執行")
     ap.add_argument("--rollback", action="store_true", help="tune：回復上一次調整前的參數")
@@ -358,6 +359,11 @@ def main(argv=None) -> None:
     if a.mode == "weekly":
         run_weekly(today)
         return
+    if a.mode == "backfill":
+        from src.agents import backfill
+
+        print(json.dumps(backfill.run(), ensure_ascii=False, indent=1))
+        return
     if a.mode == "intraday":
         if not is_trading_day(today) and not a.force:
             print(f"{today} 非交易日，略過")
@@ -368,7 +374,7 @@ def main(argv=None) -> None:
         out = intraday.run(apidata.load_report())
         intraday.save(out)
         body = intraday.email_body(out)
-        emailer.send(f"[投資競賽] 盤中建議 {out['time'][11:]}｜{out['summary']}", body, [])
+        emailer.send(f"[投資競賽] {'建倉' if out['building'] else '盤中'}建議 {out['slot'][-5:]}｜{out['summary']}", body, [])
         print(body)
         return
     if not is_trading_day(today) and not a.force:
