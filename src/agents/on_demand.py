@@ -270,3 +270,47 @@ def simulate(trades: list[dict]) -> dict:
             "positions_after": {c: p.shares for c, p in pf1.positions.items()},
             "trade_count_after": pf1.trade_count, "compliance": checks,
             "note": "試算以最近收盤價計算，未含盤中價格變動；只有實際成交才計入持股率"}
+
+
+_PLAN: dict = {"t": 0.0, "v": None, "key": None}
+
+
+def portfolio_plan(refresh: bool = False) -> dict:
+    """即時持股建議：依目前庫存（XQ 同步後立即反映）與即時價，每檔給 加碼／續抱／減碼／全部出清。5 分鐘快取。"""
+    import time
+
+    from src.agents import alerts, holding_advice
+
+    pf = pfm.build_portfolio()
+    key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
+    if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < 300:
+        return _PLAN["v"]
+    if not pf.positions:
+        return {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "items": [], "realtime": False,
+                "note": "目前沒有庫存。在 XQ 成交後，到「持股」頁貼上 XQ 庫存同步即可看到每檔建議。"}
+    ctx = context()
+    target = ctx["target"]
+    sc = pipeline.score_codes(pipeline.candidate_codes(ctx, pf), ctx, target)
+    prices = dict(sc["prices"])
+    rt = alerts.realtime(list(pf.positions))
+    for c, q in rt.items():
+        if q.get("price"):
+            prices[c] = q["price"]
+    meta = pfm.load_meta()
+    nav = pf.nav(prices)
+    bo = pipeline.basket_of(pf, meta, sc["scores"])
+    alloc = pipeline.current_allocation(ctx, target, now_tw().date(), nav)
+    rec = recovery.plan(pf, prices, sc["scores"], ctx["alpha"]["predictions"], meta, sc["ranked"], nav,
+                        rules()["capital"]["initial"], {}, bo)
+    sells = sizer.plan_sells(pf, prices, sc["feats"], sc["scores"], meta, nav, rec["actions"])
+    buys = sizer.plan_buys(sc["ranked"], pf, prices, nav, sells, sc["feats"], alloc, bo)
+    names = {c: stock_meta(c)["name"] for c in pf.positions}
+    hold_alerts = alerts.holding_alerts(pf, meta, rt, prices, {c: sc["feats"].get(c) or {} for c in pf.positions},
+                                        alerts.attention_lists(), alerts.news_risk(names))
+    orders = holding_advice.merge_alert_sells(sells + buys["orders"], hold_alerts, pf, prices, bo)
+    items = holding_advice.build(pf, prices, sc["scores"], ctx["alpha"]["predictions"], meta, orders, hold_alerts, bo, nav)
+    out = {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "realtime": alerts.is_trading_hours(), "items": items,
+           "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4),
+           "counts": {v: sum(1 for i in items if i["verdict"] == v) for v in ("加碼", "續抱", "減碼", "全部出清")}}
+    _PLAN.update(t=time.time(), v=out, key=key)
+    return out

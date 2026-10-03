@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createChart, LineSeries, type Time } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
+import HoldingAdvice from '../components/HoldingAdvice'
 import XQImport from '../components/XQImport'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
@@ -52,6 +53,8 @@ export default function Portfolio() {
         <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶 ${fmtWan(p.futures_cash)}`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />
       </div>
+
+      <HoldingAdvice />
 
       <Section title="目前持股">
         {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入持股」同步，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (

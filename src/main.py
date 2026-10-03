@@ -21,7 +21,7 @@ import sys
 import pandas as pd
 
 from src import pipeline
-from src.agents import (alerts, alpha_model, attribution, compliance, filings, macro, market_data, news, recovery, sizer, tuner,
+from src.agents import (alerts, alpha_model, holding_advice, attribution, compliance, filings, macro, market_data, news, recovery, sizer, tuner,
                         writer)
 from src.config import DATA_DIR, FACTS_DIR, REPORT_DIR, is_trading_day, next_trading_day, now_tw, rules, stock_meta
 from src.llm.client import get_client
@@ -182,6 +182,13 @@ def run_daily(mode: str, today: dt.date) -> dict:
         alert_out = {"alerts": [], "counts": {}, "limit_up": [], "limit_down": [], "up_industries": [],
                      "down_industries": [], "limit_up_count": 0, "limit_down_count": 0, "attention_watch": []}
 
+    # 持股操作建議：風險警示的賣出併入訂單後，每檔給出 加碼／續抱／減碼／全部出清
+    orders = holding_advice.merge_alert_sells(orders, alert_out.get("alerts", []), pf, prices, basket_of)
+    checks = compliance.check(pf, prices, orders, today, nav)
+    mv_after = pf.market_value(prices) + sum(
+        o["shares"] * o["limit_price"] * (1 if o["action"] == "BUY" else -1) for o in orders)
+    advice = holding_advice.build(pf, prices, scores, a_preds, meta, orders, alert_out.get("alerts", []), basket_of, nav)
+
     facts = {
         "title": TITLES[mode], "mode": mode, "date": today.isoformat(), "target_date": target.isoformat(),
         "generated_at": gen.strftime("%Y-%m-%d %H:%M"),
@@ -197,7 +204,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
         "ranking": [{k: s[k] for k in ("code", "name", "score", "signal", "components")} for s in ranked],
         "attribution": att, "recovery": {k: rec[k] for k in ("items", "summary", "portfolio_exp_ret")},
         "macro": macro_imp, "macro_sens": sens,
-        "orders": orders, "compliance": checks, "tuner": tune, "alerts": alert_out,
+        "orders": orders, "compliance": checks, "tuner": tune, "alerts": alert_out, "holding_advice": advice,
         "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": st["futures_reserve"],
                     "cash_after": buys["cash_after"], "loan_capacity_left": buys["loan_capacity_left"]},
         "portfolio": {"nav": round(nav), "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
@@ -241,9 +248,12 @@ def run_daily(mode: str, today: dt.date) -> dict:
             w.writerow(["買進" if o["action"] == "BUY" else "賣出", o["code"], o["name"], o["lots"], o["odd"],
                         o["shares"], o["limit_price"], o.get("stop", ""), "是" if o.get("margin") else "否", o["amount"]])
 
+    advice_lines = [f"- {h['code']} {h['name']}：{h['verdict']}，{h['qty_text']}"
+                    + (f"（限價 {h['limit_price']}）" if h["limit_price"] else "") for h in advice]
     alert_lines = [f"- [{a['level']}] {a['title']}：{a['reasons'][0]} → {a['action']}"
                    for a in alert_out["alerts"] if a["level"] in ("嚴重", "警告")]
-    body = "\n".join([f"{TITLES[mode]} {today}", ""] + (["【警示】"] + alert_lines + [""] if alert_lines else []) +
+    body = "\n".join([f"{TITLES[mode]} {today}", ""] + (["【庫存怎麼處理】"] + advice_lines + [""] if advice_lines else []) +
+                     (["【警示】"] + alert_lines + [""] if alert_lines else []) +
                      [text["market_summary"], text["outlook"], "",
                       f"【攻守配置】進攻籃 {alloc['offense'] * 100:.0f}%／穩健籃 {alloc['defense'] * 100:.0f}%",
                       text.get("allocation_analysis", ""), "",

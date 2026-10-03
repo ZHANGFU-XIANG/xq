@@ -16,10 +16,10 @@ type Msg = {
 const TOOL_NAMES: Record<string, string> = {
   find_stock: '搜尋股票', stock_profile: '查詢基本盤', analyze_stock: '分析個股', get_daily_report: '讀取每日報告',
   get_portfolio: '讀取持股', search_news: '搜尋新聞', get_macro: '讀取國際大事', get_rules: '讀取競賽規則',
-  get_model_health: '讀取模型表現', get_alerts: '讀取警示', company_profile: '查詢公開資訊觀測站', import_xq_holdings: '比對 XQ 庫存', simulate_trades: '模擬試算', record_trade: '準備記錄成交', run_analysis: '準備重跑分析',
+  get_model_health: '讀取模型表現', get_alerts: '讀取警示', get_holding_advice: '計算持股建議', company_profile: '查詢公開資訊觀測站', import_xq_holdings: '比對 XQ 庫存', simulate_trades: '模擬試算', record_trade: '準備記錄成交', run_analysis: '準備重跑分析',
 }
 
-const EXAMPLES = ['今天建議買哪些？為什麼？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我剛買了 2892 第一金 10 張 38.5 元']
+const EXAMPLES = ['今天建議買哪些？為什麼？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我手上的股票該加碼還是賣掉？', '我剛買了 2892 第一金 10 張 38.5 元']
 
 type Ctx = { open: boolean; setOpen: (v: boolean) => void; ask: (q: string) => void; pending: string | null; clearPending: () => void }
 const ChatCtx = createContext<Ctx | null>(null)

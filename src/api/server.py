@@ -119,6 +119,11 @@ def portfolio():
     return data.portfolio()
 
 
+@app.get("/api/holding-advice", dependencies=[api])
+def holding_advice_(refresh: bool = False):
+    return on_demand.portfolio_plan(refresh)
+
+
 @app.get("/api/intraday", dependencies=[api])
 def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)

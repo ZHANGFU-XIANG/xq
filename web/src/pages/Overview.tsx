@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import HoldingAdvice from '../components/HoldingAdvice'
 import Intraday from '../components/Intraday'
 import { BasketTag, Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
@@ -73,6 +74,7 @@ export default function Overview() {
       <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
       <UrgentBanner />
       <Intraday />
+      <HoldingAdvice compact />
       <Balance alloc={r.allocation} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">

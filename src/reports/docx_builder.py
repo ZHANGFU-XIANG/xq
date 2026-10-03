@@ -207,6 +207,19 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
                   f"{p['vol20'] * 100:.2f}%" if p["vol20"] is not None else "-", f"{p['def_score']:+.2f}", p["signal"]]
                  for p in facts["def_picks"]])
 
+    # 庫存怎麼處理
+    adv = facts.get("holding_advice") or []
+    if adv:
+        d.h1("庫存怎麼處理（加碼／續抱／減碼／全部出清）")
+        d.table(["標的", "籃子", "持股", "成本", "現價", "損益", "建議", "數量", "限價"],
+                [[f"{h['code']} {h['name']}", h["basket_name"], f"{h['shares']:,}", h["avg_cost"], h["price"],
+                  f"{h['pnl_pct']:+.2f}%", h["verdict"], h["qty_text"], h["limit_price"] or "—"] for h in adv],
+                [2.6, 1.4, 1.5, 1.4, 1.4, 1.5, 1.5, 4.4, 1.3], color_col=5)
+        for h in adv:
+            d.h2(f"{h['code']} {h['name']}：{h['verdict']}｜{h['qty_text']}")
+            d.bullets(h["reasons"], "理由")
+            d.bullets(h["conditions"], "接下來的條件")
+
     # 市場警示與持股風險
     al_ = facts.get("alerts") or {}
     if al_:

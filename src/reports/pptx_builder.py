@@ -210,6 +210,11 @@ def build_daily(facts: dict, text: dict, charts: dict, path: Path) -> Path:
         ("大盤預測開盤", f"{tx.get('gap_pct', 0):+.2f}%", UP if tx.get("gap_pct", 0) > 0 else DOWN if tx.get("gap_pct", 0) < 0 else INK),
     ], [text["market_summary"], text["outlook"]])
 
+    adv = facts.get("holding_advice") or []
+    if adv:
+        deck.table("庫存怎麼處理", ["標的", "持股", "損益", "建議", "數量", "限價"],
+                   [[f"{h['code']} {h['name']}", f"{h['shares']:,}", f"{h['pnl_pct']:+.2f}%", h["verdict"], h["qty_text"],
+                     h["limit_price"] or "—"] for h in adv], [2.2, 1.1, 1, 1, 4, 1], color_col=2, size=11)
     al_ = facts.get("alerts") or {}
     if al_.get("alerts"):
         lines = [f"【{a['level']}】{a['title']}：{a['reasons'][0]} → {a['action']}" for a in al_["alerts"][:8]]
