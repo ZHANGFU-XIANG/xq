@@ -195,3 +195,15 @@ def test_xq_sync_requires_confirmation_and_sells_first(monkeypatch, tmp_path):
 
 def test_xq_sync_rejects_unparseable_text():
     assert "error" in chat_agent.xq_sync_preview("隨便一段文字，沒有代碼")
+
+
+def test_login_rate_limited_after_five_failures(client, monkeypatch):
+    from src.api import server
+
+    monkeypatch.setenv("APP_PASSWORD", "right")
+    server._LOGIN_FAILS.clear()
+    for _ in range(5):
+        assert client.post("/api/login", json={"password": "wrong"}).status_code == 401
+    assert client.post("/api/login", json={"password": "right"}).status_code == 429  # 鎖定期間連正確密碼也擋
+    server._LOGIN_FAILS.clear()
+    assert client.post("/api/login", json={"password": "right"}).status_code == 200

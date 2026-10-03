@@ -109,7 +109,7 @@ def deploy(api) -> None:
     readme = ("---\ntitle: 投資擂台研究台\nemoji: 📈\ncolorFrom: indigo\ncolorTo: blue\nsdk: gradio\n"
               "sdk_version: 6.29.1\npython_version: \"3.12\"\napp_file: app.py\npinned: false\n"
               "startup_duration_timeout: 1h\n---\n2026 德明X富達投資擂台 隊伍研究台（需密碼）。\n")
-    ignore = [".venv/**", ".git/**", ".env", "data/cache/**", "data/facts/**", "reports/**", "web/node_modules/**",
+    ignore = [".venv/**", ".git/**", ".env", "data/**", "config/learned_params.yaml", "reports/**", "web/node_modules/**",
               "**/__pycache__/**", ".pytest_cache/**", "Dockerfile", ".dockerignore", "README.md", "scripts/**"]
     api.upload_folder(folder_path=str(ROOT), repo_id=HF_SPACE, repo_type="space", ignore_patterns=ignore,
                       commit_message="deploy from local setup_cloud.py")

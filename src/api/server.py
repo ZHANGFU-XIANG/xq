@@ -19,11 +19,15 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.agents import on_demand
 from src.api import auth, chat_agent, data, sync
-from src.config import REPORT_DIR, ROOT, rules
+from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT, rules
 
 log = logging.getLogger("api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-app = FastAPI(title="投資競賽助手", docs_url="/api/docs", openapi_url="/api/openapi.json")
+_cloud = sync.cloud()
+app = FastAPI(title="投資競賽助手", docs_url=None if _cloud else "/api/docs", openapi_url=None if _cloud else "/api/openapi.json")
+for _d in (DATA_DIR, CACHE_DIR, FACTS_DIR, REPORT_DIR):  # 公開 Space 不含資料夾，啟動時建立
+    _d.mkdir(parents=True, exist_ok=True)
+_LOGIN_FAILS: dict[str, list[float]] = {}
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 WARM = {"ready": False, "started": time.time(), "error": None}
@@ -53,11 +57,18 @@ class Login(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: Login, response: Response):
+def login(body: Login, response: Response, request: Request):
     if not auth.auth_required():
         return {"ok": True}
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "?")
+    now = time.time()
+    fails = [t for t in _LOGIN_FAILS.get(ip, []) if now - t < 600]
+    if len(fails) >= 5:  # 10 分鐘內錯 5 次就暫停，防止猜密碼
+        raise HTTPException(429, "密碼錯誤次數過多，請 10 分鐘後再試")
     if not auth.check_password(body.password):
+        _LOGIN_FAILS[ip] = fails + [now]
         raise HTTPException(401, "密碼錯誤")
+    _LOGIN_FAILS.pop(ip, None)
     token = auth.issue_token()
     if sync.cloud():
         # Space 透過 huggingface.co 的 iframe 開啟，cookie 屬第三方，需 SameSite=None＋Partitioned。
