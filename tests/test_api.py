@@ -207,3 +207,16 @@ def test_login_rate_limited_after_five_failures(client, monkeypatch):
     assert client.post("/api/login", json={"password": "right"}).status_code == 429  # 鎖定期間連正確密碼也擋
     server._LOGIN_FAILS.clear()
     assert client.post("/api/login", json={"password": "right"}).status_code == 200
+
+
+def test_potential_excludes_orders(client, monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    r = client.get("/api/potential")
+    assert r.status_code == 200
+    d = r.json()
+    if d["date"]:
+        from src.api import data
+
+        ordered = {o["code"] for o in data.load_report()["orders"]}
+        assert not ordered & {x["code"] for x in d["offense"] + d["defense"]}
+        assert all(x["why_not_yet"] and x["trigger"] for x in d["offense"] + d["defense"])

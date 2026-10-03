@@ -157,6 +157,11 @@ def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)
 
 
+@app.get("/api/potential", dependencies=[api])
+def potential_():
+    return data.potential()
+
+
 @app.get("/api/alerts", dependencies=[api])
 def alerts_(refresh: bool = False):
     return data.live_alerts(refresh)
@@ -233,7 +238,7 @@ class ChatReq(BaseModel):
 def chat(body: ChatReq, request: Request):
     if not chat_agent.rate_ok(auth.session_id(request)):
         raise HTTPException(429, "詢問太頻繁，請稍候一分鐘（保護免費 AI 額度）")
-    msgs = [m.model_dump() for m in body.messages if m.content.strip()][-12:]
+    msgs = [m.model_dump() for m in body.messages if m.content.strip()][-20:]
     if not msgs or msgs[-1]["role"] != "user":
         raise HTTPException(400, "缺少問題")
     return EventSourceResponse(chat_agent.stream(msgs))

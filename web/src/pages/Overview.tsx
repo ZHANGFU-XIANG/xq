@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
 import Intraday from '../components/Intraday'
+import Potential from '../components/Potential'
 import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
@@ -147,6 +148,7 @@ export default function Overview() {
       </div>
 
       <MorningPlan r={r} />
+      <Potential />
 
       <Section title="競賽規則檢查" aside={fails.length ? `${fails.length} 項需注意` : '全部通過'}>
         <ul className="space-y-1.5 text-[0.95rem]">

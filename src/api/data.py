@@ -297,3 +297,70 @@ def intl_impacts(codes: list[str]) -> dict:
     res = {"impacts": out, "factor_date": max((m["date"] for m in moves.values()), default=None)}
     _INTL[key] = (time.time(), res)
     return res
+
+
+def potential(limit: int = 8) -> dict:
+    """潛在標的：模型看好但今天沒有列入下單的股票（候補遞補、過熱等回檔），附「為什麼還沒買」與觸發條件。"""
+    r = load_report()
+    if not r:
+        return {"date": None, "offense": [], "defense": []}
+    ordered = {o["code"] for o in r.get("orders", [])}
+    if _INTRA["v"] is not None:  # 盤中計畫（每 40 分鐘重算）已列入的也排除
+        ordered |= {o["code"] for o in _INTRA["v"].get("orders", [])}
+    held = set(pfm.build_portfolio().positions)
+    off, dfn = [], []
+    for rank, x in enumerate(r.get("top_picks", []), 1):
+        if x["code"] in ordered or x["code"] in held:
+            continue
+        hot = x.get("signal") == "過熱不追"
+        why = (f"{x['overheat']}" if hot else
+               f"進攻分數 {x['score']:+.2f} 排第 {rank} 名，今天因檔數與資金上限未列入")
+        trigger = ("等 RSI 降回 82 以下或回檔整理後重新評估；每天盤前會自動重算" if hot else
+                   "前面標的被停損、出清或有新資金時優先遞補；分數維持在門檻以上就可買")
+        off.append({"code": x["code"], "name": x["name"], "sector": x.get("sector"), "basket": "offense",
+                    "kind": "過熱等回檔" if hot else "候補", "rank": rank, "score": x["score"],
+                    "p_newhigh": x.get("p_newhigh"), "exp_excess": x.get("exp_excess"), "dist_hi": x.get("dist_hi"),
+                    "rev_yoy": x.get("rev_yoy"), "why_not_yet": why, "trigger": trigger})
+    for rank, x in enumerate(r.get("def_picks", []), 1):
+        if x["code"] in ordered or x["code"] in held:
+            continue
+        dfn.append({"code": x["code"], "name": x["name"], "sector": x.get("sector"), "basket": "defense",
+                    "kind": "候補", "rank": rank, "score": x["def_score"], "p_up": x.get("p_up"),
+                    "exp_dd": x.get("exp_dd"), "beta": x.get("beta"),
+                    "why_not_yet": f"穩健分數 {x['def_score']:+.2f} 排第 {rank} 名，今天因檔數與資金上限未列入",
+                    "trigger": "穩健籃有持股出清或比例調高時優先遞補"})
+    return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit],
+            "note": "潛在標的不是今天的下單建議；要買之前請先用個股分析或問 AI 助理取得當下的張數與限價"}
+
+
+def today_status(code: str, analysis: dict) -> dict:
+    """這檔股票在今天建議中的位置：有沒有列入、排第幾、和最後一檔入選的差距、拖累分數的項目。"""
+    from src.agents.strategy import COMPONENT_NAMES, DEF_NAMES
+
+    r = load_report() or {}
+    orders = r.get("orders", [])
+    if _INTRA["v"] is not None:
+        orders = orders + [o for o in _INTRA["v"].get("orders", []) if o["code"] not in {x["code"] for x in orders}]
+    if any(o["code"] == code for o in orders):
+        return {"in_today_orders": True, "note": "已列入今天的下單建議"}
+    off_rank = [x["code"] for x in r.get("ranking", [])]
+    def_rank = [x["code"] for x in r.get("def_picks", [])]
+    off_sel = [o for o in orders if o.get("action") == "BUY" and o.get("basket") == "offense"]
+    def_sel = [o for o in orders if o.get("action") == "BUY" and o.get("basket") == "defense"]
+    off, dfn = analysis.get("offense") or {}, analysis.get("defense") or {}
+    drag = sorted(((v, COMPONENT_NAMES.get(k, k)) for k, v in (off.get("components") or {}).items()), key=lambda t: t[0])[:2]
+    ddrag = sorted(((v, DEF_NAMES.get(k, k)) for k, v in (dfn.get("components") or {}).items()), key=lambda t: t[0])[:2]
+    return {
+        "in_today_orders": False, "report_date": r.get("date"),
+        "offense": {"score": off.get("score"), "signal": off.get("signal"),
+                    "rank_in_candidates": off_rank.index(code) + 1 if code in off_rank else None,
+                    "candidates": len(off_rank), "selected_count": len(off_sel),
+                    "lowest_selected_score": min((o.get("score", 0) for o in off_sel), default=None),
+                    "weakest_components": [f"{n} {v:+.2f}" for v, n in drag]},
+        "defense": {"score": dfn.get("score"), "signal": dfn.get("signal"), "eligible": dfn.get("eligible"),
+                    "rank_in_picks": def_rank.index(code) + 1 if code in def_rank else None,
+                    "selected_count": len(def_sel),
+                    "lowest_selected_score": min((o.get("score", 0) for o in def_sel), default=None),
+                    "weakest_components": [f"{n} {v:+.2f}" for v, n in ddrag]},
+        "note": "分數元件範圍 -1～+1；每天依綜合分數由高到低取前幾名，分數低於最後一檔入選者就不會列入",
+    }

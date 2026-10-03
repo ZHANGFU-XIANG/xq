@@ -36,6 +36,8 @@ SYSTEM = """你是「2026 德明X富達投資擂台」參賽隊伍的 AI 投資�
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
+5e. 問「還有什麼可以注意／潛在標的／候補」時呼叫 get_potential_picks；問某檔為什麼沒被推薦時，用 analyze_stock，依其中 today_status 回答：排第幾名、和最後一檔入選者的分數差距、拖累分數的項目（weakest_components 與 risks），不要自行推測其他原因。
+5f. 這是連續對話：使用者說「它」「這檔」「剛剛那檔」「第二個」時，指前文提到的股票或項目，直接沿用，不要再問一次；需要數字時仍要重新呼叫工具。
 7. 註明資料日期；不確定或工具沒有的資料就直說沒有。回答精簡、條列、可執行。不要輸出 JSON 或英文欄位名稱。"""
 
 TOOLS = [
@@ -75,6 +77,8 @@ TOOLS = [
     {"name": "import_xq_holdings", "description": "解析使用者從 XQ 全球贏家庫存畫面複製貼上的表格，與系統持股比對，產生需確認的同步調整",
      "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "使用者貼上的原始表格文字"}},
                     "required": ["text"]}},
+    {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "run_analysis", "description": "重新執行分析並產生報告（建立待確認動作）",
      "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["premarket", "postclose", "weekly", "tune"]}},
                     "required": ["mode"]}},
@@ -139,7 +143,10 @@ def call_tool(name: str, args: dict) -> dict:
                 c["news"] = [{k: n[k] for k in ("date", "title")} for n in c["news"][:8]]
             return c
         if name == "analyze_stock":
-            return on_demand.analyze(args["code"])
+            a = on_demand.analyze(args["code"])
+            if isinstance(a, dict) and not a.get("error"):
+                a = {"today_status": apidata.today_status(a.get("code", args["code"]), a), **a}  # 放最前面，壓縮時不會被截掉
+            return a
         if name == "get_daily_report":
             return apidata.report_summary(args.get("date"))
         if name == "get_portfolio":
@@ -157,6 +164,8 @@ def call_tool(name: str, args: dict) -> dict:
             return {k: a[k] for k in ("generated_at", "trading_now", "quotes_date", "counts", "alerts", "limit_up_count",
                                       "limit_down_count", "up_industries", "down_industries", "attention_watch")} | {
                 "limit_up_top": a["limit_up"][:10], "limit_down_top": a["limit_down"][:10]}
+        if name == "get_potential_picks":
+            return apidata.potential()
         if name == "get_model_health":
             return apidata.model_health()
         if name == "simulate_trades":
@@ -239,12 +248,31 @@ def _gemini_loop(messages: list[dict], emit) -> tuple[str, list]:
     raise RuntimeError(str(last_err))
 
 
+GROQ_TOOL_CHARS = 4500  # Groq 免費方案每分鐘 token 上限小，備援時壓縮工具結果與前文
+_HEAVY = ("news", "macro_sensitivity", "attribution", "kline", "top_drivers", "feature_ic", "limit_up_top", "limit_down_top")
+
+
+def _compact(out, budget: int = GROQ_TOOL_CHARS) -> str:
+    """去掉大型明細欄位（新聞列表、歸因、敏感度等），仍超過預算就截斷。完整結果仍用於數字核對。"""
+    def strip(x, depth=0):
+        if isinstance(x, dict):
+            return {k: strip(v, depth + 1) for k, v in x.items() if k not in _HEAVY}
+        if isinstance(x, list):
+            return [strip(v, depth + 1) for v in x[:12]]
+        return x
+
+    s = json.dumps(strip(out), ensure_ascii=False, default=str)
+    return s if len(s) <= budget else s[:budget] + "…（已截斷）"
+
+
 def _groq_loop(messages: list[dict], emit) -> tuple[str, list]:
     from groq import Groq
 
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
     tools = [{"type": "function", "function": t} for t in TOOLS]
-    msgs = [{"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}] + messages
+    recent = messages[-8:]  # 前文只留最近幾輪，較早的回答截短
+    recent = [m if i >= len(recent) - 3 else {**m, "content": m["content"][:600]} for i, m in enumerate(recent)]
+    msgs = [{"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}] + recent
     outputs = []
     model = settings()["llm"]["groq_models"][0]
     for _ in range(MAX_STEPS):
@@ -262,7 +290,7 @@ def _groq_loop(messages: list[dict], emit) -> tuple[str, list]:
             outputs.append({"tool": tc.function.name, "args": args, "result": out})
             emit({"type": "tool_result", "name": tc.function.name, "ok": "error" not in out,
                   "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
-            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(out, ensure_ascii=False, default=str)})
+            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": _compact(out)})
     return "工具呼叫次數過多，請把問題拆小一點再問。", outputs
 
 
@@ -301,7 +329,9 @@ def run(messages: list[dict], emit, loop=None) -> dict:
             err = e
     if not text and err:
         return {"type": "answer", "text": f"AI 服務暫時無法使用：{str(err)[:120]}", "verified": False}
-    facts = {"user": user_text, "tools": [o["result"] for o in outputs], "date": now_tw().date().isoformat()}
+    # 前文（含先前已核實的回答）也算事實來源，延續對話時引用前面的數字不會被誤判
+    facts = {"user": user_text, "tools": [o["result"] for o in outputs], "date": now_tw().date().isoformat(),
+             "history": [m["content"] for m in messages[:-1]]}
     ok, bad = verify(text, facts)
     if not ok and outputs and not loop:
         # 重寫一次：附上未出處數字，要求改用工具結果
