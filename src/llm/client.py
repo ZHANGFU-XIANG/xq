@@ -113,7 +113,7 @@ class LLMClient:
                 self.calls += 1
                 msg = oc.chat(oc.PROVIDERS["nvidia"]["base_url"], self._nvidia_key, model,
                               [{"role": "system", "content": sys_msg}, {"role": "user", "content": full}],
-                              temperature=self.cfg["temperature"], json_mode=True)
+                              temperature=self.cfg["temperature"], json_mode=True, thinking=False, timeout=90)
                 return schema.model_validate_json(oc.extract_json(msg["content"]))
             except ValidationError as e:
                 errors.append(f"{model}: 格式驗證失敗 {e.error_count()} 項")

@@ -736,7 +736,9 @@ def health() -> dict:
         add("雲端盤中建議", "warn", "今天還沒有雲端盤中建議紀錄")
     if sync.cloud():
         st = sync.state
-        add("與 GitHub 同步", "error" if st.get("error") else "ok", f"最近一次 {st.get('last_sync') or '尚未'}" +
+        ls = st.get("last_sync")
+        ls = dt.datetime.fromtimestamp(ls, config.TW_TZ).strftime("%m/%d %H:%M") if isinstance(ls, (int, float)) else (ls or "尚未")
+        add("與 GitHub 同步", "error" if st.get("error") else "ok", f"最近一次 {ls}" +
             (f"；錯誤：{st['error']}" if st.get("error") else ""))
     ps = providers.status()
     add("FinMind 資料來源", "ok" if ps["finmind_available"] else "warn",

@@ -18,9 +18,14 @@ class APIError(RuntimeError):
 
 
 def chat(base_url: str, key: str, model: str, messages: list[dict], *, tools: list[dict] | None = None,
-         temperature: float = 0, max_tokens: int = 4096, json_mode: bool = False, timeout: int = 120) -> dict:
-    """回傳 choices[0].message（dict：content、tool_calls）。"""
+         temperature: float = 0, max_tokens: int = 4096, json_mode: bool = False, timeout: int = 120,
+         thinking: bool | None = None) -> dict:
+    """回傳 choices[0].message（dict：content、tool_calls）。
+    thinking=False 關閉推理模型的思考（Nemotron 用 enable_thinking、DeepSeek 用 thinking，其他模型忽略）；
+    JSON 輸出一定要關：思考會先把 max_tokens 用完，content 變成空的。"""
     body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+    if thinking is False:
+        body["chat_template_kwargs"] = {"enable_thinking": False, "thinking": False}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
@@ -30,7 +35,10 @@ def chat(base_url: str, key: str, model: str, messages: list[dict], *, tools: li
                       headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
     if r.status_code >= 400:
         raise APIError(r.status_code, r.text[:300])
-    msg = r.json()["choices"][0]["message"]
+    choice = r.json()["choices"][0]
+    msg = choice["message"]
+    if not (msg.get("content") or msg.get("tool_calls")) and choice.get("finish_reason") == "length":
+        raise APIError(200, f"輸出長度用完仍沒有回答（max_tokens={max_tokens}，多半是思考過長）")
     return {"content": msg.get("content") or "", "tool_calls": msg.get("tool_calls") or []}
 
 

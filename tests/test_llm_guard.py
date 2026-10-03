@@ -96,3 +96,29 @@ def test_nvidia_structured_falls_back_to_next_model(monkeypatch):
     monkeypatch.setattr(lc, "_COOLDOWN", {})
     r = lc.LLMClient().structured("p", Out)
     assert r.x == 7 and len(calls) == 2 and calls[0] != calls[1]
+
+
+def test_nvidia_json_disables_thinking_and_reports_length(monkeypatch):
+    from src.llm import openai_compat as oc
+
+    sent = {}
+
+    class R:
+        status_code = 200
+
+        def __init__(self, body):
+            self.body = body
+
+        def json(self):
+            return self.body
+
+    def fake_post(url, json, timeout, headers):
+        sent.update(json)
+        return R({"choices": [{"finish_reason": "length", "message": {"content": None, "reasoning_content": "..."}}]})
+
+    monkeypatch.setattr(oc.requests, "post", fake_post)
+    import pytest
+
+    with pytest.raises(oc.APIError, match="max_tokens"):
+        oc.chat("http://x", "k", "m", [{"role": "user", "content": "hi"}], json_mode=True, thinking=False)
+    assert sent["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
