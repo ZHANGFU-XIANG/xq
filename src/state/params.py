@@ -12,7 +12,6 @@ import yaml
 from src.config import CONFIG_DIR, settings
 
 LEARNED = CONFIG_DIR / "learned_params.yaml"
-SECTIONS = ("strategy", "score_weights", "alpha", "predictor", "allocation", "baskets", "defense_weights")
 
 
 def learned() -> dict:

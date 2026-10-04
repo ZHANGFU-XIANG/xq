@@ -6,7 +6,7 @@ import { fileUrl, get, post, type Json } from '../lib/api'
 export default function WeeklyReport() {
   const qc = useQueryClient()
   const { data } = useQuery<Json>({ queryKey: ['weekly-reports'], queryFn: () => get('/api/weekly-reports') })
-  const today = new Date().toISOString().slice(0, 10)
+  const [today] = useState(() => new Date().toLocaleDateString('sv-SE'))  // 本地日期 YYYY-MM-DD（toISOString 是 UTC，台灣早上 8 點前會差一天）
   const weeks: Json[] = data?.weeks ?? []
   const current = weeks.find((w) => w.monday <= today && today <= w.friday) ?? weeks.filter((w) => w.monday <= today).at(-1) ?? weeks[0]
   const [week, setWeek] = useState<string>('')

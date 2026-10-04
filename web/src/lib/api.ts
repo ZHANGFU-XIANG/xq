@@ -12,7 +12,7 @@ export class ApiError extends Error {
 const TOKEN_KEY = 'invest_session'
 
 /** 雲端版在 huggingface.co 的 iframe 中執行，瀏覽器可能擋掉第三方 cookie，所以同時以標頭傳送登入權杖。 */
-export function getToken(): string {
+function getToken(): string {
   try {
     return localStorage.getItem(TOKEN_KEY) || ''
   } catch {

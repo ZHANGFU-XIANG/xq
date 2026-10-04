@@ -27,7 +27,7 @@ export default function News() {
   const [src, setSrc] = useState('')
   const [cat, setCat] = useState('')
   const [q, setQ] = useState('')
-  const allNews: Json[] = live?.news ?? data?.news ?? []
+  const allNews: Json[] = useMemo(() => live?.news ?? data?.news ?? [], [live, data])
   const sources = useMemo(() => [...new Set<string>(allNews.map((n: Json) => n.source.split(':')[0]))], [allNews])
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />

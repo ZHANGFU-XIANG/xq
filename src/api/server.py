@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.agents import on_demand
 from src.api import auth, chat_agent, data, sync
-from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT, rules
+from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT
 
 log = logging.getLogger("api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -200,11 +200,6 @@ def alerts_(refresh: bool = False):
 @app.get("/api/model", dependencies=[api])
 def model():
     return data.model_health()
-
-
-@app.get("/api/rules", dependencies=[api])
-def get_rules():
-    return rules()
 
 
 # ---------------------------------------------------------------- 個股

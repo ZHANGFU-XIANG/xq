@@ -1,153 +1,103 @@
-# 台股投資競賽 多 Agent 助手
+# 台股投資競賽 多 Agent 研究台
 
-為「2026 德明X富達投資擂台 全國大專院校組模擬投資競賽」打造：定時抓新聞與美股科技巨頭隔夜走勢，
-預測台股科技股開盤與開盤後走向，產出含**選股理由、張數計算、多買／少買原因、賣出條件與張數**的
-Word 報告、PowerPoint 簡報與下單清單。
+為「2026 德明X富達投資擂台 全國大專院校組模擬投資競賽」打造的投資研究與決策輔助系統。
+每天自動抓取台股、美股、期貨、新聞與國際大事，產出**股票／ETF／期貨三類建議**（選股理由、張數、限價、
+停損停利、賣出條件），盤中每 40 分鐘依即時報價重算，並提供網站、AI 助理、Word／PPT 報告與週報簡報。
 
-## 架構
+> 系統只提供建議，**所有下單由隊員在競賽平台親手操作**（競賽規定須自行交易）。本系統為競賽研究用途，不構成投資建議。
 
-```
-資料層  UniverseAgent(全市場~640檔)  USMarketAgent  TWMarketAgent(法人/月營收)  NewsAgent  FilingAgent(PDF)
-分析層  MonthlyAlphaAgent(一個月創新高模型)  OpenPredictorAgent(隔夜美股→開盤)  SentimentAgent  MacroAgent(國際大事)
-        AttributionAgent(今日漲跌歸因)  StrategyAgent(綜合評分)
-決策層  RecoveryAgent(虧損補回/換股)  PositionSizerAgent(張數)  ComplianceAgent(競賽規則)
-產出層  ReportWriterAgent(LLM) → VerifierAgent(數字核對) → docx / pptx / CSV / Email
-回饋層  TunerAgent(調整 Agent)：記錄預測 → 對答案 → 偵測重大失誤 → 回測驗證後修正參數（可回復）
-```
+- 網站：<https://avad8-xq.hf.space>（隊伍密碼登入）
+- 程式與資料：私人 GitHub repo `ZHANGFU-XIANG/xq`
+- 全部在雲端執行（GitHub Actions＋Hugging Face Space），電腦關機也照常運作
 
-| 檔案 | 角色 |
+## 文件
+
+| 文件 | 內容 |
 |---|---|
-| `src/agents/universe.py` | 全市場上市櫃股票＋ETF，流動性篩選、排除權證／槓桿反向／處置股，批次下載日 K |
-| `src/agents/alpha_model.py` | **主軸**：預測未來 20 交易日「創 52 週新高機率」與「超額報酬」（梯度提升樹、滾動時間外驗證） |
-| `src/agents/strategy.py` | 綜合分數 = 一個月模型 55% + 法人 15% + 月營收 10% + 隔夜美股 10% + 新聞 10%（調整 Agent 可修改） |
-| `src/agents/attribution.py` | 為何今日漲跌：大盤 β、產業、個股特有因素各貢獻幾 % 與幾元；法人、量能、跳空結構、新聞 |
-| `src/agents/recovery.py` | 虧損如何補回：續抱／加碼／減碼／換股／停損，含換股成本與預估回本時間 |
-| `src/agents/macro.py` | 國際大事 → 國際因子（利率、匯率、油價、美股科技、中國、VIX…）→ 各持股歷史敏感度 → 影響金額與決策 |
-| `src/agents/predictor.py` | 隔夜美股 → 台股開盤跳空與開盤後走勢（用於進場時機與限價） |
-| `src/agents/sizer.py` | 張數計算、停損停利、換股賣出，每一步寫成理由 |
-| `src/agents/tuner.py` | 調整 Agent |
-| `src/state/params.py` | 可調參數（`config/learned_params.yaml` 覆寫 `settings.yaml`） |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | **每日使用流程**、排程時間表、雲端部署與金鑰、系統健康、故障排除 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Agent 架構與資料流、三籃配置、期貨策略、資料來源備援、LLM 與防幻覺設計、調整 Agent |
+| [docs/API.md](docs/API.md) | 後端 API 清單 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 開發紀錄 |
+| `config/rules.yaml` | 競賽規則（程式檢查依據，調整 Agent 永遠不會修改） |
+| `config/settings.yaml` | 策略與模型參數 |
 
-### 攻守配置（進攻籃 / 穩健籃）
-| | 進攻籃 | 穩健籃 |
-|---|---|---|
-| 目的 | 追強勢、一個月內創新高，拉高報酬率 | 提高「正報酬才能排名」的晉級機率，降低回撤 |
-| 選股 | 一個月創新高機率＋超額報酬模型；RSI > 82 或 20 日漲幅 > 45% 列為「過熱不追」 | 一個月收正報酬機率＋預期最大回檔最小；限 RSI < 68、股價在月線 ±6%、β < 1.1 |
-| 上限 | 6 檔、單檔 25%、可融資；RSI > 75 限價等回檔 | 4 檔、單檔 20%、不融資；限價不高於前一日收盤 |
-| 停利 | +10% 賣 1/3、+20% 再賣一半 | +6% 賣 1/3、+12% 再賣一半 |
+## 功能一覽
 
-比例由 `AllocationAgent` 每天決定（基準進攻 60%，範圍 40%～70%）：大盤過熱每項 −5%、大盤健康上漲 +5%、
-總資產回撤 ≥4% −10%／≥8% −20%、競賽剩 ≤15 個交易日時「已正報酬 −10% 保住晉級／仍虧損 +10% 爭取轉正」、
-調整 Agent 偵測到失誤 −5%。兩籃到期表現累積足夠後，調整 Agent 會微調基準比例。
+| 網站頁面 | 內容 |
+|---|---|
+| 總覽 | 加權／櫃買即時指數、三籃比例（進攻／穩健／ETF）、總資產與門檻進度、股票／ETF／期貨分頁的建倉與盤中建議 |
+| 每日建議 | 盤前報告的每筆建議：K 線＋限價／停損／停利線、理由、Word／PPT／下單清單下載 |
+| 警示 | 依股票／ETF／期貨／市場與規則分頁：漲跌停、注意處置股、持股負面新聞、ETF 折溢價、期貨追繳與結算、選擇權到期、競賽門檻 |
+| 個股／ETF | 任一上市櫃股票或 ETF：K 線、三籃評估與張數試算、漲跌歸因、國際因子、公司概況與財報、重大訊息 |
+| 期貨與選擇權 | 大台／小台／微台 K 線、各月報價、基差、保證金、結算日；台指選擇權賣權報價；觸發條件與參考試算 |
+| 新聞 | 只保留金融經濟新聞，依股票／ETF／期貨分類，每 5 分鐘更新 |
+| 持股 | 由成交紀錄重算的持倉、損益、總資產走勢；從 XQ 貼上庫存匯入對帳 |
+| 模型 | 回測、實際預測表現、**系統健康**（排程與資料新鮮度）、資料來源狀態、調整 Agent 紀錄 |
+| AI 助理 | 依工具計算結果回答投資問題（每個論點附出處）、記錄成交（需確認）、產生**週報 PPT** |
 
-### 防止 AI 幻覺
-1. **價格、張數、金額、比例、敏感度全部由程式計算**，LLM 不產生任何數字。
-2. LLM 一律 temperature 0、JSON schema 輸出、pydantic 驗證；Gemini 過載自動換模型，再失敗改 Groq，全失敗用模板。
-3. 新聞／國際事件必須引用新聞編號，事件中的數字必須出現在引用的新聞原文，否則丟棄。
-4. 報告文字經 `VerifierAgent` 比對事實資料：除 0–3 外，每個數字都必須有出處，不符退回重寫，兩次失敗改用模板。
-5. 國際因子敏感度需達統計顯著（|相關係數| ≥ 0.125）才列入影響金額。
-6. 模型附樣本外回測（並註明存活者偏誤）；調整 Agent 的新參數必須在同一份資料上回測勝過現行參數 5% 以上才採用。
+## 快速開始（本機）
 
-### 調整 Agent 何時會修正
-| 偵測 | 觸發條件（`settings.yaml` tuner） | 修正 |
-|---|---|---|
-| 隔夜模型失準 | 近 10 次大盤跳空命中率 < 45%，或單次誤差 > 3 倍誤差帶 | 比較 Ridge 正則化與歷史長度，近 60 日命中率較佳才換 |
-| 一個月模型失準 | 已到期推薦的實際超額報酬 < −3%，或創新高率遠低於預估 | 測試 5 組超參數／近期加權，回測需進步 5% |
-| 因子失效 | 已到期推薦 ≥ 20 筆 | 依各因子與實際報酬的 IC，由最差因子移 0.05 權重給最佳因子 |
-| 回撤過大／重大虧損 | 總資產自高點回落 > 8%，或單檔單日虧損 > 總資產 1.5% | 每筆風險 ×0.8、單一標的上限 −5%；恢復後逐步回到預設 |
-
-每次修正都記錄在 `data/tuning_log.json`（含修改前參數），報告中有「模型健康度」章節；
-`python -m src.main tune --rollback` 可回復。競賽規則（`rules.yaml`）永遠不在可調範圍。
-
-## 安裝（本機）
+需要 Python 3.12＋、Node.js 22＋。
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-copy .env.example .env   # 填入金鑰
-```
+copy .env.example .env          # 填入金鑰（說明見 docs/OPERATIONS.md）
 
-## 使用
-
-```powershell
-# 盤前報告（以最新美股收盤預測今日開盤）
-.venv\Scripts\python -m src.main premarket
-# 指定日期 / 非交易日強制執行
-.venv\Scripts\python -m src.main premarket --date 2026-10-05
-# 開盤前更新（加入那斯達克期貨即時報價）
-.venv\Scripts\python -m src.main preopen
-# 盤後檢討＋隔日預掛單（平台 15:30 後可預掛）
-.venv\Scripts\python -m src.main postclose
-# 週報（含完整模型調校）
-.venv\Scripts\python -m src.main weekly
-# 盤中建議（每 40 分鐘一輪；沒有持股時為建倉建議）
-.venv\Scripts\python -m src.main intraday
-# 回補過去 60 個交易日的預測紀錄（讓調整 Agent 一開始就有樣本）
-.venv\Scripts\python -m src.main backfill
-# 手動執行調整 Agent／回復上一次調整
-.venv\Scripts\python -m src.main tune
-.venv\Scripts\python -m src.main tune --rollback
-
-# 在競賽平台成交後，記錄實際成交（系統以此重算持倉與現金）
-.venv\Scripts\python -m src.main record --code 3037 --side BUY --shares 1463 --price 1340
-.venv\Scripts\python -m src.main record --code 3231 --side BUY --shares 13000 --price 188 --margin
-
-# 測試
-.venv\Scripts\python -m pytest -q
-```
-
-輸出：`reports/YYYY-MM/` 內的 `.docx`、`.pptx`、`_下單清單.csv`；事實資料存於 `data/facts/`。
-
-## 網頁前端與 AI 助理
-
-FastAPI（`src/api/`）＋ React（`web/`）。頁面：總覽（攻守天平、今日建議、規則檢查）、每日建議（K 線＋限價/停損/停利線＋理由分頁＋下載）、
-個股（任一上市櫃股票：基本盤、K 線、雙籃評估與張數試算、漲跌歸因、國際因子、新聞）、新聞與國際大事、持股、模型表現、AI 助理。
-
-AI 助理可以：分析任何股票（包含每日建議以外的）、查詢基本盤與新聞、模擬試算（換股後的成本與持股率）、
-**記錄成交**與**重跑分析**（這兩項會先出現確認卡片，按「確認執行」才會寫入／觸發）。
-回答中的數字全部來自工具計算並逐一核對；找不到出處的數字會以虛線標示「無法核對」。
-
-本機啟動：
-```powershell
 cd web; npm install; npm run build; cd ..
-.venv\Scripts\python -m uvicorn src.api.server:app --port 8000     # 開 http://localhost:8000
-# 開發前端（熱更新）：另開視窗 cd web; npm run dev → http://localhost:5173
+.venv\Scripts\python -m uvicorn src.api.server:app --port 8000    # 開 http://localhost:8000
 ```
 
-### 部署到 Hugging Face Spaces（免費 16GB 記憶體）
-1. 在 GitHub 建立 **private** repo 並推上專案（`main` 分支），設定好每日排程的 Secrets。
-2. 到 huggingface.co 建立 Space：SDK 選 **Docker**、可見度選 **Private** 或 Public（有密碼保護）。
-3. Space → Settings → Variables and secrets 新增：
-   `APP_PASSWORD`（隊伍共用密碼）、`JWT_SECRET`（任意 32 字以上亂碼）、`GEMINI_API_KEY`、`GROQ_API_KEY`、`FINMIND_TOKEN`、
-   `GITHUB_REPO`（例如 `your-name/invest`）、`GITHUB_TOKEN`（GitHub fine-grained token：該 repo 的 Contents 與 Actions 讀寫權限）。
-4. GitHub repo → Settings → Secrets 新增 `HF_TOKEN`（Hugging Face 的 write token）；Variables 新增 `HF_SPACE`（例如 `your-name/invest-desk`）。
-5. 推送到 `main` 後 `deploy-space` workflow 會自動部署；Space 啟動後每 10 分鐘從 GitHub 同步報告與成交紀錄。
-   第一次開啟約需 1～2 分鐘載入全市場資料；閒置 48 小時會休眠，再開啟時自動重新載入。
+常用指令：
 
-## GitHub Actions 定時執行
+```powershell
+.venv\Scripts\python -m src.main premarket            # 盤前報告（加 --force 可在非交易日執行）
+.venv\Scripts\python -m src.main intraday             # 盤中建議
+.venv\Scripts\python -m src.main postclose            # 盤後檢討＋隔日預掛單
+.venv\Scripts\python -m src.main weekly               # 週報與完整調校
+.venv\Scripts\python -m src.main tune [--rollback]    # 調整 Agent／回復上一次調整
+.venv\Scripts\python -m pytest -q                     # 單元測試
+```
 
-1. 建立 GitHub **private** repo 並推上此專案。
-2. Settings → Secrets and variables → Actions 新增：`GEMINI_API_KEY`、`GROQ_API_KEY`、`FINMIND_TOKEN`、
-   `SMTP_USER`、`SMTP_APP_PASSWORD`、`REPORT_TO`。
-3. 排程（台灣時間）：07:00 盤前、08:20 開盤前更新、盤中 09:00 起每 40 分鐘（09:00／09:40／10:20／11:00／11:40／12:20／13:00）以即時價重算建議、15:45 盤後（含調整 Agent 健康檢查）、週五 16:30 週報（含完整調校）。全部在 GitHub Actions 雲端執行，電腦關機也照常運作。
-   GitHub 排程可能延遲 10–30 分鐘。
-4. 成交後可在 Actions → invest-agent → Run workflow 選 `record` 填入成交資料（手機也能操作），
-   或在本機 `record` 後 `git push`。
+## 專案結構
 
-## 競賽規則（摘要，完整見 `config/rules.yaml`）
-- 期間 2026/10/05–11/27（38 交易日）；10/05–10/16 建倉期不罰持股率
-- 初始 1,000 萬（證券 800 萬／期貨 200 萬，可自由出入金）→ 系統會建議將期貨戶多餘資金轉入證券戶
-- 禁止權證；股票稅 0.3%、ETF 0.1%、手續費 0.1425%；融資成數 60%
-- 門檻：交易 ≥10 筆、≥5 標的、持股率 ≥70%（每日收盤檢查，未達扣報酬率 0.2%，掛單不算）
-- 只有正報酬才排名；前 20 名現場簡報 6 分鐘，總分 = 排名 50% + 簡報 50%
+```
+app.py                  Hugging Face Space 進入點（啟動 FastAPI＋前端）
+config/
+  rules.yaml            競賽規則
+  settings.yaml         策略、模型、LLM、新聞來源等參數
+  learned_params.yaml   調整 Agent 寫入的覆寫參數（由雲端產生；刪除即回到預設）
+src/
+  main.py               排程進入點（premarket / preopen / intraday / postclose / weekly / tune / record / backfill）
+  pipeline.py           共用分析流程（每日報告與即時分析都經過這裡）
+  config.py             設定載入、路徑、交易日曆
+  agents/               各分析與決策 Agent（見 docs/ARCHITECTURE.md）
+  api/                  FastAPI 伺服器、AI 助理、GitHub 同步、登入
+  data/providers.py     資料來源備援（FinMind 多 token 輪替 → 官方來源）
+  llm/                  LLM 用戶端（NVIDIA → Groq → Gemini）
+  reports/              Word／PPT／週報 PPT／圖表／Email
+  state/                持倉（由成交紀錄重算）與可調參數
+web/                    React＋TypeScript 前端（Vite、Tailwind）
+tests/                  單元測試（pytest）
+scripts/
+  setup_cloud.py        一鍵設定 GitHub Secrets 與 HF Space 變數
+  notify_failure.py     排程失敗時寄 Email（只用標準函式庫）
+.github/workflows/
+  invest-agent.yml      每日排程（盤前、盤中、盤後、週報）
+  keepalive.yml         每 6 小時喚醒網站
+  deploy-space.yml      推送 main 時建置前端並部署到 Space
+data/                   成交紀錄、持倉中繼資料、預測紀錄、每日報告事實（facts）、盤中紀錄；cache/ 為行情快取（不進版控）
+reports/                每日 Word／PPT／下單清單、週報（雲端排程產生）
+```
 
-## 策略參數
-都在 `config/settings.yaml`：全市場篩選門檻、一個月模型設定、評分權重、目標持股率 90%、單一標的上限 25%、單一產業上限 50%、
-每筆風險 1.5%、2×ATR 停損（上限 10%）、+10% / +20% 分段停利、換股門檻 1.5%、融資借款上限 30%、產業對應美股驅動因子、國際因子。
-調整 Agent 的修改寫在 `config/learned_params.yaml`，刪除即回到預設。
+## 競賽規則摘要（完整見 `config/rules.yaml`）
 
-## 注意事項
-- 規則規定「參賽者應自行交易，不可委託他人」。自動下單模組（規劃中）須由隊員自己的程式操作自己的帳號，
-  建議先向主辦單位確認是否允許程式下單。
-- 若競賽平台阻擋海外 IP，自動下單需改在本機執行。
-- 本系統為模擬競賽研究用途，不構成投資建議。
+- 期間 2026/10/05–11/27（38 個交易日）；10/05–10/16 建倉期不罰持股率
+- 初始 1,000 萬（證券 800 萬／期貨 200 萬，可自由出入金）
+- 可投資上市櫃股票、ETF、台指期（大／小／微台）、台指選擇權、股票期貨；**禁止權證**
+- 成本：股票證交稅 0.3%、ETF 0.1%、手續費 0.1425%；融資成數 60%
+- 排名門檻：交易 ≥10 筆（買賣各算一筆）、交易過 ≥5 個標的（第三週 10/19 起每日追蹤）、持股率 ≥70%
+  （每日收盤檢查，未達每次扣報酬率 0.2%，掛單不算）
+- 最後一日（11/27）收盤後須仍持有 ≥5 檔且現金 <30% 總資產，否則不列入排名
+- 只有正報酬才排名；前 20 名現場簡報 6 分鐘，總分＝排名 50%＋簡報 50%；簡報上傳期限 12/16，決賽 12/19
+- 期貨是否計入 70% 持股率簡章未載明，系統**以不計入**處理

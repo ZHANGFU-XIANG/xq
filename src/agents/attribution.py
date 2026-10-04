@@ -107,8 +107,3 @@ def attribute(codes_shares: dict[str, int], panel: dict[str, pd.DataFrame], taie
     return {"date": str(day.date()), "taiex_ret_pct": round(mkt_ret * 100, 2), "sector_median_pct":
             {k: round(v * 100, 2) for k, v in sorted(sector_med.items(), key=lambda kv: -kv[1])},
             "rows": rows, "total_pnl": total}
-
-
-def top_sectors(att: dict, n: int = 5) -> tuple[list, list]:
-    items = list(att["sector_median_pct"].items())
-    return items[:n], items[-n:][::-1]

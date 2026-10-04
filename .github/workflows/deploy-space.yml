@@ -5,7 +5,7 @@ name: deploy-space
 on:
   push:
     branches: [main]
-    paths-ignore: ["data/**", "reports/**", "config/learned_params.yaml"]
+    paths-ignore: ["data/**", "reports/**", "config/learned_params.yaml", "docs/**", "README.md"]
   workflow_dispatch:
 
 jobs:
@@ -29,8 +29,8 @@ jobs:
           test -n "$HF_TOKEN" && test -n "$HF_SPACE" || { echo "請先設定 secrets.HF_TOKEN 與 vars.HF_SPACE"; exit 1; }
           mkdir /tmp/space
           # 公開 Space：所有資料（持股、成交、預測紀錄、調參）都不放進 Space，執行時從私人 GitHub repo 同步
-          rsync -a --exclude /.git --exclude /data --exclude /reports --exclude config/learned_params.yaml \
-                --exclude web/node_modules --exclude Dockerfile --exclude .dockerignore ./ /tmp/space/
+          rsync -a --exclude /.git --exclude /data --exclude /reports --exclude /docs --exclude config/learned_params.yaml \
+                --exclude web/node_modules ./ /tmp/space/
           printf '%s\n' '---' 'title: 投資擂台研究台' 'emoji: 📈' 'colorFrom: indigo' 'colorTo: blue' \
             'sdk: gradio' 'sdk_version: 6.29.1' 'python_version: "3.12"' 'app_file: app.py' 'pinned: false' \
             'startup_duration_timeout: 1h' '---' '2026 德明X富達投資擂台 隊伍研究台（需密碼）。' > /tmp/space/README.md

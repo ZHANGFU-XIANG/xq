@@ -38,7 +38,7 @@ allocation:
   min_offense: 0.40
   max_offense: 0.70
   overheat: {taiex_rsi: 75, taiex_r20: 0.08, taiex_dist_ma60: 0.10}   # 大盤過熱訊號，每項成立進攻 −5%
-  strong: {taiex_above_ma60: true, taiex_r20_min: 0.02}               # 大盤健康上漲且無失誤 → 進攻 +5%
+  strong: {taiex_r20_min: 0.02}               # 大盤站上季線、20 日漲幅超過此值且無失誤 → 進攻 +5%
   drawdown_steps: [[0.04, 0.10], [0.08, 0.20]]                        # 總資產回撤 ≥4% 進攻 −10%，≥8% −20%
   late_days: 15                     # 剩餘交易日 ≤ 15 時：已正報酬 → 進攻 −10% 保住晉級；仍虧損 → 進攻 +10% 爭取轉正
   etf: {base: 0.15, min: 0.05, max: 0.35}   # ETF 籃佔「股票＋ETF」目標持股的比例（動態調整）
@@ -101,7 +101,6 @@ strategy:
   liquidity_cap: 0.02               # 不超過 20 日均量 2%
   atr_mult_stop: 2.0
   max_stop_pct: 0.10
-  buy_score_threshold: 0.30
   sell_score_threshold: -0.30
   swap_margin: 0.015                # 換股：新標的預期報酬需高出「原標的 + 換股成本」1.5%
   allow_margin: true

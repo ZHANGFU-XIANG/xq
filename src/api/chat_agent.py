@@ -1,4 +1,4 @@
-"""ChatAgent：AI 助理。Gemini function calling（Groq 備援），只根據工具回傳的程式計算結果回答。
+"""ChatAgent：AI 助理。工具呼叫（function calling）依序使用 NVIDIA 開源模型 → Groq → Gemini，只根據工具回傳的程式計算結果回答。
 
 防幻覺：
 - 工具全部回傳程式計算的數字；系統提示要求任何數字都必須來自工具結果

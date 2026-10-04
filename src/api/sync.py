@@ -19,7 +19,7 @@ from pathlib import Path
 
 import requests
 
-from src.config import CONFIG_DIR, DATA_DIR, REPORT_DIR
+from src.config import DATA_DIR
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
@@ -109,7 +109,3 @@ def run_workflow(mode: str) -> str:
                                                    "inputs": {"mode": mode, "force": "true"}}, timeout=30)
     r.raise_for_status()
     return f"已觸發 GitHub Actions 執行 {mode}（約 5～10 分鐘），完成後會自動同步並寄出報告"
-
-
-def paths() -> dict:
-    return {"data": str(DATA_DIR), "reports": str(REPORT_DIR), "config": str(CONFIG_DIR)}
