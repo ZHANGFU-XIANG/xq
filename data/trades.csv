@@ -1,1 +1,2 @@
-date,code,side,shares,price,margin,note
+date,code,side,shares,price,margin,note,asset,contract
+2026-10-05,1560,BUY,1041,1015.0,0,XQ 對帳調整,,
