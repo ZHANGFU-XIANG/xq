@@ -51,7 +51,13 @@ def tick(now=None) -> list[str]:
 
 
 def start_background(interval: int = 30) -> None:
+    from src.api import sync
+
     def loop():
+        for _ in range(60):  # 等第一次與 GitHub 同步完成（拿到 schedule_log）再觸發，避免網站重啟時重複觸發已完成的時段
+            if sync.state.get("last_sync"):
+                break
+            time.sleep(5)
         while True:
             try:
                 tick()

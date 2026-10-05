@@ -35,9 +35,13 @@ def _plan(env, sig, nav=10_000_000, alloc=None, beta=0.0, us=None):
     return futures.plan(pfm.build_portfolio([]), {}, nav, alloc, beta, dt.date(2026, 10, 5), us)
 
 
-def test_no_edge_no_trade(env):
+def test_no_edge_rank_mode_gives_labeled_overlay(env):
+    """沒有擇時優勢：衝名次模式（使用者決定操作期貨）給「加碼大盤曝險」並標示非預測優勢；季線下不做。"""
     r = _plan(env, _sig(p_up=0.7))
-    assert r["orders"] == [] and any("沒有足夠的擇時優勢" in x for x in r["reasons"])
+    assert r["mode"] == "衝名次" and r["orders"][0]["mode"].startswith("衝名次")
+    assert "不是預測優勢" in r["orders"][0]["why"][0] and r["orders"][0]["max_loss"] <= 10_000_000 * 0.01 + 1
+    r2 = _plan(env, _sig(p_up=0.7, above=False))
+    assert r2["orders"] == [] and any("季線下" in x for x in r2["reasons"])
 
 
 def test_gated_long_sizes_within_risk_and_margin(env):

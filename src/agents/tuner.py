@@ -73,7 +73,7 @@ def load_log() -> list[dict]:
 def evaluate(panel: dict[str, pd.DataFrame], taiex: pd.DataFrame) -> dict:
     rows = load_log()
     horizon = params.alpha()["horizon"]
-    over, alpha = [], []
+    over, alpha, def5 = [], [], []
     med_cache: dict[tuple, float] = {}
     for r in rows:
         df = taiex if r["code"] == "TAIEX" else panel.get(r["code"])
@@ -91,7 +91,12 @@ def evaluate(panel: dict[str, pd.DataFrame], taiex: pd.DataFrame) -> dict:
             real *= 100
             over.append({**r, "real": float(real), "hit": (np.sign(real) == np.sign(pred)) if abs(real) > 0.1 else None,
                          "err_bands": abs(real - pred) / max(float(r["band"] or 1), 0.1)})
-        elif r["kind"] == "alpha" and i + horizon - 1 < len(df):
+        if r["kind"] == "alpha" and i + 4 < len(df) and json.loads(r["extra"]).get("basket") == "defense":
+            # 穩健籃早期檢查：推薦後 5 個交易日的報酬與最大回檔（不必等一個月）
+            w5 = df.iloc[i:i + 5]
+            def5.append({**r, "ret5": float(w5.Close.iloc[-1] / df.Close.iloc[i - 1] - 1),
+                         "dd5": float(min(0.0, w5.Low.min() / df.Close.iloc[i - 1] - 1))})
+        if r["kind"] == "alpha" and i + horizon - 1 < len(df):
             ex = json.loads(r["extra"])
             win = df.iloc[i:i + horizon]
             ret = float(win.Close.iloc[-1] / df.Close.iloc[i - 1] - 1)
@@ -105,8 +110,9 @@ def evaluate(panel: dict[str, pd.DataFrame], taiex: pd.DataFrame) -> dict:
                             rs.append(d.Close.iloc[j + horizon - 1] / d.Close.iloc[j - 1] - 1)
                 med_cache[key] = float(np.median(rs)) if rs else 0.0
             alpha.append({**r, "real_ret": ret, "real_excess": ret - med_cache[key], "basket": ex.get("basket", "offense"),
+                          "real_dd": float(min(0.0, win.Low.min() / df.Close.iloc[i - 1] - 1)), "p_up": ex.get("p_up"),
                           "real_newhigh": float(win.High.max() > ex["hi252"]), "components": ex["components"]})
-    return {"overnight": over, "alpha": alpha}
+    return {"overnight": over, "alpha": alpha, "def5": def5}
 
 
 # ---------------------------------------------------------------- 健康檢查
@@ -135,6 +141,24 @@ def health(ev: dict, nav_today: float | None = None, today_pnls: dict[str, float
         if nh < pnh * 0.6:
             issues.append({"type": "alpha", "severity": "中", "detail": f"推薦標的實際創新高比例 {nh * 100:.0f}%，"
                                                                          f"遠低於模型預估 {pnh * 100:.0f}%（機率高估）"})
+    # 穩健籃：一個月實際收正比例與回檔；以及推薦後 5 日的早期檢查
+    dm = [a for a in ev["alpha"] if a.get("basket") == "defense"][-60:]
+    if len(dm) >= cfg["alpha_min_matured"]:
+        up = np.mean([a["real_ret"] > 0 for a in dm])
+        pu = np.mean([float(a["p_up"]) for a in dm if a.get("p_up") is not None] or [0.6])
+        dd = np.mean([a["real_dd"] for a in dm])
+        if up < cfg["def_min_up"] or up < pu - 0.15:
+            issues.append({"type": "defense", "severity": "高", "detail": f"穩健籃一個月實際收正比例 {up * 100:.0f}%（模型預估 {pu * 100:.0f}%），"
+                                                                            f"低於 {cfg['def_min_up'] * 100:.0f}% 或比預估低 15% 以上"})
+        if dd < cfg["def_max_dd"]:
+            issues.append({"type": "defense", "severity": "中", "detail": f"穩健籃一個月平均最大回檔 {dd * 100:.1f}%，超過 {cfg['def_max_dd'] * 100:.0f}%"})
+    d5 = ev.get("def5", [])[-60:]
+    if len(d5) >= cfg["alpha_min_matured"]:
+        up5 = np.mean([a["ret5"] > 0 for a in d5])
+        dd5 = np.mean([a["dd5"] for a in d5])
+        if up5 < cfg["def5_min_up"] or dd5 < cfg["def5_max_dd"]:
+            issues.append({"type": "defense", "severity": "中", "detail": f"穩健籃推薦後 5 日：收正比例 {up5 * 100:.0f}%、平均最大回檔 {dd5 * 100:.1f}%"
+                                                                            f"（警戒 {cfg['def5_min_up'] * 100:.0f}%／{cfg['def5_max_dd'] * 100:.0f}%）"})
     hist = load_history()
     if hist:
         peak = max(h["nav"] for h in hist)
@@ -320,6 +344,16 @@ def rollback() -> str:
     return ""
 
 
+def _def_stats(ev: dict) -> dict:
+    dm = [a for a in ev["alpha"] if a.get("basket") == "defense"]
+    d5 = ev.get("def5", [])
+    r = lambda v: round(float(v), 4)  # noqa: E731
+    return {"def_n": len(dm), "def_up": r(np.mean([a["real_ret"] > 0 for a in dm])) if dm else None,
+            "def_dd": r(np.mean([a["real_dd"] for a in dm])) if dm else None,
+            "def5_n": len(d5), "def5_up": r(np.mean([a["ret5"] > 0 for a in d5])) if d5 else None,
+            "def5_dd": r(np.mean([a["dd5"] for a in d5])) if d5 else None}
+
+
 def summary_stats(ev: dict) -> dict:
     tx = [o for o in ev["overnight"] if o["code"] == "TAIEX" and o["kind"] == "gap" and o["hit"] is not None]
     stk = [o for o in ev["overnight"] if o["code"] != "TAIEX" and o["kind"] == "gap" and o["hit"] is not None]
@@ -329,4 +363,5 @@ def summary_stats(ev: dict) -> dict:
         "stock_gap_n": len(stk), "stock_gap_hit": round(float(np.mean([o["hit"] for o in stk])), 3) if stk else None,
         "alpha_n": len(al), "alpha_excess": round(float(np.mean([a["real_excess"] for a in al])), 4) if al else None,
         "alpha_newhigh": round(float(np.mean([a["real_newhigh"] for a in al])), 3) if al else None,
+        **_def_stats(ev),
     }

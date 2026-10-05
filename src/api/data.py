@@ -279,7 +279,7 @@ def live_intraday(refresh: bool = False) -> dict:
 
     slot = _live_slot()
     pf = pfm.build_portfolio()
-    key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
+    key = (tuple(sorted((c, p.shares) for c, p in pf.positions.items())), round(pf.cash))  # 成本或現金改正也要重算
     fresh = _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key
     if fresh and not refresh:
         return _INTRA["v"]

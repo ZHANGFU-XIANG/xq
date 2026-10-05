@@ -342,7 +342,7 @@ def portfolio_plan(refresh: bool = False) -> dict:
     import time
 
     pf = pfm.build_portfolio()
-    key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
+    key = (tuple(sorted((c, p.shares) for c, p in pf.positions.items())), round(pf.cash))  # 成本或現金改正也要重算
     if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < 300:
         return _PLAN["v"]
     if not pf.positions:

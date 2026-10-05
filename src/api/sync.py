@@ -25,7 +25,7 @@ from src.state import portfolio as pfm
 log = logging.getLogger(__name__)
 REPO_DIR = Path(os.getenv("REPO_CACHE_DIR", "/tmp/invest-repo"))
 SYNC_PATHS = ["data/facts", "data/intraday", "data/trades.csv", "data/position_meta.json", "data/nav_history.json",
-              "data/pending_orders.json", "data/prediction_log.csv", "data/tuning_log.json",
+              "data/pending_orders.json", "data/prediction_log.csv", "data/tuning_log.json", "data/schedule_log.json",
               "config/learned_params.yaml", "reports"]
 _lock = threading.Lock()
 state = {"last_sync": None, "error": None}

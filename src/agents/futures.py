@@ -259,16 +259,17 @@ def plan(pf, prices: dict, nav: float, alloc: dict | None = None, stock_beta_val
             })
         else:
             reasons.append("訊號成立，但依風險與保證金上限算出 0 口，不建議操作")
-    elif mode == "補回虧損" and c["overlay"]["enabled"]:
+    elif c["overlay"]["enabled"] and mode in c["overlay"].get("modes", ["補回虧損"]):
         side = "OVERLAY"
     else:
         reasons.append("目前沒有足夠的擇時優勢，不建議做多或放空期貨")
     if side == "OVERLAY":
+        reasons = [r for r in reasons if not r.startswith("目前沒有足夠的擇時優勢")]
         al = sig["backtest"].get("always_long") or {}
         if not sig["above_ma60"]:
-            reasons.append(f"補回虧損模式可考慮加碼大盤曝險，但加權指數在季線下（{sig['dist_ma60_pct']:+.2f}%），風控規定不加碼")
+            reasons.append(f"{mode}模式可考慮加碼大盤曝險，但加權指數在季線下（{sig['dist_ma60_pct']:+.2f}%），風控規定不加碼")
         elif not al or al.get("avg_ret_pct", 0) <= 0:
-            reasons.append("補回虧損模式：近年一直做多的平均報酬不為正，不加碼大盤曝險")
+            reasons.append(f"{mode}模式：近年一直做多的平均報酬不為正，不加碼大盤曝險")
         else:
             stop_pts = round(c["atr_mult"] * sig["atr14"])
             root, qty, qty_notes = _contract_qty(nav * c["overlay"]["risk"], stop_pts, margins, nav * c["max_margin_pct_nav"])
@@ -278,16 +279,18 @@ def plan(pf, prices: dict, nav: float, alloc: dict | None = None, stock_beta_val
                     "asset": "FUT", "code": root, "contract": f"{root}{ym}", "name": rules()["futures"]["contracts"][root]["name"],
                     "action": "BUY", "qty": qty, "limit_price": round(price), "stop": round(price - stop_pts),
                     "take_profit": round(price + 2 * stop_pts), "margin": round(qty * margins[root]["initial"]),
-                    "max_loss": round(qty * stop_pts * mult), "mode": "補回虧損：加碼大盤曝險", "hold_days": sig["horizon_days"],
-                    "why": ["這筆不是預測優勢，而是放大對大盤的曝險，用來加快補回虧損",
+                    "max_loss": round(qty * stop_pts * mult), "mode": f"{mode}：加碼大盤曝險", "hold_days": sig["horizon_days"],
+                    "why": ["這筆不是預測優勢，而是放大對大盤的曝險，" + ("用來加快補回虧損" if mode == "補回虧損" else
+                                                                  "用期貨戶閒置資金提高總資產報酬（衝名次）"),
                             f"依據：{sig['backtest']['period']} 樣本外每 {sig['horizon_days']} 日一直做多 {al['n']} 次，"
                             f"勝率 {al['hit'] * 100:.1f}%、平均 {al['avg_ret_pct']:+.2f}%（已扣成本）；這段期間大盤偏多，空頭時會同樣放大虧損",
                             f"風控條件：加權指數在季線上（{sig['dist_ma60_pct']:+.2f}%）才加碼"],
-                    "why_qty": [f"補回虧損加碼：每筆風險 = 總資產 {nav:,.0f} 元 × {c['overlay']['risk'] * 100:.1f}%", *qty_notes,
+                    "why_qty": [f"{mode}加碼：每筆風險 = 總資產 {nav:,.0f} 元 × {c['overlay']['risk'] * 100:.1f}%", *qty_notes,
                                 f"停損距離 = {c['atr_mult']} × ATR14 {sig['atr14']:,.0f} 點 = {stop_pts:,.0f} 點"],
                     "exit_plan": [f"停損：跌破 {round(price - stop_pts):,} 點全數平倉",
                                   f"停利：漲到 {round(price + 2 * stop_pts):,} 點平倉",
-                                  f"跌破季線或累積報酬轉正時平倉；結算日 {fd.settlement_date(ym)} 前 {c['roll_days']} 天轉倉"],
+                                  ("跌破季線或累積報酬轉正時平倉" if mode == "補回虧損" else "跌破季線時平倉")
+                                  + f"；結算日 {fd.settlement_date(ym)} 前 {c['roll_days']} 天轉倉"],
                 })
 
     hedge = hedge_plan(sig, nav, stock_beta_value, alloc, us_snapshot, today)
