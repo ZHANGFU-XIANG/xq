@@ -2,7 +2,7 @@
   "1560": {
     "stop": 893.0,
     "tp_stage": 0,
-    "high": 1015.0,
+    "high": 1040.0,
     "shares": 1041,
     "basket": "offense"
   },
@@ -30,7 +30,7 @@
   "3189": {
     "stop": 958.0,
     "tp_stage": 0,
-    "high": 1050.0,
+    "high": 1095.0,
     "shares": 1026,
     "basket": "offense"
   },
@@ -51,14 +51,14 @@
   "6196": {
     "stop": 605.07,
     "tp_stage": 0,
-    "high": 618.0,
+    "high": 679.0,
     "shares": 1000,
     "basket": "offense"
   },
   "6213": {
     "stop": 597.0,
     "tp_stage": 0,
-    "high": 683.0,
+    "high": 751.0,
     "shares": 1571,
     "basket": "offense"
   }
