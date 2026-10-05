@@ -75,9 +75,14 @@ def start_background(interval: int = 600) -> None:
 
 def record_trade(row: dict) -> str:
     """寫入一筆成交。雲端：commit 到 GitHub；本機：寫入 data/trades.csv。回傳說明文字。"""
-    pfm.build_portfolio(pfm.load_trades() + [{k: str(v) for k, v in row.items()}])  # 先驗證（例如賣超過持有會丟錯）
+    return record_trades([row])
+
+
+def record_trades(rows: list[dict], message: str | None = None) -> str:
+    """寫入多筆成交（雲端合併成一次 commit）。"""
+    pfm.build_portfolio(pfm.load_trades() + [{k: str(v) for k, v in r.items()} for r in rows])  # 先驗證（例如賣超過持有會丟錯）
     if not cloud():
-        pfm.append_trades([row])
+        pfm.append_trades(rows)
         return "已寫入本機 data/trades.csv"
     repo = os.environ["GITHUB_REPO"]
     api = f"https://api.github.com/repos/{repo}/contents/data/trades.csv"
@@ -91,11 +96,13 @@ def record_trade(row: dict) -> str:
         n_old = len(lines[0].split(","))
         pad = "," * (len(pfm.TRADE_FIELDS) - n_old)
         cur = "\n".join([",".join(pfm.TRADE_FIELDS)] + [ln + pad for ln in lines[1:] if ln.strip()]) + "\n"
-    line = ",".join(str(row.get(k, "")) for k in pfm.TRADE_FIELDS)
-    body = {"message": f"record trade {row['date']} {row['side']} {row['code']} {row['shares']}@{row['price']}",
-            "content": base64.b64encode((cur + line + "\n").encode("utf-8")).decode(), "sha": r.json()["sha"]}
+    new = "".join(",".join(str(row.get(k, "")) for k in pfm.TRADE_FIELDS) + "\n" for row in rows)
+    if message is None:
+        message = (f"record trade {rows[0]['date']} {rows[0]['side']} {rows[0]['code']} {rows[0]['shares']}@{rows[0]['price']}"
+                   if len(rows) == 1 else f"record {len(rows)} trades {rows[0]['date']}")
+    body = {"message": message, "content": base64.b64encode((cur + new).encode("utf-8")).decode(), "sha": r.json()["sha"]}
     requests.put(api, headers=_gh_headers(), json=body, timeout=30).raise_for_status()
-    pfm.append_trades([row])  # 本機副本立即反映，下次 pull 會與 repo 一致
+    pfm.append_trades(rows)  # 本機副本立即反映，下次 pull 會與 repo 一致
     return f"已提交到 GitHub（{repo} data/trades.csv）"
 
 

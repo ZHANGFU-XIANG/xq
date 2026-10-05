@@ -18,8 +18,9 @@ from collections.abc import Iterator
 from src.agents import on_demand
 from src.agents.verifier import NUM_RE, fact_numbers, verify
 from src.api import data as apidata
-from src.config import now_tw, rules, settings
+from src.config import now_tw, rules, settings, stock_meta
 from src.llm.client import get_client, mark_exhausted, model_ok
+from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
 MAX_STEPS = 6
@@ -287,6 +288,75 @@ def xq_sync_preview(text: str, complete: bool = True) -> dict:
     return out
 
 
+def xq_screenshot_preview(image: bytes, complete: bool = True) -> dict:
+    """從截圖讀取 XQ 庫存或成交回報；庫存 → 與系統對帳，成交 → 建立待確認的成交紀錄。都需使用者確認才寫入。"""
+    from src.agents import xq_import, xq_vision
+
+    try:
+        table, model = xq_vision.read_table(image)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"截圖辨識失敗：{str(e)[:200]}"}
+    rows, warns = xq_vision.check_rows(table)
+    base = {"source": "screenshot", "model": model, "kind": table.kind, "warnings": warns,
+            "read": [{k: r[k] for k in ("code", "name", "read_name", "shares", "board", "price", "amount", "side", "status")} for r in rows]}
+    if table.kind == "holdings":
+        rows = [r for r in rows if r["shares"] > 0]
+        if not rows:
+            return {**base, "error": "截圖中沒有讀到持股，請確認截的是「庫存」畫面且表格完整。"}
+        rec = xq_import.reconcile({"rows": rows}, complete)
+        out = {**base, "parsed": rows, **rec}
+        if rec["adjustments"]:
+            aid = uuid.uuid4().hex[:10]
+            PENDING[aid] = {"kind": "xq_sync", "payload": rec["adjustments"], "created": time.time()}
+            out["pending_action"] = aid
+            out["summary"] = "依截圖庫存同步：" + "、".join(
+                f"{'補記買進' if a['side'] == 'BUY' else '補記賣出'} {a['code']} {a['shares']:,} 股@{a['price']}" for a in rec["adjustments"])
+        return out
+    if table.kind == "fills":
+        return {**base, **_fills_to_trades(rows)}
+    return {**base, "error": "看不出是庫存或成交回報的畫面，請截 XQ「帳務→庫存」或「成交回報」的表格。"}
+
+
+def _fills_to_trades(rows: list[dict]) -> dict:
+    """成交回報 → 成交紀錄。每一列各記一筆（整股、零股、不同價格分開，成本分批計算）；
+    已刪單、未成交略過；今天已記錄過的相同成交（代號、方向、股數、價格都一樣）標示為重複。"""
+    from collections import Counter
+
+    today = now_tw().date().isoformat()
+    have = Counter((t["code"], t["side"], int(float(t["shares"])), round(float(t["price"]), 3))
+                   for t in pfm.load_trades() if t.get("date") == today)
+    trades, dup, skipped = [], [], []
+    for r in rows:
+        st = r.get("status") or ""
+        if r["side"] not in ("BUY", "SELL") or r["filled"] <= 0 or any(k in st for k in ("刪", "失敗", "未成交", "取消")):
+            skipped.append(f"{r['code']} {r['name']}（{st or '未成交'}）")
+            continue
+        if not r["price"]:
+            skipped.append(f"{r['code']}（缺成交價，請手動記錄）")
+            continue
+        k = (r["code"], r["side"], r["filled"], round(float(r["price"]), 3))
+        if have[k] > 0:
+            have[k] -= 1
+            dup.append(f"{r['code']} {'買' if r['side'] == 'BUY' else '賣'} {r['filled']:,} 股@{r['price']}")
+            continue
+        trades.append({"date": today, "code": r["code"], "side": r["side"], "shares": r["filled"], "price": r["price"],
+                       "margin": int(r["margin"]), "note": f"截圖匯入成交{('・' + r['board']) if r.get('board') else ''}"})
+    out = {"trades": trades, "skipped": skipped, "duplicates": dup}
+    if not trades:
+        out["in_sync"] = True
+        return out
+    try:  # 先驗證（例如賣出超過持有）
+        pfm.build_portfolio(pfm.load_trades() + [{k: str(v) for k, v in t.items()} for t in trades])
+    except Exception as e:  # noqa: BLE001
+        return {**out, "error": f"這些成交與系統持倉對不起來：{str(e)[:160]}。若之前有漏記，請改用庫存截圖對帳。"}
+    aid = uuid.uuid4().hex[:10]
+    PENDING[aid] = {"kind": "record_trades", "payload": trades, "created": time.time()}
+    out["pending_action"] = aid
+    out["summary"] = f"記錄 {len(trades)} 筆成交：" + "、".join(
+        f"{'買進' if t['side'] == 'BUY' else '賣出'} {t['code']} {stock_meta(t['code'])['name']} {t['shares']:,} 股@{t['price']}" for t in trades)
+    return out
+
+
 def _transfer(args: dict) -> dict:
     amt = float(args["amount"])
     if amt <= 0:
@@ -407,9 +477,12 @@ def confirm(aid: str) -> dict:
         return {"ok": True, "message": sync.record_trade(act["payload"])}
     if act["kind"] == "xq_sync":
         rows = sorted(act["payload"], key=lambda r: r["side"] != "SELL")  # 先賣後買
-        for r in rows:
-            sync.record_trade(r)
+        sync.record_trades(rows)
         return {"ok": True, "message": f"已依 XQ 庫存寫入 {len(rows)} 筆調整"}
+    if act["kind"] == "record_trades":
+        rows = sorted(act["payload"], key=lambda r: r["side"] != "SELL")
+        sync.record_trades(rows)
+        return {"ok": True, "message": f"已記錄 {len(rows)} 筆成交"}
     return {"ok": True, "message": sync.run_workflow(act["payload"]["mode"])}
 
 

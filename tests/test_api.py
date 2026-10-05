@@ -187,7 +187,7 @@ def test_xq_sync_requires_confirmation_and_sells_first(monkeypatch, tmp_path):
     monkeypatch.setattr(pfm, "TRADES_CSV", tmp_path / "t.csv")
     pfm.append_trades([{"date": "2026-10-05", "code": "3037", "side": "BUY", "shares": 1000, "price": 1300, "margin": 0}])
     written = []
-    monkeypatch.setattr(sync, "record_trade", lambda row: written.append(row) or "ok")
+    monkeypatch.setattr(sync, "record_trades", lambda rows: written.extend(rows) or "ok")  # 多筆合併成一次寫入
     out = chat_agent.xq_sync_preview("代碼\t名稱\t庫存股數\t成本均價\n2330\t台積電\t1000\t2450\n")
     assert out["pending_action"] and not written
     assert chat_agent.confirm(out["pending_action"])["ok"]

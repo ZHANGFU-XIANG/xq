@@ -3,6 +3,7 @@
 trades.csv 欄位：date,code,side,shares,price,margin,note,asset,contract
 - side：BUY / SELL；資金調撥用 code=TRANSFER、side=TO_FUTURES／TO_SECURITIES、price=金額
 - margin：1 表示融資買進（自備 40%），0 為現股
+- 每一列是一筆成交：同一檔分整股、零股或不同時間成交時各記一列，成本分批記錄（Position.lots），賣出先進先出
 - asset：STOCK／ETF／FUT／OPT（舊資料沒有此欄時依代號自動判斷）
 - 期貨：code=商品（TX／MTX／TMF），contract=TMF202610，shares=口數，price=成交點數
 - 選擇權（只做買方）：code=TXO，contract=TXO202610P46000，price=權利金點數
@@ -68,11 +69,26 @@ def trade_cost(code: str, side: str, shares: int, price: float) -> float:
 
 
 @dataclass
+class Lot:
+    """一筆買進成交（整股、零股、不同時間各自一筆），各自的成本分開記錄；賣出時先進先出扣除。"""
+    date: str
+    shares: int
+    price: float
+    cost_basis: float              # 含手續費（部分賣出後按比例遞減）
+    note: str = ""
+
+    @property
+    def unit_cost(self) -> float:
+        return self.cost_basis / self.shares if self.shares else 0.0
+
+
+@dataclass
 class Position:
     code: str
     shares: int = 0
-    cost_basis: float = 0.0        # 含手續費的總成本
+    cost_basis: float = 0.0        # 含手續費的總成本（＝各批成本合計）
     margin_loan: float = 0.0       # 融資借款
+    lots: list[Lot] = field(default_factory=list)
 
     @property
     def avg_cost(self) -> float:
@@ -196,12 +212,13 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
             pos.shares += shares
             pos.cost_basis += shares * price + cost
             pos.margin_loan += loan
+            pos.lots.append(Lot(t.get("date", ""), shares, price, shares * price + cost, t.get("note") or ""))
         elif side == "SELL":
             if shares > pos.shares:
                 raise ValueError(f"{t['date']} {code} 賣出 {shares} 股超過持有 {pos.shares} 股")
             frac = shares / pos.shares
             repay = pos.margin_loan * frac
-            basis = pos.cost_basis * frac
+            basis = _consume_fifo(pos, shares)
             proceeds = shares * price - cost
             pf.cash += proceeds - repay
             pf.realized_pnl += proceeds - basis
@@ -216,6 +233,22 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
         if pos.shares == 0:
             del pf.positions[code]
     return pf
+
+
+def _consume_fifo(pos: Position, shares: int) -> float:
+    """賣出時從最早買進的那一批開始扣（先進先出），回傳賣出部分的成本。"""
+    basis, left = 0.0, shares
+    while left > 0 and pos.lots:
+        lot = pos.lots[0]
+        take = min(left, lot.shares)
+        part = lot.cost_basis * take / lot.shares
+        basis += part
+        lot.cost_basis -= part
+        lot.shares -= take
+        left -= take
+        if lot.shares == 0:
+            pos.lots.pop(0)
+    return basis
 
 
 def _apply_deriv(pf: Portfolio, t: dict) -> None:

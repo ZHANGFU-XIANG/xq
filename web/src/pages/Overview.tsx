@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
+import HoldingWatch from '../components/HoldingWatch'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import Intraday, { useIntraday } from '../components/Intraday'
 import Potential from '../components/Potential'
+import ValuePicks from '../components/ValuePicks'
 import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
@@ -145,26 +147,33 @@ export default function Overview() {
   const { data: r, isLoading, error } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
   const [tab, setTab] = useAssetTab()
   const { data: intra } = useIntraday()
+  // 總資產、持股率、交易筆數與規則檢查用即時持倉（成交紀錄＋即時價），不用盤前報告的快照，成交後馬上反映
+  const { data: live } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: 60_000 })
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
   if (!r) return <Empty>還沒有任何報告。報告會在交易日 07:00 自動產生。</Empty>
-  const pf = r.portfolio
+  const pf = live ?? r.portfolio
   const tx = r.predictions.TAIEX
-  const fails = r.compliance.filter((c: Json) => c.status !== '通過')
+  const compliance: Json[] = [
+    ...(live?.compliance ?? r.compliance.filter((c: Json) => !c.item.startsWith('執行建議後'))),
+    ...r.compliance.filter((c: Json) => c.item.startsWith('執行建議後')),
+  ]
+  const fails = compliance.filter((c: Json) => c.status !== '通過')
   return (
     <>
       <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
       <IndexTicker />
       <UrgentBanner />
+      <HoldingWatch />
       <Balance report={r} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
-        <Stat label="總資產" value={fmtWan(pf.nav)} />
+        <Stat label="總資產" value={fmtWan(pf.nav)} sub={live ? `即時・${live.as_of}` : '盤前報告快照'} />
         <Stat label="累積報酬" value={fmtPct(pf.return_pct)} valueClass={tone(pf.return_pct)} />
         <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />
         <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
           sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔・買賣各算一筆`} />
-        <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub="只算實際成交" />
+        <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub={`盤前計畫 ${r.generated_at}`} />
         <Stat label="大盤開盤預測" value={fmtPct(tx?.gap_pct)} valueClass={tone(tx?.gap_pct)}
           sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}，開盤後${tx.after_open}` : undefined} />
       </div>
@@ -176,12 +185,13 @@ export default function Overview() {
           <HoldingAdvice compact asset={tab as 'STOCK' | 'ETF'} />
           <MorningPlan r={r} asset={tab} />
           <Potential asset={tab as 'STOCK' | 'ETF'} />
+          {tab === 'STOCK' && <ValuePicks />}
         </>
       )}
 
       <Section title="競賽規則檢查" aside={fails.length ? `${fails.length} 項需注意` : '全部通過'}>
         <ul className="space-y-1.5 text-[0.95rem]">
-          {r.compliance.map((c: Json) => (
+          {compliance.map((c: Json) => (
             <li key={c.item} className="flex gap-2">
               <span className={`shrink-0 font-medium ${c.status === '通過' ? 'text-down' : c.status === '注意' ? 'text-warn' : 'text-up'}`}>{c.status}</span>
               <span><span className="font-medium">{c.item}</span>　<span className="text-ink-2">{c.detail}</span></span>

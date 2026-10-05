@@ -5,7 +5,7 @@ import json
 from functools import lru_cache
 
 from src.agents import on_demand
-from src.config import FACTS_DIR, REPORT_DIR, rules, stock_meta
+from src.config import FACTS_DIR, REPORT_DIR, now_tw, rules, stock_meta
 from src.state import params
 from src.state import portfolio as pfm
 
@@ -64,10 +64,16 @@ def report_summary(date: str | None = None) -> dict:
 
 
 def portfolio() -> dict:
+    from src.agents import alerts, compliance
+
     pf = pfm.build_portfolio()
     meta = pfm.load_meta()
-    prices = {}
+    # 即時價（盤中為最新成交、盤後為今日收盤）；取不到才用日 K 最後一筆
+    rt = alerts.realtime(list(pf.positions)) if pf.positions else {}
+    prices = {c: q["price"] for c, q in rt.items() if q.get("price")}
     for c in pf.positions:
+        if c in prices:
+            continue
         df = on_demand.price_df(c)
         if not df.empty:
             prices[c] = float(df.Close.iloc[-1])
@@ -94,13 +100,22 @@ def portfolio() -> dict:
                     "weight_pct": round(p.shares * price / nav * 100, 2) if nav else 0,
                     "asset": "ETF" if stock_meta(c).get("is_etf") else "STOCK",
                     "basket": params.basket("etf" if stock_meta(c).get("is_etf") else (meta.get(c, {}).get("basket") or "offense"))["name"],
-                    "stop": meta.get(c, {}).get("stop"), "margin_loan": round(p.margin_loan)})
+                    "stop": meta.get(c, {}).get("stop"), "margin_loan": round(p.margin_loan),
+                    # 每一批成交各自的成本與損益（整股／零股、不同時間成交分開算）
+                    "lots": [{"date": lot.date, "shares": lot.shares, "price": lot.price, "unit_cost": round(lot.unit_cost, 3),
+                              "board": "整股" if lot.shares % 1000 == 0 else "零股" if lot.shares < 1000 else "整股＋零股",
+                              "pnl": round(lot.shares * price - lot.cost_basis),
+                              "pnl_pct": round((price / lot.unit_cost - 1) * 100, 2) if lot.unit_cost else 0, "note": lot.note}
+                             for lot in p.lots]})
     initial = rules()["capital"]["initial"]
     return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
             "futures_cash": round(pf.futures_cash), "futures_equity": round(pf.futures_equity(marks)), "derivatives": derivs,
             "holding_ratio": round(pf.holding_ratio({**prices, **marks}), 4),
             "margin_loan": round(pf.margin_loan()), "realized_pnl": round(pf.realized_pnl), "trade_count": pf.trade_count,
-            "traded_symbols": sorted(pf.traded_symbols), "positions": pos, "trades": pf.trades[-50:][::-1],
+            "traded_symbols": sorted(pf.traded_symbols), "symbol_count": len(pf.traded_symbols), "positions": pos,
+            "compliance": [c for c in compliance.check(pf, {**prices, **marks}, [], now_tw().date(), nav)
+                           if not c["item"].startswith("執行建議後")],
+            "as_of": now_tw().strftime("%H:%M:%S"), "trades": pf.trades[-50:][::-1],
             "nav_history": pfm.load_history()}
 
 
@@ -257,6 +272,89 @@ def live_intraday(refresh: bool = False) -> dict:
     if not _INTRA_LOCK.locked():
         threading.Thread(target=_compute_intraday, args=(slot, key), daemon=True).start()
     return {**prev, "stale": True, "cached_from": prev.get("time")}
+
+
+_WATCH: dict = {"t": 0.0, "v": None}
+
+
+def holding_watch() -> dict:
+    """持股動向（盤中每分鐘）：每檔庫存判斷「盡快賣出／低檔可望反彈／注意／正常」，規則全由程式計算。
+
+    - 盡快賣出：跌破停損、跌停、持股建議為出清或減碼、或今日重挫且模型一個月收正機率低於全市場平均
+    - 低檔可望反彈：超賣（RSI ≤ 35、貼近 10 日低點或今日跌 ≥3%）且模型一個月收正機率明顯高於平均、預期報酬為正、未破停損
+      → 建議續抱、不要殺低（機率是模型估計，不是保證）
+    - 注意：今日跌 ≥3% 或跌破 20 日均線，但還沒到賣出條件
+    """
+    import time
+
+    from src.agents import alerts
+
+    if _WATCH["v"] is not None and time.time() - _WATCH["t"] < 50:
+        return _WATCH["v"]
+    pf = pfm.build_portfolio()
+    if not pf.positions:
+        return {"time": now_tw().strftime("%H:%M:%S"), "items": [], "trading": alerts.is_trading_hours()}
+    codes = list(pf.positions)
+    rt = alerts.realtime(codes)
+    meta = pfm.load_meta()
+    ctx = on_demand.context()
+    preds = ctx["alpha"]["predictions"]
+    base = ctx["alpha"].get("up_base_rate") or 0.5
+    hi_p = max(0.6, base + 0.08)
+    plan = {i["code"]: i for i in ((on_demand._PLAN.get("v") or {}).get("items") or [])}  # 持股建議（5 分鐘快取，不在這裡重算）
+    items = []
+    for c, pos in pf.positions.items():
+        q = rt.get(c) or {}
+        df = on_demand.price_df(c)
+        last_close = float(df.Close.iloc[-1]) if not df.empty else pos.avg_cost
+        price = q.get("price") or last_close
+        chg = q.get("chg_pct") if q else None
+        a = preds.get(c) or {}
+        f = a.get("features") or {}
+        rsi = f.get("rsi14")
+        ma20 = float(df.Close.tail(20).mean()) if len(df) >= 20 else None
+        low10 = float(df.Low.tail(10).min()) if len(df) >= 10 else None
+        stop = (meta.get(c) or {}).get("stop")
+        p_up, exp_ret = a.get("p_up"), a.get("exp_ret")
+        adv = plan.get(c) or {}
+        sell, rebound, watch = [], [], []
+        if stop and price <= stop:
+            sell.append(f"現價 {price:g} 已跌破停損 {stop:g}")
+        if q.get("at_limit_down"):
+            sell.append("跌停，隔日可能續跌，打開時優先處理")
+        if adv.get("verdict") in ("全部出清", "減碼"):
+            sell.append(f"持股建議：{adv['verdict']}" + (f"（{adv['reasons'][0]}）" if adv.get("reasons") else ""))
+        if chg is not None and chg <= -4 and p_up is not None and p_up < base:
+            sell.append(f"今日 {chg:+.2f}% 重挫，模型一個月收正機率 {p_up * 100:.0f}% 低於全市場平均 {base * 100:.0f}%")
+        oversold = []
+        if rsi is not None and rsi <= 35:
+            oversold.append(f"RSI {rsi:.0f}")
+        if low10 and price <= low10 * 1.02:
+            oversold.append(f"貼近 10 日低點 {low10:g}")
+        if chg is not None and chg <= -3:
+            oversold.append(f"今日 {chg:+.2f}%")
+        if not sell and oversold and p_up is not None and p_up >= hi_p and (exp_ret or 0) > 0.02 and not (stop and price <= stop):
+            rebound.append("、".join(oversold) + f"，但模型一個月收正機率 {p_up * 100:.0f}%（全市場平均 {base * 100:.0f}%）、"
+                           f"預期 {exp_ret * 100:+.1f}%：續抱、不要殺低")
+        if not sell and not rebound:
+            if chg is not None and chg <= -3:
+                watch.append(f"今日 {chg:+.2f}%")
+            if ma20 and price < ma20:
+                watch.append(f"跌破 20 日均線 {ma20:.1f}")
+            if stop and price <= stop * 1.03:
+                watch.append(f"距停損 {stop:g} 不到 3%")
+        status = "盡快賣出" if sell else "低檔可望反彈" if rebound else "注意" if watch else "正常"
+        items.append({"code": c, "name": stock_meta(c)["name"], "status": status, "reasons": sell or rebound or watch,
+                      "price": price, "chg_pct": chg, "pnl_pct": round((price / pos.avg_cost - 1) * 100, 2) if pos.avg_cost else 0,
+                      "stop": stop, "rsi14": round(rsi, 1) if rsi is not None else None,
+                      "p_up": p_up, "exp_ret": exp_ret, "verdict": adv.get("verdict")})
+    order = {"盡快賣出": 0, "注意": 1, "低檔可望反彈": 2, "正常": 3}
+    items.sort(key=lambda x: (order[x["status"]], x["chg_pct"] or 0))
+    out = {"time": now_tw().strftime("%H:%M:%S"), "trading": alerts.is_trading_hours(), "base_rate": base, "items": items,
+           "counts": {k: sum(1 for i in items if i["status"] == k) for k in order},
+           "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 為前一交易日收盤值"}
+    _WATCH.update(t=time.time(), v=out)
+    return out
 
 
 _QUOTES: dict = {}
@@ -424,6 +522,52 @@ def potential(limit: int = 8) -> dict:
         logging.getLogger(__name__).warning("ETF 潛在標的失敗：%s", e)
     return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit], "etf": etf_list,
             "note": "潛在標的不是今天的下單建議；要買之前請先用個股分析或問 AI 助理取得當下的張數與限價"}
+
+
+def value_picks(max_price: float = 50, limit: int = 15, include_etf: bool = False) -> dict:
+    """平價潛力股：股價 ≤ max_price、模型看漲且波動與回檔小的股票排名（一張的金額低，資金好分配、可買整張）。
+
+    注意：排名比的是報酬率，股價高低本身不影響報酬率；這份清單的好處是用較少資金就能買整張、分散更多檔。
+    安全條件（全部要符合）：一個月收正機率 ≥ 全市場平均、預期最大回檔 ≥ -10%、日波動 ≤ 3.5%、β ≤ 1.5、
+    RSI ≤ 80（不追過熱）、不在注意／處置股名單。排序：收正機率 45%＋預期報酬 35%＋回檔小 20%（皆為全市場百分位）。
+    """
+    from src.agents import alerts
+
+    ctx = on_demand.context()
+    preds = ctx["alpha"]["predictions"]
+    base = ctx["alpha"].get("up_base_rate") or 0.5
+    warn = alerts.attention_lists()
+    held = set(pfm.build_portfolio().positions)
+    rows, dropped = [], {"價格": 0, "安全條件": 0, "注意處置": 0}
+    for c, a in preds.items():
+        f = a.get("features") or {}
+        close = a.get("close")
+        is_etf = bool(f.get("is_etf"))
+        if not close or close > max_price or (is_etf and not include_etf):
+            dropped["價格"] += 1
+            continue
+        if c in warn:
+            dropped["注意處置"] += 1
+            continue
+        safe = ((a.get("p_up") or 0) >= base and (a.get("exp_dd") or -1) >= -0.10 and (f.get("vol20") or 1) <= 0.035
+                and (f.get("beta60") or 9) <= 1.5 and (f.get("rsi14") or 100) <= 80 and (a.get("exp_ret") or 0) > 0)
+        if not safe:
+            dropped["安全條件"] += 1
+            continue
+        score = 0.45 * (a.get("up_rank") or 0) + 0.35 * (a.get("alpha_rank") or 0) + 0.20 * (a.get("dd_rank") or 0)
+        rows.append({"code": c, "name": stock_meta(c)["name"], "sector": stock_meta(c).get("sector"), "is_etf": is_etf,
+                     "price": close, "lot_cost": round(close * 1000), "score": round(score, 3),
+                     "p_up": a.get("p_up"), "exp_ret": a.get("exp_ret"), "exp_dd": a.get("exp_dd"), "p_newhigh": a.get("p_newhigh"),
+                     "rsi14": round(f.get("rsi14"), 1) if f.get("rsi14") is not None else None,
+                     "vol20_pct": round(f["vol20"] * 100, 2) if f.get("vol20") is not None else None,
+                     "beta": round(f["beta60"], 2) if f.get("beta60") is not None else None, "held": c in held})
+    rows.sort(key=lambda x: -x["score"])
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+    return {"asof": ctx["alpha"].get("asof"), "max_price": max_price, "base_rate": base, "items": rows[:limit],
+            "n_pass": len(rows), "dropped": dropped,
+            "note": "排名看的是報酬率，股價便宜不代表漲得比較多；好處是一張金額低，資金好分配、可以買整張並分散更多檔。"
+                    "機率與預期報酬為模型估計（一個月），不是保證；買之前請先看個股分析取得張數與限價。"}
 
 
 def today_status(code: str, analysis: dict) -> dict:
@@ -692,7 +836,8 @@ def health() -> dict:
 
     runs = _workflow_runs()
     for wf, info in runs.items():
-        rs = info.get("runs") or []
+        # 排程重複觸發時 GitHub 會取消排隊中的那一個，屬正常，不算失敗
+        rs = [r for r in info.get("runs") or [] if r["conclusion"] != "cancelled"]
         if info.get("error"):
             add(info["label"], "unknown", f"無法讀取 GitHub：{info['error']}")
             continue
@@ -735,6 +880,13 @@ def health() -> dict:
     elif trading and hm >= 9 * 60 + 10:
         add("雲端盤中建議", "warn", "今天還沒有雲端盤中建議紀錄")
     if sync.cloud():
+        from src.api import scheduler
+
+        sc = scheduler.state
+        if sc.get("error"):
+            add("準點觸發排程", "error", f"觸發失敗：{sc['error']}", "檢查 Space 的 GITHUB_TOKEN 是否有 Actions 寫入權限；cron 備援仍會執行（可能延遲）")
+        else:
+            add("準點觸發排程", "ok", f"最近一次 {sc['last']['time']} 觸發 {sc['last']['key']}" if sc.get("last") else "今天尚未到排程時間")
         st = sync.state
         ls = st.get("last_sync")
         ls = dt.datetime.fromtimestamp(ls, config.TW_TZ).strftime("%m/%d %H:%M") if isinstance(ls, (int, float)) else (ls or "尚未")

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { createChart, LineSeries, type Time } from 'lightweight-charts'
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import HoldingAdvice from '../components/HoldingAdvice'
 import XQImport from '../components/XQImport'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
@@ -56,8 +56,8 @@ export default function Portfolio() {
 
       <HoldingAdvice />
 
-      <Section title="目前持股">
-        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入持股」同步，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
+      <Section title="目前持股" aside="同一檔分批成交（整股／零股、不同時間）各自列出成本，賣出先進先出">
+        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入」貼上截圖或文字同步，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-[0.95rem]">
               <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
@@ -66,7 +66,8 @@ export default function Portfolio() {
               </tr></thead>
               <tbody>
                 {p.positions.map((x: Json) => (
-                  <tr key={x.code} className="border-b border-line/70">
+                  <Fragment key={x.code}>
+                  <tr className={x.lots?.length > 1 ? '' : 'border-b border-line/70'}>
                     <td className="py-2.5"><BasketTag basket={x.basket} /></td>
                     <td><StockLink code={x.code} name={x.name} /></td>
                     <td className="num text-right">{fmtInt(x.shares)}</td>
@@ -76,6 +77,18 @@ export default function Portfolio() {
                     <td className="num text-right">{fmtPct(x.weight_pct, 1, false)}</td>
                     <td className="num text-right text-down">{x.stop ?? '—'}</td>
                   </tr>
+                  {x.lots?.length > 1 && x.lots.map((l: Json, i: number) => (
+                    <tr key={i} className={`text-sm text-ink-2 ${i === x.lots.length - 1 ? 'border-b border-line/70' : ''}`}>
+                      <td />
+                      <td className="pb-1 pl-4 text-muted">└ {l.date.slice(5)} {l.board}</td>
+                      <td className="num pb-1 text-right">{fmtInt(l.shares)}</td>
+                      <td className="num pb-1 text-right">{fmtNum(l.unit_cost)}</td>
+                      <td />
+                      <td className={`num pb-1 text-right ${tone(l.pnl)}`}>{fmtInt(l.pnl)}<span className="ml-1 text-xs">{fmtPct(l.pnl_pct)}</span></td>
+                      <td colSpan={2} />
+                    </tr>
+                  ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -111,7 +124,7 @@ export default function Portfolio() {
         </Section>
       )}
 
-      <Section title="從 XQ 匯入持股" aside="以 XQ 帳務為準同步"><XQImport /></Section>
+      <Section title="從 XQ 匯入持股與成交" aside="截圖或貼上，以 XQ 帳務為準"><XQImport /></Section>
 
       <Section title="累積報酬走勢"><NavCurve hist={p.nav_history} /></Section>
 

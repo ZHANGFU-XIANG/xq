@@ -8,6 +8,11 @@ llm:
   # 依序嘗試；模型下架或過載(503)時自動換下一個，只需改這裡
   gemini_models: [gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest]
   groq_models: [openai/gpt-oss-120b, qwen/qwen3.8-27b]
+  # 截圖辨識（XQ 庫存／成交回報）：順序 Gemini → NVIDIA（成交紀錄準確優先，例外於「開源優先」）。
+  # 2026-10-05 用真實 XQ 成交回報（17 列）實測：gemini-2.5-flash 全對；nemotron nano omni 有 3 列成交價金讀錯；
+  # gemma-4-31b、llama-3.2-90b-vision 逾時，kimi 帳號無權限
+  nvidia_vision_models: [nvidia/nemotron-3-nano-omni-30b-a3b-reasoning]
+  gemini_vision_models: [gemini-2.5-flash]
   temperature: 0
   min_interval_sec: 7               # 免費層速率限制（約 10 RPM）
   max_retries: 2

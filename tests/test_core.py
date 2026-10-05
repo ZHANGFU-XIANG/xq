@@ -186,3 +186,36 @@ def test_news_asset_category():
     assert asset_category({"title": "外資台指期未平倉空單增加 - 鉅亨"}) == "期貨"
     assert asset_category({"title": "00878 季配息公布 殖利率 7%"}) == "ETF"
     assert asset_category({"title": "台積電法說會前瞻"}) == "股票"
+
+
+def test_schedule_gate_windows(monkeypatch, tmp_path):
+    import datetime as dt
+
+    from src import schedule
+    from src.config import TW_TZ
+
+    monkeypatch.setattr(schedule, "LOG", tmp_path / "log.json")
+    at = lambda s: dt.datetime.fromisoformat(s).replace(tzinfo=TW_TZ)  # noqa: E731
+    assert schedule.gate("premarket", at("2026-10-05 07:01"))[0]
+    assert not schedule.gate("preopen", at("2026-10-05 13:52"))[0]       # 延遲到收盤後的開盤前更新沒有意義
+    run, key, _ = schedule.gate("intraday", at("2026-10-05 09:45"))
+    assert run and key == "intraday 09:40"
+    assert not schedule.gate("intraday", at("2026-10-05 14:25"))[0]      # 收盤後才觸發的盤中建議略過
+    schedule.mark(key, at("2026-10-05 09:47"))
+    assert not schedule.gate("intraday", at("2026-10-05 09:50"))[0]      # 同一時段不重複
+    assert schedule.gate("intraday", at("2026-10-05 10:21"))[0]
+    assert not schedule.gate("intraday", at("2026-10-10 09:00"))[0]      # 國慶日休市
+
+
+def test_lots_keep_separate_cost_and_sell_fifo(monkeypatch, tmp_path):
+    from src.state import portfolio as pfm
+
+    trades = [{"date": "2026-10-05", "code": "6213", "side": "BUY", "shares": "571", "price": "723", "margin": "0"},
+              {"date": "2026-10-05", "code": "6213", "side": "BUY", "shares": "1000", "price": "726", "margin": "0"},
+              {"date": "2026-10-06", "code": "6213", "side": "SELL", "shares": "600", "price": "750", "margin": "0"}]
+    pos = pfm.build_portfolio(trades[:2]).positions["6213"]
+    assert [(lot.shares, lot.price) for lot in pos.lots] == [(571, 723.0), (1000, 726.0)]
+    assert abs(pos.cost_basis - sum(lot.cost_basis for lot in pos.lots)) < 1e-6
+    pos = pfm.build_portfolio(trades).positions["6213"]  # 先進先出：先賣完 571 股那批，再從 1000 股那批扣 29
+    assert [(lot.shares, lot.price) for lot in pos.lots] == [(971, 726.0)]
+    assert abs(pos.cost_basis - pos.lots[0].cost_basis) < 1e-6

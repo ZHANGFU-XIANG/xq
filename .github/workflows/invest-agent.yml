@@ -1,5 +1,7 @@
 name: invest-agent
 
+# 準點由網站（src/api/scheduler.py）以 workflow_dispatch＋scheduled 觸發；cron 只當備援（GitHub cron 常延遲數小時）。
+# 兩者都先經過 gate（src/schedule.py）：過了有效時間或同一時段已完成就略過。
 on:
   schedule:
     - cron: "0 23 * * 0-4"   # 台灣 07:00（週一～週五）盤前報告
@@ -42,6 +44,10 @@ on:
         required: false
       margin:
         description: "[record] 融資"
+        type: boolean
+        default: false
+      scheduled:
+        description: 排程觸發（過了有效時間或同一時段已完成就略過）
         type: boolean
         default: false
 
@@ -94,7 +100,16 @@ jobs:
             "30 8 * * 5")   echo "mode=weekly" >> "$GITHUB_OUTPUT" ;;
             *)              echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT" ;;
           esac
+      - name: Gate
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; then
+            python -m src.schedule gate "${{ steps.mode.outputs.mode }}"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run
+        if: steps.gate.outputs.run == 'true'
         run: |
           MODE="${{ steps.mode.outputs.mode }}"
           if [ "$MODE" = "record" ]; then
@@ -108,8 +123,11 @@ jobs:
             [ "${{ inputs.force }}" = "true" ] && FORCE="--force"
             python -m src.main "$MODE" $FORCE
           fi
+      - name: Mark slot done
+        if: steps.gate.outputs.run == 'true' && steps.gate.outputs.key != ''
+        run: python -m src.schedule mark "${{ steps.gate.outputs.key }}"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.gate.outputs.run == 'true'
         with:
           name: reports-${{ steps.mode.outputs.mode }}-${{ github.run_id }}
           path: |
@@ -118,12 +136,12 @@ jobs:
             reports/**/*.csv
           if-no-files-found: ignore
       - name: Commit state and reports
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.gate.outputs.run == 'true' }}
         run: |
           git config user.name "invest-agent-bot"
           git config user.email "invest-agent-bot@users.noreply.github.com"
           for f in data/trades.csv data/position_meta.json data/nav_history.json data/pending_orders.json \
-                   data/prediction_log.csv data/tuning_log.json config/learned_params.yaml data/facts data/intraday reports; do
+                   data/prediction_log.csv data/tuning_log.json data/schedule_log.json config/learned_params.yaml data/facts data/intraday reports; do
             if [ -e "$f" ]; then git add "$f"; fi
           done
           git diff --cached --quiet || (git commit -m "chore: ${{ steps.mode.outputs.mode }} $(date +%F)" && git pull --rebase && git push)

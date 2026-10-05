@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.agents import on_demand
-from src.api import auth, chat_agent, data, sync
+from src.api import auth, chat_agent, data, scheduler, sync
 from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT
 
 log = logging.getLogger("api")
@@ -50,6 +50,8 @@ def _warm():
 @app.on_event("startup")
 def startup():
     sync.start_background()
+    if sync.cloud():
+        scheduler.start_background()
     threading.Thread(target=_warm, daemon=True).start()
 
 
@@ -152,6 +154,11 @@ def holding_advice_(refresh: bool = False):
     return on_demand.portfolio_plan(refresh)
 
 
+@app.get("/api/holding-watch", dependencies=[api])
+def holding_watch_():
+    return data.holding_watch()
+
+
 @app.get("/api/intraday", dependencies=[api])
 def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)
@@ -190,6 +197,11 @@ def data_sources():
 @app.get("/api/potential", dependencies=[api])
 def potential_():
     return data.potential()
+
+
+@app.get("/api/value-picks", dependencies=[api])
+def value_picks_(max_price: float = 50, etf: bool = False):
+    return data.value_picks(min(max(max_price, 5), 2000), include_etf=etf)
 
 
 @app.get("/api/alerts", dependencies=[api])
@@ -291,6 +303,25 @@ class XQImport(BaseModel):
 @app.post("/api/xq/import", dependencies=[api])
 def xq_import_(body: XQImport):
     return chat_agent.xq_sync_preview(body.text, body.complete)
+
+
+class XQShot(BaseModel):
+    image: str  # data URL 或 base64
+    complete: bool = True
+
+
+@app.post("/api/xq/screenshot", dependencies=[api])
+def xq_screenshot_(body: XQShot):
+    import base64
+
+    raw = body.image.split(",", 1)[1] if body.image.startswith("data:") else body.image
+    if len(raw) > 14_000_000:
+        raise HTTPException(413, "圖片太大（上限約 10MB）")
+    try:
+        img = base64.b64decode(raw)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, "圖片格式錯誤") from e
+    return chat_agent.xq_screenshot_preview(img, body.complete)
 
 
 @app.post("/api/actions/{aid}/confirm", dependencies=[api])
