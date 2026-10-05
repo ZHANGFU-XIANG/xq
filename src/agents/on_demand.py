@@ -349,6 +349,9 @@ def portfolio_plan(refresh: bool = False) -> dict:
     ttl = 120 if alerts.is_trading_hours() else 300
     if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < ttl:
         return _PLAN["v"]
+    if not refresh and apidata._INTRA_LOCK.locked():  # 盤中建議正在重算：等它算完直接沿用，不要同時再算一份
+        with apidata._INTRA_LOCK:
+            pass
     iv = apidata._INTRA.get("v")
     if not refresh and iv and not iv.get("stale") and apidata._INTRA.get("key") == key and iv.get("holding_items") is not None:
         # 盤中建議剛用即時價算完整份計畫（每 10 分鐘），持股建議直接沿用，不再重算一次（全市場重算約 1 分鐘）
