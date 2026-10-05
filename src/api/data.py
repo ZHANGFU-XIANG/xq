@@ -250,14 +250,25 @@ def _compute_intraday(slot: str, key: tuple) -> dict:
         return out
 
 
+LIVE_REFRESH_MIN = 10  # 網站盤中每 10 分鐘以即時價重算（雲端排程與 Email 仍為每 40 分鐘一輪）
+
+
+def _live_slot() -> str:
+    from src.agents import alerts, intraday
+
+    slot = intraday.current_slot()
+    if alerts.is_trading_hours():
+        n = now_tw()
+        slot += f" #{n.hour:02d}:{n.minute // LIVE_REFRESH_MIN * LIVE_REFRESH_MIN:02d}"
+    return slot
+
+
 def live_intraday(refresh: bool = False) -> dict:
-    """盤中建議：每 40 分鐘一個時段，時段內建議固定（行情另外即時刷新）；持股變動或手動重算時立即更新。
+    """盤中建議：網站盤中每 10 分鐘以即時價重算（雲端排程每 40 分鐘一輪並寄信）；持股變動或手動重算時立即更新。
     還沒有這個時段的結果時，先回傳上一份（記憶體或雲端存檔）並標示 stale，背景重算完自動替換，不讓使用者等。"""
     import threading
 
-    from src.agents import intraday
-
-    slot = intraday.current_slot()
+    slot = _live_slot()
     pf = pfm.build_portfolio()
     key = tuple(sorted((c, p.shares) for c, p in pf.positions.items()))
     fresh = _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key
@@ -522,6 +533,19 @@ def potential(limit: int = 8) -> dict:
         logging.getLogger(__name__).warning("ETF 潛在標的失敗：%s", e)
     return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit], "etf": etf_list,
             "note": "潛在標的不是今天的下單建議；要買之前請先用個股分析或問 AI 助理取得當下的張數與限價"}
+
+
+def recovery_plan() -> dict:
+    """虧損怎麼補回：持股逐檔比較（即時價，5 分鐘快取）＋期貨補回方案＋ETF 籃建議。"""
+    plan = on_demand.portfolio_plan()
+    rec = plan.get("recovery") or {}
+    pf = portfolio()
+    return {"time": plan.get("time"), "nav": pf["nav"], "return_pct": pf["return_pct"],
+            "summary": rec.get("summary"),
+            "holdings": [{k: i.get(k) for k in ("code", "name", "basket", "unrealized", "pnl_pct", "decision", "why", "lines")}
+                         for i in rec.get("items", [])],
+            "futures": futures_view(), "etf": etf_view(),
+            "note": "期貨的補回虧損方案是放大大盤曝險，不是預測優勢；回測顯示期貨擇時沒有優勢"}
 
 
 def value_picks(max_price: float = 50, limit: int = 15, include_etf: bool = False) -> dict:

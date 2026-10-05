@@ -235,6 +235,23 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
     return pf
 
 
+def held_days(pos: Position, today) -> int:
+    """最早一批買進到今天經過幾個交易日（買進當天為 0）。"""
+    import datetime as dt
+
+    from src.config import is_trading_day
+
+    try:
+        d = dt.date.fromisoformat(pos.lots[0].date)
+    except (IndexError, ValueError):  # 沒有日期的舊資料視為已持有很久
+        return 999
+    n = 0
+    while d < today:
+        d += dt.timedelta(days=1)
+        n += is_trading_day(d)
+    return n
+
+
 def _consume_fifo(pos: Position, shares: int) -> float:
     """賣出時從最早買進的那一批開始扣（先進先出），回傳賣出部分的成本。"""
     basis, left = 0.0, shares

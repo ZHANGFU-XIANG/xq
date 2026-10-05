@@ -22,7 +22,7 @@ export function useIntraday() {
     refetchInterval: (q) => ((q.state.data as Json)?.stale ? 10_000 : 60_000) })
 }
 
-/** 盤中建議：每 40 分鐘一個時段重新計算（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */
+/** 盤中建議：網站盤中每 10 分鐘以即時價重新計算（雲端排程與 Email 每 40 分鐘）（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */
 export default function Intraday({ asset }: { asset: Asset }) {
   const qc = useQueryClient()
   const { data: d, isFetching } = useIntraday()
@@ -43,7 +43,7 @@ export default function Intraday({ asset }: { asset: Asset }) {
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">
           {ASSET_LABEL[asset]}・{d.building ? '建倉建議' : '盤中建議'}
-          <span className="ml-2 text-sm font-normal text-muted">{['盤前', '休市', '收盤後'].includes(slot) ? (slot === '盤前' ? '開盤前' : slot) : `${slot} 時段`}・每 40 分鐘更新{d.is_last_check ? '・收盤前檢查' : ''}</span>
+          <span className="ml-2 text-sm font-normal text-muted">{['盤前', '休市', '收盤後'].includes(slot) ? (slot === '盤前' ? '開盤前' : slot) : `${slot} 時段`}・盤中每 10 分鐘重算{d.is_last_check ? '・收盤前檢查' : ''}</span>
         </h2>
         <span className="flex items-center gap-3 text-sm text-muted">
           <span>實際持股率 <b className={d.holding_ratio < 0.7 ? 'text-warn' : 'text-ink'}>{(d.holding_ratio * 100).toFixed(1)}%</b></span>

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from src.agents.sizer import round_trip_cost_pct
 from src.state import params
-from src.state.portfolio import Portfolio
+from src.config import now_tw
+from src.state.portfolio import Portfolio, held_days
 
 
 def _months(need: float, monthly: float) -> str:
@@ -46,6 +47,8 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
         hold_p = a[pk] if a else None
         switch = round_trip_cost_pct(code) / 100
         lines, decision = [], "續抱"
+        held = held_days(pos, now_tw().date())
+        locked = held < st.get("min_hold_days", 0)  # 剛買進：不因換股或分數小幅轉弱而賣（避免買了就賣、來回付成本）
 
         lines.append(f"目前市值 {mv:,.0f} 元，成本 {pos.cost_basis:,.0f} 元，未實現損益 {unreal:+,.0f} 元（{pnl_pct * 100:+.2f}%）"
                      + (f"；今日損益 {today_pnl.get(code, 0):+,.0f} 元" if code in today_pnl else ""))
@@ -70,14 +73,14 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
         if stop and price <= stop:
             decision = "停損換股"
             why = f"收盤 {price} 已跌破停損價 {stop}，依紀律出場；資金轉往評分最高的候選標的"
-        elif a and best_alt and (best_alt["alpha"]["exp_ret"] - switch - hold_exp) > st["swap_margin"] \
+        elif not locked and pnl_pct < 0 and a and best_alt and (best_alt["alpha"]["exp_ret"] - switch - hold_exp) > st["swap_margin"] \
                 and best_alt["alpha"][pk] >= hold_p:
             decision = "換股"
             gain = best_alt["alpha"]["exp_ret"] - switch - hold_exp
             why = (f"{best_alt['code']} {best_alt['name']} 扣除換股成本後的預期報酬比續抱高 {gain * 100:.2f}%"
                    f"（門檻 {st['swap_margin'] * 100:.1f}%），且{pname}不低於原標的 → 換股補回虧損較快；"
                    f"回收資金依綜合分數配置到買進候選，各檔仍受單一標的與產業上限約束")
-        elif (s.get("def_score", 0) if basket == "defense" else s.get("score", 0)) <= st["sell_score_threshold"]:
+        elif not locked and (s.get("def_score", 0) if basket == "defense" else s.get("score", 0)) <= st["sell_score_threshold"]:
             decision = "減碼"
             why = "分數已低於賣出門檻，先減碼一半降低風險，資金轉往同一籃的高分標的"
         elif a and hold_exp > 0 and a["def_combo" if basket == "defense" else "combo"] >= 0.8 and pnl_pct > -0.05 and mv / nav < st["max_weight"] * 0.8 \
@@ -85,6 +88,9 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
             decision = "續抱並可加碼"
             why = (f"模型排名仍在全市場前 {(1 - a['def_combo' if basket == 'defense' else 'combo']) * 100:.0f}%、股價在月線之上、虧損未擴大，"
                    f"權重 {mv / nav * 100:.1f}% 仍低於上限，可逢回加碼攤低成本")
+        elif locked:
+            why = (f"買進第 {held} 個交易日，未滿 {st['min_hold_days']} 個交易日不換股、不因分數小幅轉弱賣出"
+                   f"（模型排名每天都會小幅變動，來回換股要付約 {switch * 100:.2f}% 成本）；跌破停損 {stop or '—'} 才出場")
         else:
             why = ("模型預期仍為正，未觸及停損，換股的預期效益不足以支付換股成本" if (a and hold_exp > 0)
                    else "未觸及停損，但模型預期偏弱，密切觀察；若跌破停損即出場")

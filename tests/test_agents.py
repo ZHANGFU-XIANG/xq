@@ -57,11 +57,27 @@ def test_recovery_swaps_only_when_benefit_exceeds_cost():
     meta = {"2303": {"stop": 80}}
     res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.10, 0.6), 10_000_000, 10_000_000, {})
     assert res["actions"]["2303"]["decision"] == "換股"
-    # 替代標的優勢不足（扣成本後 < 1.5%）→ 續抱
+    # 替代標的優勢不足（扣成本後 < swap_margin 3%）→ 續抱
     res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
     assert "2303" not in res["actions"]
     # 跌破停損 → 停損換股
     res = recovery.plan(pf, {"2303": 79.0}, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
+    assert res["actions"]["2303"]["decision"] == "停損換股"
+
+
+
+def test_recovery_no_swap_within_min_hold_days():
+    """剛買進（未滿 min_hold_days 個交易日）不因換股而賣；跌破停損仍出場。"""
+    from src.config import now_tw
+
+    today = now_tw().date().isoformat()
+    pf = build_portfolio([{"date": today, "code": "2303", "side": "BUY", "shares": "1000", "price": "100", "margin": "0"}])
+    a = {"2303": {"exp_ret": 0.01, "p_newhigh": 0.2, "combo": 0.5}}
+    scores = {"2303": {"score": 0.1, "name": "聯電", "features": {"close": 90, "ma20": 95}}}
+    meta = {"2303": {"stop": 80}}
+    res = recovery.plan(pf, {"2303": 90.0}, scores, a, meta, _ranked_alt(0.10, 0.6), 10_000_000, 10_000_000, {})
+    assert "2303" not in res["actions"]
+    res = recovery.plan(pf, {"2303": 79.0}, scores, a, meta, _ranked_alt(0.10, 0.6), 10_000_000, 10_000_000, {})
     assert res["actions"]["2303"]["decision"] == "停損換股"
 
 

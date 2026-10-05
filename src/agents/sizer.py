@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import math
 
-from src.config import rules, stock_meta
+from src.config import now_tw, rules, stock_meta
 from src.state import params
-from src.state.portfolio import Portfolio, is_etf, trade_cost
+from src.state.portfolio import Portfolio, held_days, is_etf, trade_cost
 
 LOT = 1000
 BASKETS = ("defense", "etf", "offense")  # 配置順序：穩健籃、ETF 籃（只用現金）→ 進攻籃（可融資）
@@ -82,6 +82,7 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
         weight = pos.shares * price / nav if nav else 0
         tp = bcfg["take_profit"]
         sell, why, why_qty = 0, "", ""
+        locked = held_days(pos, now_tw().date()) < st.get("min_hold_days", 0)  # 剛買進：分數小幅轉弱、權重超標不賣
 
         if price <= stop:
             sell = pos.shares
@@ -111,12 +112,12 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
             sell = pos.shares
             why = f"訊號全面轉空：{label} {score:+.2f} ≤ -0.60"
             why_qty = "多項因子同時轉空，全數出場並將資金轉往高分標的"
-        elif score <= st["sell_score_threshold"]:
+        elif not locked and score <= st["sell_score_threshold"]:
             raw = pos.shares * 0.5
             sell = _round_sell(raw, pos.shares, allow_odd)
             why = f"訊號轉弱：{label} {score:+.2f} ≤ {st['sell_score_threshold']:+.2f}"
             why_qty = f"先減碼一半 {raw:,.0f} 股（取整為 {fmt_shares(sell)}），保留部位避免誤判，若續弱再出清"
-        elif weight > bcfg["max_weight"] + 0.05:
+        elif not locked and weight > bcfg["max_weight"] + 0.05:
             target = bcfg["max_weight"] * nav / price
             raw = pos.shares - target
             sell = _round_sell(raw, pos.shares, allow_odd)

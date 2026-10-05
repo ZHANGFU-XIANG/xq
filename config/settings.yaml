@@ -107,7 +107,8 @@ strategy:
   atr_mult_stop: 2.0
   max_stop_pct: 0.10
   sell_score_threshold: -0.30
-  swap_margin: 0.015                # 換股：新標的預期報酬需高出「原標的 + 換股成本」1.5%
+  swap_margin: 0.03                 # 換股：新標的預期報酬需高出「原標的 + 換股成本」3%（2026-10-05 由 1.5% 調高：模型每天小幅變動就建議換股，買了就賣）
+  min_hold_days: 10                 # 買進後 10 個交易日內不因換股、分數轉弱、權重超標而賣出（停損、停利、跌停／負面新聞等風險警示不受限）
   allow_margin: true
   max_margin_loan_ratio: 0.30       # 融資借款上限佔總資產
   allow_odd_lot: true

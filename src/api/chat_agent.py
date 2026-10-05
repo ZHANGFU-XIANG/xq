@@ -79,6 +79,9 @@ SOURCE_DESC = {
     "get_model_health": "本系統模型回測與實際命中紀錄",
     "simulate_trades": "本系統試算（競賽手續費 0.1425%、證交稅）",
     "get_potential_picks": "本系統每日排名",
+    "get_holding_watch": "本系統持股動向（證交所即時報價、一個月模型）",
+    "get_value_picks": "本系統平價潛力股排名（一個月模型、注意處置股公告）",
+    "get_recovery_plan": "本系統虧損補回計畫（一個月模型、期貨回測、ETF 預估淨值）",
     "get_data_sources": "本系統資料來源監控",
     "get_etf_view": "本系統 ETF 籃計算（證交所 ETF 預估淨值、一個月模型）",
     "get_futures_view": "本系統期貨建議（期交所 MIS 即時報價與 OpenAPI 保證金、加權指數 5 年回測）",
@@ -87,6 +90,19 @@ SOURCE_DESC = {
     "make_weekly_report": "本系統週報（成交紀錄、每日報告、證交所／期交所收盤價）",
     "record_trade": "待確認動作", "run_analysis": "待確認動作", "import_xq_holdings": "使用者貼上的 XQ 庫存",
 }
+def _system() -> str:
+    """系統提示＋今天日期＋目前持股名單（只放代號與名稱；數字一律要用工具取得，才能核對出處）。"""
+    try:
+        held = "、".join(f"{c} {stock_meta(c)['name']}" for c in pfm.build_portfolio().positions) or "目前沒有持股"
+    except Exception:  # noqa: BLE001
+        held = "（讀取失敗，請呼叫 get_portfolio）"
+    return (SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"
+            f"\n本隊目前持股：{held}。使用者說「我的股票」「持股」「庫存」「這些股票」時就是指這些；"
+            "問到持股表現、要不要賣、要不要加碼時，先呼叫 get_portfolio 與 get_holding_watch（盤中動向），需要具體股數再呼叫 get_holding_advice；"
+            "問到虧損怎麼補回、ETF 或期貨怎麼操作時呼叫 get_recovery_plan；問便宜又安全的股票時呼叫 get_value_picks。"
+            "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）。")
+
+
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
 
 
@@ -231,6 +247,12 @@ TOOLS = [
     {"name": "import_xq_holdings", "description": "解析使用者從 XQ 全球贏家庫存畫面複製貼上的表格，與系統持股比對，產生需確認的同步調整",
      "parameters": {"type": "object", "properties": {"text": {"type": "string", "description": "使用者貼上的原始表格文字"}},
                     "required": ["text"]}},
+    {"name": "get_holding_watch", "description": "持股動向（盤中每分鐘）：每檔持股目前是「盡快賣出／注意／低檔可望反彈／正常」與理由、即時漲跌、RSI、模型一個月收正機率",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_value_picks", "description": "平價潛力股：股價上限內、模型看漲且波動與回檔小的股票排名（一張金額、收正機率、預期報酬、預期回檔）",
+     "parameters": {"type": "object", "properties": {"max_price": {"type": "number", "description": "股價上限（元），預設 50"}}}},
+    {"name": "get_recovery_plan", "description": "虧損怎麼補回：每檔持股續抱／加碼／換股／停損的比較與理由（含換股成本與回本所需天數）、期貨補回虧損方案、ETF 籃建議",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_data_sources", "description": "各資料來源目前狀態：FinMind 各組 token 是否冷卻、證交所／櫃買中心官方來源最近成功或失敗時間",
@@ -438,6 +460,12 @@ def call_tool(name: str, args: dict) -> dict:
             return providers.status()
         if name == "get_potential_picks":
             return apidata.potential()
+        if name == "get_holding_watch":
+            return apidata.holding_watch()
+        if name == "get_value_picks":
+            return apidata.value_picks(float(args.get("max_price") or 50), limit=10)
+        if name == "get_recovery_plan":
+            return apidata.recovery_plan()
         if name == "get_model_health":
             return apidata.model_health()
         if name == "simulate_trades":
@@ -500,7 +528,7 @@ def _gemini_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
     decls = [types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=t["parameters"])
              for t in TOOLS]
     cfg = types.GenerateContentConfig(
-        temperature=0, system_instruction=SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。",
+        temperature=0, system_instruction=_system(),
         tools=[types.Tool(function_declarations=decls)],
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
     contents = [types.Content(role="user" if m["role"] == "user" else "model", parts=[types.Part(text=m["content"])])
@@ -564,7 +592,7 @@ def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
     key = os.environ["NVIDIA_API_KEY"]
     base = oc.PROVIDERS["nvidia"]["base_url"]
     tools = [{"type": "function", "function": t} for t in TOOLS]
-    sys_msg = {"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}
+    sys_msg = {"role": "system", "content": _system()}
     models = [m for m in settings()["llm"].get("nvidia_models", []) if model_ok(m)]
     last_err = None
     for model in models:
@@ -608,7 +636,7 @@ def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     tools = [{"type": "function", "function": t} for t in TOOLS]
     recent = messages[-8:]  # 前文只留最近幾輪，較早的回答截短
     recent = [m if i >= len(recent) - 3 else {**m, "content": m["content"][:600]} for i, m in enumerate(recent)]
-    msgs = [{"role": "system", "content": SYSTEM + f"\n今天是 {now_tw().date().isoformat()}。"}] + recent
+    msgs = [{"role": "system", "content": _system()}] + recent
     outputs = []
     models = [m for m in settings()["llm"]["groq_models"] if model_ok(m)] or settings()["llm"]["groq_models"][:1]
     for _ in range(MAX_STEPS):

@@ -334,7 +334,7 @@ def live_plan(realtime: bool = True) -> dict:
             "orders": orders, "items": items, "skipped": skipped, "hold_alerts": hold_alerts, "rt": rt,
             "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4), "allocation": alloc,
             "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"]},
-            "derivatives": deriv}
+            "derivatives": deriv, "recovery": rec}
 
 
 def portfolio_plan(refresh: bool = False) -> dict:
@@ -351,6 +351,7 @@ def portfolio_plan(refresh: bool = False) -> dict:
     lp = live_plan()
     items = lp["items"]
     out = {"time": lp["time"], "realtime": lp["realtime"], "items": items, "nav": lp["nav"], "holding_ratio": lp["holding_ratio"],
-           "counts": {v: sum(1 for i in items if i["verdict"] == v) for v in ("加碼", "續抱", "減碼", "全部出清")}}
+           "counts": {v: sum(1 for i in items if i["verdict"] == v) for v in ("加碼", "續抱", "減碼", "全部出清")},
+           "recovery": lp.get("recovery"), "derivatives": lp.get("derivatives")}
     _PLAN.update(t=time.time(), v=out, key=key)
     return out
