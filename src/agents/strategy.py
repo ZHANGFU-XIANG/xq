@@ -81,7 +81,7 @@ def score_stock(code: str, feat: dict, alpha: dict | None, pred: dict | None, se
             "features": feat, "prediction": pred, "alpha": alpha, "revenue": revenue}
 
 
-DEF_NAMES = {"up": "收正報酬機率", "drawdown": "回檔小", "lowvol": "低波動", "institutional": "法人籌碼", "revenue": "營收穩定"}
+DEF_NAMES = {"up": "收正報酬機率", "drawdown": "回檔小", "return": "預期報酬", "lowvol": "低波動", "institutional": "法人籌碼", "revenue": "營收穩定"}
 
 
 def score_defense(s: dict, up_base: float) -> dict:
@@ -92,6 +92,7 @@ def score_defense(s: dict, up_base: float) -> dict:
     if a:
         comps["up"] = _clip(a["up_rank"] * 2 - 1)
         comps["drawdown"] = _clip(a["dd_rank"] * 2 - 1)
+        comps["return"] = _clip(a["alpha_rank"] * 2 - 1)
         vol = (a.get("features") or {}).get("vol20")
         if vol is not None:
             comps["lowvol"] = _clip((0.025 - vol) / 0.015)
@@ -107,7 +108,7 @@ def score_defense(s: dict, up_base: float) -> dict:
         reasons += [r for r in s["reasons"] if r.startswith(("基本面", "籌碼面"))]
     w = params.get("defense_weights")
     total = sum(w.values()) or 1
-    score = sum(w[k] / total * v for k, v in comps.items())
+    score = sum(w.get(k, 0) / total * v for k, v in comps.items())
     return {"def_score": round(score, 3), "def_components": {k: round(v, 3) for k, v in comps.items()},
             "def_reasons": reasons, "def_risks": risks, "eligible_def": bool(a and a.get("eligible_def"))}
 

@@ -78,12 +78,15 @@ baskets:
     max_premium_pct: 1.0             # 溢價超過 1% 不追
 
 # 穩健籃評分權重
+# 2026-10-05 加入「預期報酬」：樣本外 4 期回測（收正＋回檔 vs 收正＋回檔＋報酬）
+#   20 日平均報酬 +4.52% → +6.74%（4 期全部較好）、收正率 63.1% → 65.0%、平均最大回檔 -4.66% → -5.61%
 defense_weights:
-  up: 0.35                          # 一個月收正報酬機率
+  up: 0.25                          # 一個月收正報酬機率
   drawdown: 0.25                    # 預期最大回檔小
-  lowvol: 0.15                      # 低波動
-  institutional: 0.15               # 法人籌碼
-  revenue: 0.10                     # 營收穩定成長
+  return: 0.25                      # 一個月預期超額報酬（避免選到穩但幾乎不漲的股票）
+  lowvol: 0.10                      # 低波動
+  institutional: 0.10               # 法人籌碼
+  revenue: 0.05                     # 營收穩定成長
 
 # 進攻籃綜合分數權重（調整 Agent 可在範圍內修改，實際值見 config/learned_params.yaml）
 score_weights:
