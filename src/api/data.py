@@ -92,11 +92,14 @@ def portfolio() -> dict:
                            "margin": round(abs(d.qty) * margins.get(d.root, {}).get("initial", 0)) if d.kind == "FUT" else 0})
     nav = pf.nav({**prices, **marks})
     pos = []
+    fee_rate = rules()["costs"]["commission"]
     for c, p in pf.positions.items():
         price = prices.get(c, p.avg_cost)
+        mv = p.shares * price
+        net = mv - round(mv * fee_rate)  # 與 XQ／競賽 App 相同：未實現損益扣預估賣出手續費（不扣證交稅）
         pos.append({"code": c, "name": stock_meta(c)["name"], "shares": p.shares, "avg_cost": round(p.avg_cost, 2),
-                    "price": price, "market_value": round(p.shares * price), "pnl": round(p.shares * price - p.cost_basis),
-                    "pnl_pct": round((price / p.avg_cost - 1) * 100, 2) if p.avg_cost else 0,
+                    "price": price, "market_value": round(p.shares * price), "pnl": round(net - p.cost_basis),
+                    "pnl_pct": round((net / p.cost_basis - 1) * 100, 2) if p.cost_basis else 0,
                     "weight_pct": round(p.shares * price / nav * 100, 2) if nav else 0,
                     "asset": "ETF" if stock_meta(c).get("is_etf") else "STOCK",
                     "basket": params.basket("etf" if stock_meta(c).get("is_etf") else (meta.get(c, {}).get("basket") or "offense"))["name"],
@@ -104,11 +107,17 @@ def portfolio() -> dict:
                     # 每一批成交各自的成本與損益（整股／零股、不同時間成交分開算）
                     "lots": [{"date": lot.date, "shares": lot.shares, "price": lot.price, "unit_cost": round(lot.unit_cost, 3),
                               "board": "整股" if lot.shares % 1000 == 0 else "零股" if lot.shares < 1000 else "整股＋零股",
-                              "pnl": round(lot.shares * price - lot.cost_basis),
-                              "pnl_pct": round((price / lot.unit_cost - 1) * 100, 2) if lot.unit_cost else 0, "note": lot.note}
+                              "pnl": round(lot.shares * price * (1 - fee_rate) - lot.cost_basis),
+                              "pnl_pct": round((price * (1 - fee_rate) / lot.unit_cost - 1) * 100, 2) if lot.unit_cost else 0,
+                              "note": lot.note}
                              for lot in p.lots]})
     initial = rules()["capital"]["initial"]
+    cost = sum(p.cost_basis for p in pf.positions.values())
+    unreal = sum(x["pnl"] for x in pos)
     return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
+            # 競賽 App／XQ「未實現報酬率」＝（市值 − 預估賣出手續費 − 成本含買進手續費）÷ 成本；與上面的總資產報酬率分母不同
+            "holding_cost": round(cost), "unrealized_pnl": round(unreal),
+            "holding_return_pct": round(unreal / cost * 100, 4) if cost else 0,
             "futures_cash": round(pf.futures_cash), "futures_equity": round(pf.futures_equity(marks)), "derivatives": derivs,
             "holding_ratio": round(pf.holding_ratio({**prices, **marks}), 4),
             "margin_loan": round(pf.margin_loan()), "realized_pnl": round(pf.realized_pnl), "trade_count": pf.trade_count,

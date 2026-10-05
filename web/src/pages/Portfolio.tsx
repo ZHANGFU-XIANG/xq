@@ -46,9 +46,11 @@ export default function Portfolio() {
   return (
     <>
       <PageTitle>持股與損益</PageTitle>
-      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
+      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
         <Stat label="總資產" value={fmtWan(p.nav)} />
-        <Stat label="累積報酬" value={fmtPct(p.return_pct)} valueClass={tone(p.return_pct)} />
+        <Stat label="累積報酬（總資產）" value={fmtPct(p.return_pct)} valueClass={tone(p.return_pct)} sub="（總資產 − 1,000 萬）÷ 1,000 萬" />
+        <Stat label="持股未實現（同 App）" value={fmtPct(p.holding_return_pct)} valueClass={tone(p.holding_return_pct)}
+          sub={`${fmtInt(p.unrealized_pnl)} 元・扣預估賣出手續費、不扣證交稅`} />
         <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub="規則下限 70%" valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
         <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶權益 ${fmtWan(p.futures_equity ?? p.futures_cash)}`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />
