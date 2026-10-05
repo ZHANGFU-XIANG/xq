@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { get, post, setToken } from '../lib/api'
 import { HealthDot } from './Health'
 import ChatPanel, { useChat } from './Chat'
+import { liveEvery } from '../lib/live'
 
 const NAV = [
   { to: '/', label: '總覽', end: true },
@@ -89,7 +90,7 @@ function ThemeToggle() {
 export default function Layout() {
   const chat = useChat()
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status'), refetchInterval: 60_000 })
-  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000, enabled: !!status?.warm })
+  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000), enabled: !!status?.warm })
   const urgent = alerts ? (alerts.counts?.['嚴重'] ?? 0) + (alerts.counts?.['警告'] ?? 0) : 0
   const [menu, setMenu] = useState(false)
   const onChatPage = useLocation().pathname === '/chat'

@@ -343,8 +343,22 @@ def portfolio_plan(refresh: bool = False) -> dict:
 
     pf = pfm.build_portfolio()
     key = (tuple(sorted((c, p.shares) for c, p in pf.positions.items())), round(pf.cash))  # 成本或現金改正也要重算
-    if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < 300:
+    from src.agents import alerts
+    from src.api import data as apidata
+
+    ttl = 120 if alerts.is_trading_hours() else 300
+    if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < ttl:
         return _PLAN["v"]
+    iv = apidata._INTRA.get("v")
+    if not refresh and iv and not iv.get("stale") and apidata._INTRA.get("key") == key and iv.get("holding_items") is not None:
+        # 盤中建議剛用即時價算完整份計畫（每 10 分鐘），持股建議直接沿用，不再重算一次（全市場重算約 1 分鐘）
+        items = iv["holding_items"]
+        out = {"time": iv["time"], "realtime": alerts.is_trading_hours(), "items": items, "nav": iv["nav"],
+               "holding_ratio": iv["holding_ratio"],
+               "counts": {v: sum(1 for i in items if i["verdict"] == v) for v in ("加碼", "續抱", "減碼", "全部出清")},
+               "recovery": iv.get("recovery"), "derivatives": iv.get("derivatives")}
+        _PLAN.update(t=time.time(), v=out, key=key)
+        return out
     if not pf.positions:
         return {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "items": [], "realtime": False,
                 "note": "目前沒有庫存。在 XQ 成交後，到「持股」頁貼上 XQ 庫存同步即可看到每檔建議。"}

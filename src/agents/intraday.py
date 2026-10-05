@@ -174,7 +174,7 @@ def run(report: dict | None) -> dict:
         "building": building, "taiex": _taiex_rt(), "nav": nav, "holding_ratio": ratio,
         "return_pct": round((nav / rules()["capital"]["initial"] - 1) * 100, 3),
         "allocation": {k: lp["allocation"].get(k) for k in ("offense", "defense", "etf", "stock_split", "etf_reasons")},
-        "derivatives": slim_deriv(lp.get("derivatives") or {}),
+        "derivatives": slim_deriv(lp.get("derivatives") or {}), "recovery": lp.get("recovery"),
         "funding": lp.get("funding"),
         "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
         "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,

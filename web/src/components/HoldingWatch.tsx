@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { get, type Json } from '../lib/api'
 import { fmtPct, tone } from '../lib/format'
 import { Section, StockLink } from './ui'
+import { liveEvery } from '../lib/live'
 
 const STYLE: Record<string, string> = {
   盡快賣出: 'border-up bg-up/5 text-up',
@@ -16,7 +17,7 @@ function canNotify() {
 
 /** 持股動向：盤中每分鐘檢查，有持股新進入「盡快賣出」或「低檔可望反彈」時發出瀏覽器通知。 */
 export default function HoldingWatch() {
-  const { data } = useQuery<Json>({ queryKey: ['holding-watch'], queryFn: () => get('/api/holding-watch'), refetchInterval: 60_000 })
+  const { data } = useQuery<Json>({ queryKey: ['holding-watch'], queryFn: () => get('/api/holding-watch'), refetchInterval: liveEvery(20_000, 120_000) })
   const [perm, setPerm] = useState(canNotify() ? Notification.permission : 'denied')
   const prev = useRef<Record<string, string> | null>(null)
 
@@ -38,7 +39,7 @@ export default function HoldingWatch() {
   const flagged: Json[] = data.items.filter((i: Json) => i.status !== '正常')
   const c = data.counts ?? {}
   return (
-    <Section title="持股動向" aside={<span className="text-sm text-muted">{data.trading ? '盤中每分鐘更新' : '非交易時段'}・{data.time}</span>}>
+    <Section title="持股動向" aside={<span className="text-sm text-muted">{data.trading ? '盤中每 20 秒更新' : '非交易時段'}・{data.time}</span>}>
       <p className="mb-2 text-sm text-ink-2">
         <span className="text-up">盡快賣出 {c['盡快賣出'] ?? 0}</span>　<span className="text-warn">注意 {c['注意'] ?? 0}</span>
         <span className="text-down">低檔可望反彈 {c['低檔可望反彈'] ?? 0}</span>　<span className="text-muted">正常 {c['正常'] ?? 0}</span>

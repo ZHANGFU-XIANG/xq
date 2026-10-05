@@ -212,7 +212,8 @@ def live_alerts(refresh: bool = False) -> dict:
 
     from src.agents import alerts
 
-    if not refresh and _ALERTS["v"] is not None and time.time() - _ALERTS["t"] < 300:
+    ttl = 60 if alerts.is_trading_hours() else 300  # 盤中每分鐘（跌停、跌破停損要即時）；新聞判讀與注意股名單另有快取
+    if not refresh and _ALERTS["v"] is not None and time.time() - _ALERTS["t"] < ttl:
         return _ALERTS["v"]
     r = load_report() or {}
 
@@ -232,6 +233,7 @@ def live_alerts(refresh: bool = False) -> dict:
 
 
 _INTRA: dict = {"slot": None, "key": None, "v": None}
+_INTRA_ERR: dict = {"t": 0.0, "msg": None}
 _INTRA_LOCK = __import__("threading").Lock()
 
 
@@ -254,7 +256,16 @@ def _compute_intraday(slot: str, key: tuple) -> dict:
     with _INTRA_LOCK:  # 同一時間只算一份（全市場重算約 1～1.5 分鐘）
         if _INTRA["v"] is not None and _INTRA["slot"] == slot and _INTRA["key"] == key and not _INTRA["v"].get("stale"):
             return _INTRA["v"]
-        out = intraday.run(load_report())
+        try:
+            out = intraday.run(load_report())
+        except Exception as e:  # noqa: BLE001 - 記下錯誤並冷卻 2 分鐘，避免前端每 10 秒輪詢時一直重開全市場重算
+            import logging
+            import time
+
+            _INTRA_ERR.update(t=time.time(), msg=str(e)[:160])
+            logging.getLogger(__name__).exception("盤中建議重算失敗")
+            raise
+        _INTRA_ERR.update(t=0.0, msg=None)
         _INTRA.update(slot=slot, key=key, v=out)
         return out
 
@@ -289,12 +300,57 @@ def live_intraday(refresh: bool = False) -> dict:
     prev = _INTRA["v"] or _saved_intraday()
     if prev is None:
         return _compute_intraday(slot, key)
-    if not _INTRA_LOCK.locked():
+    import time
+
+    if not _INTRA_LOCK.locked() and time.time() - _INTRA_ERR["t"] > 120:
         threading.Thread(target=_compute_intraday, args=(slot, key), daemon=True).start()
-    return {**prev, "stale": True, "cached_from": prev.get("time")}
+    out = {**prev, "stale": True, "cached_from": prev.get("time")}
+    if _INTRA_ERR["msg"]:
+        out["error"] = f"重算失敗，2 分鐘後重試：{_INTRA_ERR['msg']}"
+    return out
 
 
 _WATCH: dict = {"t": 0.0, "v": None}
+
+
+def _live_rsi(close, price: float, n: int = 14) -> float | None:
+    """歷史收盤＋即時價計算 RSI（與模型特徵相同的算法，門檻才一致）。"""
+    import pandas as pd
+
+    from src.agents.alpha_model import _rsi
+
+    s = pd.concat([close.tail(120), pd.Series([price])], ignore_index=True)
+    v = _rsi(s, n).iloc[-1]
+    return None if pd.isna(v) else float(v)
+
+
+def _deriv_watch(pf) -> list[dict]:
+    """期貨／選擇權部位：即時未實現損益、距停損（取盤中建議同合約的停損價）、保證金是否吃緊。"""
+    if not pf.derivs:
+        return []
+    from src.agents import futures_data
+
+    marks = futures_data.marks(pf)
+    margins = futures_data.margins()
+    plan = {o.get("contract"): o for o in ((_INTRA.get("v") or {}).get("derivatives") or {}).get("orders", [])}
+    eq = pf.futures_equity(marks)
+    maint = pf.margin_required(margins, "maintenance")
+    out = []
+    for c, d in pf.derivs.items():
+        px = marks.get(c)
+        pnl = d.value(px) if d.kind == "FUT" else d.value(px) - d.avg_price * d.multiplier * d.qty
+        stop = (plan.get(c) or {}).get("stop")
+        reasons, status = [], "正常"
+        if d.kind == "FUT" and px and stop and ((d.qty > 0 and px <= stop) or (d.qty < 0 and px >= stop)):
+            status, reasons = "盡快賣出", [f"現價 {px:,.0f} 已觸及停損 {stop:,.0f} 點，平倉"]
+        elif d.kind == "FUT" and maint and eq < maint * 1.1:
+            status, reasons = "盡快賣出", [f"期貨戶權益數 {eq:,.0f} 元接近維持保證金 {maint:,.0f} 元，補錢或減口數避免追繳"]
+        elif d.kind == "FUT" and px and stop and abs(px - stop) / px < 0.01:
+            status, reasons = "注意", [f"距停損 {stop:,.0f} 點不到 1%"]
+        out.append({"code": c, "name": f"{d.root} {'多' if d.qty > 0 else '空'} {abs(d.qty)} 口", "status": status, "reasons": reasons,
+                    "price": px, "chg_pct": None, "pnl_pct": None, "pnl": round(pnl), "stop": stop, "rsi14": None,
+                    "p_up": None, "exp_ret": None, "verdict": None, "asset": "FUT"})
+    return out
 
 
 def holding_watch() -> dict:
@@ -309,13 +365,14 @@ def holding_watch() -> dict:
 
     from src.agents import alerts
 
-    if _WATCH["v"] is not None and time.time() - _WATCH["t"] < 50:
+    if _WATCH["v"] is not None and time.time() - _WATCH["t"] < 15:
         return _WATCH["v"]
     pf = pfm.build_portfolio()
-    if not pf.positions:
+    if not pf.positions and not pf.derivs:
         return {"time": now_tw().strftime("%H:%M:%S"), "items": [], "trading": alerts.is_trading_hours()}
     codes = list(pf.positions)
     rt = alerts.realtime(codes)
+    trading = alerts.is_trading_hours()
     meta = pfm.load_meta()
     ctx = on_demand.context()
     preds = ctx["alpha"]["predictions"]
@@ -331,7 +388,8 @@ def holding_watch() -> dict:
         chg = q.get("chg_pct") if q else None
         a = preds.get(c) or {}
         f = a.get("features") or {}
-        rsi = f.get("rsi14")
+        rsi = (_live_rsi(df.Close, price) if q and trading and len(df) >= 15  # 盤中：日 K 到昨天為止＋即時價
+               else f.get("rsi14"))
         ma20 = float(df.Close.tail(20).mean()) if len(df) >= 20 else None
         low10 = float(df.Low.tail(10).min()) if len(df) >= 10 else None
         stop = (meta.get(c) or {}).get("stop")
@@ -368,11 +426,12 @@ def holding_watch() -> dict:
                       "price": price, "chg_pct": chg, "pnl_pct": round((price / pos.avg_cost - 1) * 100, 2) if pos.avg_cost else 0,
                       "stop": stop, "rsi14": round(rsi, 1) if rsi is not None else None,
                       "p_up": p_up, "exp_ret": exp_ret, "verdict": adv.get("verdict")})
+    items += _deriv_watch(pf)
     order = {"盡快賣出": 0, "注意": 1, "低檔可望反彈": 2, "正常": 3}
     items.sort(key=lambda x: (order[x["status"]], x["chg_pct"] or 0))
     out = {"time": now_tw().strftime("%H:%M:%S"), "trading": alerts.is_trading_hours(), "base_rate": base, "items": items,
            "counts": {k: sum(1 for i in items if i["status"] == k) for k in order},
-           "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 為前一交易日收盤值"}
+           "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 盤中以即時價計算"}
     _WATCH.update(t=time.time(), v=out)
     return out
 
@@ -392,7 +451,7 @@ def live_quotes(codes: list[str]) -> dict:
     codes = sorted({c for c in codes if c})[:60]
     key = ",".join(codes)
     hit = _QUOTES.get(key)
-    if hit and time.time() - hit[0] < 8:
+    if hit and time.time() - hit[0] < 4:
         return hit[1]
     quotes = alerts.realtime(codes) if codes else {}
     idx = {}
@@ -418,14 +477,16 @@ _NEWS: dict = {"t": 0.0, "v": None}
 
 
 def live_news(refresh: bool = False) -> dict:
-    """即時新聞：5 分鐘自動更新；refresh=True（使用者手動重新整理）時立即抓取，但 30 秒內不重複抓。"""
+    """即時新聞：盤中每 2 分鐘、盤後每 5 分鐘自動更新；refresh=True（手動重新整理）時立即抓取，但 30 秒內不重複抓。"""
     import time
 
+    from src.agents import alerts
     from src.agents import news as news_agent
     from src.config import now_tw
 
     age = time.time() - _NEWS["t"]
-    if _NEWS["v"] is None or age > 300 or (refresh and age > 30):
+    ttl = 120 if alerts.is_trading_hours() else 300
+    if _NEWS["v"] is None or age > ttl or (refresh and age > 30):
         items = news_agent.fetch_news(now_tw())
         _NEWS.update(t=time.time(), v={"news": [{k: n[k] for k in ("id", "source", "title", "url", "time", "category")}
                                                 for n in items],

@@ -10,7 +10,7 @@ import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtPct, fmtRatio, fmtWan, qty, tone } from '../lib/format'
-import { useIntl, useQuotes } from '../lib/live'
+import { liveEvery, useIntl, useQuotes } from '../lib/live'
 
 function Balance({ report }: { report: Json }) {
   // 優先用盤中即時配置（含 ETF 籃）；報告中的配置提供理由與大盤指標
@@ -57,7 +57,7 @@ function Balance({ report }: { report: Json }) {
 }
 
 function UrgentBanner() {
-  const { data } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: 300_000 })
+  const { data } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000) })
   const items: Json[] = (data?.alerts ?? []).filter((a: Json) => a.level === '嚴重' || a.level === '警告')
   if (!items.length) return null
   return (
@@ -148,7 +148,7 @@ export default function Overview() {
   const [tab, setTab] = useAssetTab()
   const { data: intra } = useIntraday()
   // 總資產、持股率、交易筆數與規則檢查用即時持倉（成交紀錄＋即時價），不用盤前報告的快照，成交後馬上反映
-  const { data: live } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: 60_000 })
+  const { data: live } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(15_000, 120_000) })
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
   if (!r) return <Empty>還沒有任何報告。報告會在交易日 07:00 自動產生。</Empty>

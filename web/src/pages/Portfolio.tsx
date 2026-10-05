@@ -6,6 +6,7 @@ import XQImport from '../components/XQImport'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, fmtRatio, fmtWan, tone } from '../lib/format'
+import { liveEvery } from '../lib/live'
 
 function NavCurve({ hist }: { hist: Json[] }) {
   const box = useRef<HTMLDivElement>(null)
@@ -37,7 +38,7 @@ function Bar({ v, max }: { v: number; max: number }) {
 }
 
 export default function Portfolio() {
-  const { data: p, isLoading, error } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio') })
+  const { data: p, isLoading, error } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(15_000, 120_000) })
   const { data: r } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />

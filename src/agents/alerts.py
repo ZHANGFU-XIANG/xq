@@ -158,10 +158,25 @@ def attention_lists() -> dict[str, dict]:
 
 
 # ---------------------------------------------------------------- 盤中即時報價
+_RT: dict[str, tuple[float, dict]] = {}  # 每檔即時報價快取：不同頁面、不同組合的請求共用，減少打證交所 MIS 的次數
+RT_TTL = 4.0
+
+
 def realtime(codes: list[str]) -> dict[str, dict]:
-    """證交所 MIS 即時行情（含漲跌停價）。非交易時段回傳最後收盤狀態。"""
+    """證交所 MIS 即時行情（含漲跌停價），每檔快取 4 秒；只向 MIS 要快取過期的代號（每批最多 80 檔）。
+    非交易時段回傳最後收盤狀態。"""
+    codes = [c for c in dict.fromkeys(codes) if c]
     if not codes:
         return {}
+    now = time.time()
+    missing = [c for c in codes if not (c in _RT and now - _RT[c][0] < RT_TTL)]
+    for i in range(0, len(missing), 80):
+        for c, q in _realtime_fetch(missing[i:i + 80]).items():
+            _RT[c] = (time.time(), q)
+    return {c: _RT[c][1] for c in codes if c in _RT and time.time() - _RT[c][0] < 120}
+
+
+def _realtime_fetch(codes: list[str]) -> dict[str, dict]:
     chans = "|".join(f"{'otc' if stock_meta(c).get('market') == 'TPEx' else 'tse'}_{c}.tw" for c in codes)
     try:
         r = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
@@ -198,7 +213,8 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
     """{code: [{"severity","issue","news":[...], "multi_source"}]}（只列出 severity < 0）。"""
     if not stocks:
         return {}
-    key = f"risk_{'_'.join(sorted(stocks))}_{now_tw().strftime('%Y%m%d%H')}{now_tw().minute // 30}"
+    step = 10 if is_trading_hours() else 30  # 盤中每 10 分鐘重新判讀持股負面新聞，盤後每 30 分鐘
+    key = f"risk_{'_'.join(sorted(stocks))}_{now_tw().strftime('%Y%m%d%H')}{now_tw().minute // step}"
     hit = _CACHE.get(key)
     if hit:
         return hit[1]

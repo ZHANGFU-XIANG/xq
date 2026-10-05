@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
+import { liveEvery } from '../lib/live'
 
 function Sentiment({ v }: { v: number }) {
   const label = v >= 2 ? '強烈利多' : v === 1 ? '利多' : v === 0 ? '中性' : v === -1 ? '利空' : '強烈利空'
@@ -21,7 +22,7 @@ export default function News() {
       first.current = false
       return r
     },
-    refetchInterval: 300_000,
+    refetchInterval: liveEvery(120_000, 300_000),
     staleTime: 0,
   })
   const [src, setSrc] = useState('')

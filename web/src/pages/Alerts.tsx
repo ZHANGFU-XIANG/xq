@@ -6,6 +6,7 @@ import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../compon
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import { get, type Json } from '../lib/api'
 import { fmtPct } from '../lib/format'
+import { isTradingNow } from '../lib/live'
 
 const LEVEL_STYLE: Record<string, string> = {
   嚴重: 'border-up bg-up/5',
@@ -83,7 +84,7 @@ function LimitTable({ rows, kind }: { rows: Json[]; kind: 'up' | 'down' }) {
 export default function Alerts() {
   const qc = useQueryClient()
   const { data: d, isLoading, error, isFetching } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'),
-    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 15_000 : 300_000) })
+    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 15_000 : isTradingNow() ? 60_000 : 300_000) })
   const [tab, setTab] = useAssetTab(['STOCK', 'ETF', 'FUT', 'MARKET'])
   if (isLoading) return <Loading label="彙整警示中（首次需蒐集新聞，約 30 秒）" />
   if (error) return <ErrorNote error={error} />

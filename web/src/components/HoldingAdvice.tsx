@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
 import { BasketTag, Bullets } from './ui'
+import { liveEvery } from '../lib/live'
 
 const VERDICT_STYLE: Record<string, string> = {
   全部出清: 'bg-ink text-paper',
@@ -15,11 +16,11 @@ const VERDICT_STYLE: Record<string, string> = {
 export default function HoldingAdvice({ compact = false, asset }: { compact?: boolean; asset?: 'STOCK' | 'ETF' }) {
   const qc = useQueryClient()
   const { data: d, isLoading, isFetching } = useQuery<Json>({
-    queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: 300_000,
+    queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: liveEvery(60_000, 300_000),
   })
   if (isLoading) return <p className="py-4 text-muted">計算持股建議中（首次約 30 秒）</p>
   if (!d) return null
-  const items: Json[] = d.items.filter((h: Json) => !asset || (/^00d/.test(h.code) ? 'ETF' : 'STOCK') === asset)
+  const items: Json[] = d.items.filter((h: Json) => !asset || (/^00\d/.test(h.code) ? 'ETF' : 'STOCK') === asset)
   if (!items.length) return compact ? null : <p className="text-muted">{d.note}</p>
   return (
     <section className="mb-8" aria-label="庫存怎麼處理">

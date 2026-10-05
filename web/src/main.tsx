@@ -5,7 +5,7 @@ import App from './App'
 import './index.css'
 
 const qc = new QueryClient({
-  defaultOptions: { queries: { staleTime: 60_000, retry: (n, e) => n < 1 && !(e as { status?: number }).status, refetchOnWindowFocus: false } },
+  defaultOptions: { queries: { staleTime: 60_000, retry: (n, e) => n < 1 && !(e as { status?: number }).status, refetchOnWindowFocus: true } },
 })
 
 createRoot(document.getElementById('root')!).render(
