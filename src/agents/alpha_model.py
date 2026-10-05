@@ -52,7 +52,8 @@ def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
     return rsi.where(dn > 0, 100.0).where(up.notna())  # 只漲不跌時 RSI = 100
 
 
-def stock_features(df: pd.DataFrame, mkt: pd.Series, horizon: int, hw: int, is_etf: bool) -> pd.DataFrame:
+def stock_features(df: pd.DataFrame, mkt: pd.Series, horizon: int, hw: int, is_etf: bool,
+                   horizon_long: int = 40) -> pd.DataFrame:
     c, h, lo, v = df.Close, df.High, df.Low, df.Volume
     ret = c.pct_change()
     val = c * v
@@ -90,6 +91,7 @@ def stock_features(df: pd.DataFrame, mkt: pd.Series, horizon: int, hw: int, is_e
     f["y_up"] = np.where(f["y_ret"].notna(), (f["y_ret"] > 0).astype(float), np.nan)
     fut_low = lo[::-1].rolling(horizon, min_periods=horizon).min()[::-1].shift(-1)
     f["y_dd"] = (fut_low / c - 1).clip(upper=0)
+    f["y_ret_l"] = c.shift(-horizon_long) / c - 1  # 長期標籤（約到比賽結束），穩健籃用
     f["close"] = c
     f["hi252"] = hi252
     return f
@@ -104,7 +106,7 @@ def build_panel(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series
         df = df[df.index < pd.Timestamp(asof)]
         if len(df) < cfg["high_window"] + 30:
             continue
-        f = stock_features(df, mkt, cfg["horizon"], cfg["high_window"], code in etf_codes)
+        f = stock_features(df, mkt, cfg["horizon"], cfg["high_window"], code in etf_codes, cfg.get("horizon_long", 40))
         f["code"] = code
         frames.append(f.iloc[cfg["high_window"]:])
     data = pd.concat(frames)
@@ -113,6 +115,8 @@ def build_panel(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series
     for f in RANK_FEATURES:
         data[f"{f}_rk"] = data.groupby("date")[f].rank(pct=True)
     data["y_excess"] = data["y_ret"] - data.groupby("date")["y_ret"].transform("median")
+    data["y_up_l"] = np.where(data["y_ret_l"].notna(), (data["y_ret_l"] > 0).astype(float), np.nan)
+    data["y_ex_l"] = data["y_ret_l"] - data.groupby("date")["y_ret_l"].transform("median")
     return data
 
 
@@ -224,7 +228,7 @@ def walk_forward(data: pd.DataFrame, hp: dict) -> dict:
 def _cache_key(asof: dt.date, codes: list[str], hp: dict) -> str:
     h = hashlib.md5((",".join(codes) + json.dumps(hp, sort_keys=True) + json.dumps(params.alpha(), sort_keys=True)
                        + json.dumps(params.get("baskets"), sort_keys=True)).encode())
-    return f"alpha_v2_{asof}_{h.hexdigest()[:10]}"  # v2：每檔取最近 5 天內最新一筆
+    return f"alpha_v3_{asof}_{h.hexdigest()[:10]}"  # v2：每檔取最近 5 天內最新一筆；v3：穩健籃加 40 日模型
 
 
 def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: dt.date, etf_codes: set[str],
@@ -257,7 +261,22 @@ def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: 
     latest["eligible_def"] = defense_eligible(latest.fillna({"rsi14": 100, "c_ma20": 1, "beta60": 9}))
     latest["up_rank"] = latest["p_up"].rank(pct=True)
     latest["dd_rank"] = latest["e_dd"].rank(pct=True)  # 回檔越小（越接近 0）排名越高
-    latest["def_combo"] = (latest["up_rank"] + latest["dd_rank"] + latest["alpha_rank"]) / 3
+    # 穩健籃長期模型（約 40 個交易日＝到比賽結束）：收正機率＋超額報酬。
+    # 2026-10-05 樣本外 4 期（持有 40 日）：穩健籃 40 日報酬 +12.21% → +13.84%、收正 70.0% → 71.1%、最差 10% -7.44% → -6.75%
+    hl = cfg.get("horizon_long", 40)
+    lab_l = data.dropna(subset=["y_ret_l"])
+    dl = np.sort(lab_l["date"].unique())
+    train_l = lab_l[lab_l["date"].isin(dl[::cfg["sample_every"]])]
+    lclf, lreg = _models(hp)
+    wl = _weights(train_l["date"], hp.get("half_life_days", 0))
+    lclf.fit(train_l[FEATURES], train_l["y_up_l"], sample_weight=wl)
+    lreg.fit(train_l[FEATURES], train_l["y_ex_l"].clip(-0.6, 0.6), sample_weight=wl)
+    latest["p_up_l"] = lclf.predict_proba(latest[FEATURES])[:, 1]
+    latest["e_l"] = lreg.predict(latest[FEATURES])
+    latest["up_l_rank"] = latest["p_up_l"].rank(pct=True)
+    latest["ret_l_rank"] = latest["e_l"].rank(pct=True)
+    latest["def_combo"] = (latest["up_l_rank"] + latest["dd_rank"] + latest["ret_l_rank"]) / 3
+    mkt_mean_l = float(lab_l.groupby("date")["y_ret_l"].median().mean())
     mkt_mean20 = float(lab.groupby("date")["y_ret"].median().mean())
     preds = {}
     for _, r in latest.iterrows():
@@ -269,6 +288,8 @@ def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: 
             "p_up": round(float(r["p_up"]), 4), "exp_dd": round(float(r["e_dd"]), 4),
             "up_rank": round(float(r["up_rank"]), 4), "dd_rank": round(float(r["dd_rank"]), 4),
             "def_combo": round(float(r["def_combo"]), 4), "eligible_def": bool(r["eligible_def"]),
+            "p_up_long": round(float(r["p_up_l"]), 4), "exp_ret_long": round(float(r["e_l"]) + mkt_mean_l, 4),
+            "up_long_rank": round(float(r["up_l_rank"]), 4), "ret_long_rank": round(float(r["ret_l_rank"]), 4),
             "hi252": round(float(r["hi252"]), 2), "close": round(float(r["close"]), 2),
             "features": {f: (None if pd.isna(r[f]) else round(float(r[f]), 4)) for f in RAW_FEATURES},
         }
@@ -277,7 +298,8 @@ def run(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series, asof: 
     out = {
         "asof": str(pd.Timestamp(last_date).date()), "n_stocks": len(preds), "n_train": int(len(train)),
         "base_rate": round(float(lab["y_newhigh"].mean()), 4), "mkt_mean20": round(mkt_mean20, 4),
-        "up_base_rate": round(float(lab["y_up"].mean()), 4),
+        "up_base_rate": round(float(lab["y_up"].mean()), 4), "horizon_long": hl,
+        "up_base_rate_long": round(float(lab_l["y_up_l"].mean()), 4),
         "metrics": metrics, "hyperparams": hp, "predictions": preds,
         "feature_ic": {k: round(float(v), 4) for k, v in corr.sort_values(key=abs, ascending=False).head(8).items()},
     }
@@ -291,6 +313,9 @@ def explain_def(pred: dict, up_base: float) -> list[str]:
     f = pred["features"]
     out = [f"穩健模型：未來一個月收正報酬機率 {pred['p_up'] * 100:.1f}%（全市場基準 {up_base * 100:.1f}%），"
            f"預期最大回檔 {pred['exp_dd'] * 100:.1f}%（回檔幅度排名全市場最小的前 {(1 - pred['dd_rank']) * 100:.0f}%）"]
+    if pred.get("p_up_long") is not None:
+        out.append(f"持有到比賽結束（約 40 個交易日）：收正報酬機率 {pred['p_up_long'] * 100:.1f}%、"
+                   f"預期報酬 {pred['exp_ret_long'] * 100:+.1f}%（模型估計，不是保證）")
     if f.get("beta60") is not None and f.get("vol20") is not None:
         out.append(f"風險：60 日 β = {f['beta60']:.2f}（大盤漲跌 1% 時約變動 {f['beta60']:.2f}%），日波動 {f['vol20'] * 100:.2f}%")
     if f.get("c_ma20") is not None and f.get("rsi14") is not None:

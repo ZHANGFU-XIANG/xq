@@ -126,7 +126,29 @@ def kline(code: str, days: int = 260) -> dict:
             break
     hi52 = float(df.High.tail(252).max())
     lines.append({"label": "52 週高點", "price": round(hi52, 2), "kind": "high"})
-    return {"code": code, "name": stock_meta(code)["name"], "candles": candles, "markers": markers, "lines": lines}
+    live = _live_candle(code, candles)
+    if live:
+        candles.append(live)
+    return {"code": code, "name": stock_meta(code)["name"], "candles": candles, "markers": markers, "lines": lines,
+            "live": bool(live)}
+
+
+def _live_candle(code: str, candles: list[dict]) -> dict | None:
+    """今天的盤中 K 棒（證交所 MIS 即時開高低收與累計成交量）；日 K 資料已有今天就不重複。"""
+    from src.agents import alerts
+
+    q = alerts.realtime([code]).get(code) or {}
+    d = q.get("date") or ""
+    if len(d) != 8 or not (q.get("open") and q.get("high") and q.get("low") and q.get("price")):
+        return None
+    day = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    if candles and candles[-1]["time"] >= day:
+        return None
+    closes = [c["close"] for c in candles[-59:]] + [q["price"]]
+    ma = lambda n: round(sum(closes[-n:]) / n, 2) if len(closes) >= n else None  # noqa: E731
+    return {"time": day, "open": q["open"], "high": max(q["high"], q["price"]), "low": min(q["low"], q["price"]),
+            "close": q["price"], "volume": int(q.get("volume_lots") or 0), "ma5": ma(5), "ma20": ma(20), "ma60": ma(60),
+            "inst": None, "live": True}
 
 
 def search_news(query: str, limit: int = 12) -> list[dict]:

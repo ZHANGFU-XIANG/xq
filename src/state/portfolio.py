@@ -2,6 +2,7 @@
 
 trades.csv 欄位：date,code,side,shares,price,margin,note,asset,contract
 - side：BUY / SELL；資金調撥用 code=TRANSFER、side=TO_FUTURES／TO_SECURITIES、price=金額
+- 手續費校正：code=FEE、side=ADJ、price=金額（依競賽 App 淨收付金額補差額）
 - margin：1 表示融資買進（自備 40%），0 為現股
 - 每一列是一筆成交：同一檔分整股、零股或不同時間成交時各記一列，成本分批記錄（Position.lots），賣出先進先出
 - asset：STOCK／ETF／FUT／OPT（舊資料沒有此欄時依代號自動判斷）
@@ -193,6 +194,9 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
     pf = Portfolio(cash=float(cap["securities"]), futures_cash=float(cap["futures"]))
     for t in trades if trades is not None else load_trades():
         code, side = t["code"].strip(), t["side"].strip().upper()
+        if code.upper() == "FEE":  # 手續費校正（App 依每一筆成交計算，與系統合併計算的差額；不算交易筆數）
+            pf.cash -= float(t["price"])
+            continue
         if code.upper() == "TRANSFER":  # 證券戶 ↔ 期貨戶資金調撥（不算交易筆數）
             amt = float(t["price"])
             sign = 1 if side == "TO_FUTURES" else -1

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.agents import on_demand
-from src.api import auth, chat_agent, data, scheduler, sync
+from src.api import auth, chat_agent, data, notifier, scheduler, sync
 from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT
 
 log = logging.getLogger("api")
@@ -52,6 +52,7 @@ def startup():
     sync.start_background()
     if sync.cloud():
         scheduler.start_background()
+        notifier.start_background()
     threading.Thread(target=_warm, daemon=True).start()
 
 

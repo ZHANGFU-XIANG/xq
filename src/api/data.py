@@ -981,6 +981,11 @@ def health() -> dict:
             add("準點觸發排程", "error", f"觸發失敗：{sc['error']}", "檢查 Space 的 GITHUB_TOKEN 是否有 Actions 寫入權限；cron 備援仍會執行（可能延遲）")
         else:
             add("準點觸發排程", "ok", f"最近一次 {sc['last']['time']} 觸發 {sc['last']['key']}" if sc.get("last") else "今天尚未到排程時間")
+        from src.api import notifier
+
+        ns = notifier.state
+        add("手機即時通知（Email）", "warn" if ns.get("error") else "ok",
+            ns.get("error") or (f"今天已寄 {ns['count']} 封，最近：{ns['last']}" if ns.get("last") else "盤中有狀況才會寄"))
         st = sync.state
         ls = st.get("last_sync")
         ls = dt.datetime.fromtimestamp(ls, config.TW_TZ).strftime("%m/%d %H:%M") if isinstance(ls, (int, float)) else (ls or "尚未")

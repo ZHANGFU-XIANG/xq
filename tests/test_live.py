@@ -40,3 +40,36 @@ def test_live_rsi_drops_on_sharp_fall():
     hi = data._live_rsi(close, float(close.iloc[-1]) + 0.5)
     lo = data._live_rsi(close, float(close.iloc[-1]) * 0.9)
     assert hi > 90 and lo < hi
+
+
+def test_fee_adjustment_row_reduces_cash_not_trade_count():
+    from src.state import portfolio as pfm
+
+    base = [{"date": "2026-10-05", "code": "2330", "side": "BUY", "shares": "1000", "price": "1000", "margin": "0"}]
+    a = pfm.build_portfolio(base)
+    b = pfm.build_portfolio(base + [{"date": "2026-10-05", "code": "FEE", "side": "ADJ", "shares": "1", "price": "163", "margin": "0"}])
+    assert round(a.cash - b.cash) == 163 and a.trade_count == b.trade_count == 1
+
+
+def test_notifier_sends_once_per_status_per_day(monkeypatch):
+    from src.api import notifier
+    from src.reports import emailer
+
+    sent = []
+    monkeypatch.setattr(alerts, "is_trading_hours", lambda: True)
+    monkeypatch.setattr(notifier, "_events", lambda: [("3591|盡快賣出", "盡快賣出：3591 艾笛森", "跌破停損")])
+    monkeypatch.setattr(emailer, "send", lambda s, b, a: sent.append(s) or True)
+    monkeypatch.setattr(notifier, "_sent", set())
+    assert notifier.tick() == 1 and notifier.tick() == 0
+    assert len(sent) == 1 and "艾笛森" in sent[0]
+
+
+def test_live_candle_appended_only_when_missing(monkeypatch):
+    from src.agents import on_demand
+
+    q = {"price": 101.0, "open": 100.0, "high": 102.0, "low": 99.0, "volume_lots": 1234, "date": "20261006"}
+    monkeypatch.setattr(alerts, "realtime", lambda codes: {"2330": q})
+    old = [{"time": "2026-10-05", "close": 100.0}] * 60
+    c = on_demand._live_candle("2330", old)
+    assert c["time"] == "2026-10-06" and c["close"] == 101.0 and c["volume"] == 1234 and c["ma5"] == 100.2
+    assert on_demand._live_candle("2330", old + [c]) is None

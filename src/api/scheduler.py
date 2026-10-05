@@ -50,6 +50,18 @@ def tick(now=None) -> list[str]:
     return fired
 
 
+def _self_ping() -> None:
+    """每 6 小時從外部網址造訪自己，降低免費 Space 48 小時無人造訪而休眠的機會（GitHub keepalive 只當備援）。"""
+    host = os.getenv("SPACE_HOST")
+    if not host:
+        return
+    try:
+        requests.get(f"https://{host}/api/status", timeout=30)
+        state["self_ping"] = now_tw().strftime("%m/%d %H:%M")
+    except Exception as e:  # noqa: BLE001
+        log.warning("自我喚醒失敗：%s", e)
+
+
 def start_background(interval: int = 30) -> None:
     from src.api import sync
 
@@ -58,7 +70,11 @@ def start_background(interval: int = 30) -> None:
             if sync.state.get("last_sync"):
                 break
             time.sleep(5)
+        last_ping = 0.0
         while True:
+            if time.time() - last_ping > 6 * 3600:
+                last_ping = time.time()
+                _self_ping()
             try:
                 tick()
             except Exception:  # noqa: BLE001

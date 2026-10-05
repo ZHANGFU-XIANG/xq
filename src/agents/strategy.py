@@ -90,9 +90,10 @@ def score_defense(s: dict, up_base: float) -> dict:
     comps = {k: 0.0 for k in DEF_NAMES}
     reasons, risks = [], []
     if a:
-        comps["up"] = _clip(a["up_rank"] * 2 - 1)
+        # 收正與報酬用長期（約 40 日＝到比賽結束）模型，回檔用一個月模型；舊快取沒有長期欄位時退回一個月
+        comps["up"] = _clip(a.get("up_long_rank", a["up_rank"]) * 2 - 1)
         comps["drawdown"] = _clip(a["dd_rank"] * 2 - 1)
-        comps["return"] = _clip(a["alpha_rank"] * 2 - 1)
+        comps["return"] = _clip(a.get("ret_long_rank", a["alpha_rank"]) * 2 - 1)
         vol = (a.get("features") or {}).get("vol20")
         if vol is not None:
             comps["lowvol"] = _clip((0.025 - vol) / 0.015)

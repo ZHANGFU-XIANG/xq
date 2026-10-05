@@ -190,7 +190,9 @@ def _realtime_fetch(codes: list[str]) -> dict[str, dict]:
                 continue
             out[m["c"]] = {"price": last, "prev_close": prev, "chg_pct": round((last / prev - 1) * 100, 2),
                            "limit_up": up, "limit_down": down, "at_limit_up": bool(up and last >= up),
-                           "at_limit_down": bool(down and last <= down), "time": m.get("t", ""), "date": m.get("d", "")}
+                           "at_limit_down": bool(down and last <= down), "time": m.get("t", ""), "date": m.get("d", ""),
+                           "open": _num(m.get("o")), "high": _num(m.get("h")), "low": _num(m.get("l")),
+                           "volume_lots": _num(m.get("v"))}  # 當日開高低與累計成交量（張），盤中 K 棒用
         return out
     except Exception as e:  # noqa: BLE001
         log.warning("即時行情失敗：%s", e)

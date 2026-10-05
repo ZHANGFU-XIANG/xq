@@ -29,8 +29,9 @@ from src import config  # noqa: E402,F401  載入 .env
 GH_REPO = os.getenv("GITHUB_REPO_NAME", "ZHANGFU-XIANG/xq")
 HF_SPACE = os.getenv("HF_SPACE", "avad8/xq")
 GH_API = "https://api.github.com"
-SHARED = ["NVIDIA_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "FINMIND_TOKEN", "FINMIND_TOKENS"]  # FINMIND_TOKENS：多組逗號分隔，輪流使用
-GH_ONLY = ["SMTP_USER", "SMTP_APP_PASSWORD", "REPORT_TO"]
+SHARED = ["NVIDIA_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "FINMIND_TOKEN", "FINMIND_TOKENS",  # FINMIND_TOKENS：多組逗號分隔
+          "SMTP_USER", "SMTP_APP_PASSWORD", "REPORT_TO"]  # SMTP 也給網站：盤中即時 Email 通知（src/api/notifier.py）
+GH_ONLY: list[str] = []
 
 
 def step(msg: str) -> None:

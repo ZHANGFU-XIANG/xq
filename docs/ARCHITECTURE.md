@@ -53,6 +53,7 @@
 | `agents/tuner.py` | 調整 Agent（見下節） |
 | `agents/xq_import.py` | 解析從 XQ「帳務→庫存」複製貼上的文字，與系統持倉對帳 |
 | `agents/xq_vision.py` | XQ 截圖（庫存或成交回報）→ 視覺模型（Gemini 2.5 Flash → NVIDIA Nemotron Nano Omni）轉成表格；每列一筆；股數依盤別判斷（整股＝張、零股＝股），用成交價金核對；代號不認得或名稱對不上會標示 |
+| `api/notifier.py` | 盤中即時 Email 通知（持股動向、嚴重警示；一檔一狀況一天一封） |
 | `schedule.py` | 排程時刻表、有效時間與防重複（gate／mark）；`api/scheduler.py` 在網站端準點觸發 |
 | `state/portfolio.py` | 持倉一律由 `data/trades.csv` 成交紀錄重算（股票、ETF、期貨、選擇權、資金調撥）；每筆買進是一批（`Lot`），成本分開記錄，賣出先進先出 |
 | `state/params.py` | 可調參數：`settings.yaml` 預設值＋`learned_params.yaml` 覆寫 |

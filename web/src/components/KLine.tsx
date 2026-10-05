@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { get } from '../lib/api'
 import { Loading } from './ui'
+import { liveEvery } from '../lib/live'
 
 type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; ma5: number | null; ma20: number | null; ma60: number | null; inst: number | null }
 type KData = { candles: Candle[]; markers: { time: string; side: string; shares: number; price: number }[]; lines: { label: string; price: number; kind: string }[] }
@@ -31,7 +32,8 @@ export default function KLine({ code, height = 380, url, unit = '張', futures =
   const [showMA, setShowMA] = useState(true)
   const [lower, setLower] = useState<'volume' | 'inst'>('volume')
   const box = useRef<HTMLDivElement>(null)
-  const { data, isLoading, error } = useQuery<KData>({ queryKey: ['kline', code, url], queryFn: () => get(url ?? `/api/stock/${code}/kline?days=260`) })
+  const { data, isLoading, error } = useQuery<KData>({ queryKey: ['kline', code, url], queryFn: () => get(url ?? `/api/stock/${code}/kline?days=260`),
+    refetchInterval: liveEvery(30_000, 600_000) })  // 盤中每 30 秒更新今天的即時 K 棒
 
   useEffect(() => {
     if (!box.current || !data?.candles.length) return

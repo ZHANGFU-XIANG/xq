@@ -29,6 +29,7 @@ universe:
 
 alpha:
   horizon: 20                       # 預測未來 20 個交易日（約一個月）
+  horizon_long: 40                  # 穩健籃另用約 40 個交易日（到比賽結束）的收正與報酬模型
   high_window: 252                  # 「創新高」= 超過過去 252 日（52 週）最高價
   sample_every: 5                   # 每 5 日取一個樣本，降低自相關
   top_k: 20                         # 回測用：每期前 20 名
@@ -83,7 +84,7 @@ baskets:
 defense_weights:
   up: 0.25                          # 一個月收正報酬機率
   drawdown: 0.25                    # 預期最大回檔小
-  return: 0.25                      # 一個月預期超額報酬（避免選到穩但幾乎不漲的股票）
+  return: 0.25                      # 預期超額報酬（40 日模型；避免選到穩但幾乎不漲的股票）
   lowvol: 0.10                      # 低波動
   institutional: 0.10               # 法人籌碼
   revenue: 0.05                     # 營收穩定成長
