@@ -206,3 +206,18 @@ def test_scheduler_retries_unfinished_slot(monkeypatch):
     clock["t"] = dt.datetime(2026, 10, 7, 9, 0, tzinfo=TW_TZ)
     scheduler.tick(clock["t"])
     assert len(fired) == n  # 已完成就不觸發
+
+
+def test_futures_advice_nets_existing_position():
+    from src.agents import futures
+
+    o = {"asset": "FUT", "code": "TMF", "contract": "TMF202610", "action": "BUY", "qty": 7, "limit_price": 50064,
+         "stop": 48757, "margin": 245350, "max_loss": 91490, "why_qty": []}
+    fut = lambda code, side, n: {"date": "2026-10-06", "code": code, "side": side, "shares": str(n), "price": "49875",  # noqa: E731
+                                 "asset": "FUT", "contract": f"{code}202610"}
+    reasons = []
+    assert futures._net_existing(pfm.build_portfolio([fut("TX", "BUY", 2)]), [dict(o)], reasons, 1e7) == []
+    assert "不再加碼" in reasons[0] and "可考慮減碼" in reasons[0]
+    out = futures._net_existing(pfm.build_portfolio([fut("TMF", "BUY", 3)]), [dict(o)], [], 1e7)
+    assert out[0]["qty"] == 4 and out[0]["margin"] == round(245350 / 7 * 4)
+    assert futures._net_existing(pfm.build_portfolio([]), [dict(o)], [], 1e7)[0]["qty"] == 7

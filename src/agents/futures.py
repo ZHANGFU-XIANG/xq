@@ -207,6 +207,44 @@ def _contract_qty(risk_amt: float, stop_pts: float, margins: dict, max_margin: f
     return root, qty, notes
 
 
+def _net_existing(pf, orders: list[dict], reasons: list[str], nav: float) -> list[dict]:
+    """扣掉已持有的同方向期貨部位（以每點損益金額比較）：已達建議曝險就不再加碼，超出太多時提醒減碼。
+    （10/06 已持有大台 2 口、每點 400 元，模型仍建議再做多微台 7 口 → 曝險被重複計算）"""
+    held = [d for d in (getattr(pf, "derivs", None) or {}).values() if d.kind == "FUT" and d.qty]
+    if not held:
+        return orders
+    have = sum(d.qty * d.multiplier for d in held)  # 每點損益（元），正＝多、負＝空
+    desc = "、".join(f"{d.contract} {'多' if d.qty > 0 else '空'} {abs(d.qty)} 口" for d in held)
+    out = []
+    for o in orders:
+        if o.get("asset") != "FUT":
+            out.append(o)
+            continue
+        mult = rules()["futures"]["contracts"][o["code"]]["multiplier"]
+        sign = 1 if o["action"] == "BUY" else -1
+        want = o["qty"] * mult  # 建議曝險（每點元，絕對值）
+        stop_pts = abs(o["limit_price"] - o["stop"])
+        if have * sign <= 0:  # 現有部位方向相反或沒有同方向部位
+            reasons.append(f"目前持有 {desc}（每點 {have:+,} 元），與建議方向相反，下單前請先確認是否要平倉")
+            out.append(o)
+            continue
+        remain = want - abs(have)
+        if remain < mult:
+            ratio = abs(have) / want if want else 0
+            msg = f"已持有 {desc}，每點 {abs(have):,} 元，已達建議曝險每點 {want:,} 元，不再加碼"
+            if ratio >= 1.5:
+                loss = abs(have) * stop_pts
+                msg += (f"；現有曝險是建議的 {ratio:.1f} 倍，若跌 {stop_pts:,} 點（停損距離）約虧損 {loss:,.0f} 元"
+                        f"（總資產 {loss / nav * 100:.1f}%），可考慮減碼")
+            reasons.append(msg)
+            continue
+        qty = int(remain // mult)
+        o = {**o, "qty": qty, "margin": round(o["margin"] / o["qty"] * qty), "max_loss": round(o["max_loss"] / o["qty"] * qty),
+             "why_qty": [*o["why_qty"], f"扣除已持有 {desc}（每點 {abs(have):,} 元）後，再加 {qty} 口"]}
+        out.append(o)
+    return out
+
+
 def plan(pf, prices: dict, nav: float, alloc: dict | None = None, stock_beta_value: float = 0.0,
          today: dt.date | None = None, us_snapshot: list[dict] | None = None) -> dict:
     """期貨方向建議＋選擇權避險建議。stock_beta_value：股票部位（含今日預計買進）的 β 加權市值。"""
@@ -293,6 +331,7 @@ def plan(pf, prices: dict, nav: float, alloc: dict | None = None, stock_beta_val
                                   + f"；結算日 {fd.settlement_date(ym)} 前 {c['roll_days']} 天轉倉"],
                 })
 
+    orders = _net_existing(pf, orders, reasons, nav)
     hedge = hedge_plan(sig, nav, stock_beta_value, alloc, us_snapshot, today)
     margin_needed = sum(o["margin"] for o in orders)
     reserve = max(c["min_reserve"], round(margin_needed * c["margin_buffer"]) + (hedge["premium"] if hedge else 0))
