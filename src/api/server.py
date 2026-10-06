@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -113,7 +114,7 @@ def status(request: Request):
         authed = False
     return {"auth_required": auth.auth_required(), "authenticated": authed, "warm": WARM["ready"],
             "warm_error": WARM["error"], "mode": "cloud" if sync.cloud() else "local", "sync": sync.state,
-            "target_date": on_demand.current_target().isoformat()}
+            "target_date": on_demand.current_target().isoformat(), "build": build_id()}
 
 
 # ---------------------------------------------------------------- 報告
@@ -461,15 +462,34 @@ def cancel(aid: str):
 
 # ---------------------------------------------------------------- 前端靜態檔
 DIST = Path(ROOT) / "web" / "dist"
-if DIST.exists():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}  # 首頁與 manifest 每次都向伺服器確認，部署後手機不會卡在舊版
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+
+def build_id() -> str:
+    """目前部署的前端版本（index.html 引用的主程式檔名，內容雜湊）。前端比對不同就自動重新載入。"""
+    try:
+        m = re.search(r'src="(/assets/index-[^"]+\.js)"', (DIST / "index.html").read_text(encoding="utf-8"))
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+if DIST.exists():
+    class _Assets(StaticFiles):
+        async def get_response(self, path, scope):
+            r = await super().get_response(path, scope)
+            if r.status_code == 200:  # 檔名含內容雜湊，可以長期快取
+                r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return r
+
+    app.mount("/assets", _Assets(directory=DIST / "assets"), name="assets")
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(404, "找不到 API")
         root = DIST.resolve()
         f = (DIST / full_path).resolve()
         if full_path and root in f.parents and f.is_file():  # 只允許 dist 內的檔案（防路徑穿越）
-            return FileResponse(f)
-        return FileResponse(root / "index.html")
+            return FileResponse(f, headers=NO_CACHE if f.suffix in (".html", ".webmanifest") else None)
+        return FileResponse(root / "index.html", headers=NO_CACHE)

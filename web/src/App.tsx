@@ -31,7 +31,19 @@ function ChatPage() {
 
 export default function App() {
   const qc = useQueryClient()
-  const { data: status, isLoading, refetch } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status') })
+  const { data: status, isLoading, refetch } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status'), refetchInterval: 5 * 60_000 })
+  // 部署新版後自動換新：伺服器的前端版本與目前載入的不同就重新載入（手機加到主畫面的 App 也適用）
+  useEffect(() => {
+    if (!import.meta.env.PROD || !status?.build) return
+    const mine = new URL(import.meta.url).pathname
+    if (status.build === mine) return
+    try {
+      const key = 'reloaded_for'
+      if (sessionStorage.getItem(key) === status.build) return  // 已為這個版本重新載入過，避免無限重載
+      sessionStorage.setItem(key, status.build)
+    } catch { /* 無法儲存時仍重新載入一次 */ }
+    window.location.reload()
+  }, [status?.build])
   useEffect(() => {
     const h = () => refetch()
     window.addEventListener('auth-required', h)
