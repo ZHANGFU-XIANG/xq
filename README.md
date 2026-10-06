@@ -18,6 +18,7 @@
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Agent 架構與資料流、三籃配置、期貨策略、資料來源備援、LLM 與防幻覺設計、調整 Agent |
 | [docs/API.md](docs/API.md) | 後端 API 清單 |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | 開發紀錄 |
+| [docs/APP-RECONCILIATION.md](docs/APP-RECONCILIATION.md) | 與競賽 App 對帳：App 數字、推導出的帳務算法（價金、手續費、持股率、總值）與待驗證項目 |
 | `config/rules.yaml` | 競賽規則（程式檢查依據，調整 Agent 永遠不會修改） |
 | `config/settings.yaml` | 策略與模型參數 |
 
