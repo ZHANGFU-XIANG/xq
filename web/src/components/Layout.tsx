@@ -13,8 +13,7 @@ const NAV = [
   { to: '/stock', label: '個股' },
   { to: '/futures', label: '期貨' },
   { to: '/news', label: '新聞' },
-  { to: '/portfolio', label: '持股' },
-  { to: '/trades', label: '交易紀錄' },
+  { to: '/portfolio', label: '持股與交易' },
   { to: '/model', label: '模型' },
   { to: '/chat', label: 'AI 助理' },
 ]

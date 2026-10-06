@@ -83,6 +83,7 @@ SOURCE_DESC = {
     "get_value_picks": "本系統平價潛力股排名（一個月模型、注意處置股公告）",
     "get_recovery_plan": "本系統虧損補回計畫（一個月模型、期貨回測、ETF 預估淨值）",
     "get_trade_stats": "本系統交易紀錄統計（data/trades.csv 重播計算，先進先出）",
+    "get_regime": "本系統大盤攻守燈號（加權指數日 K 與即時報價、美股 VIX／費半，回測驗證）",
     "get_data_sources": "本系統資料來源監控",
     "get_etf_view": "本系統 ETF 籃計算（證交所 ETF 預估淨值、一個月模型）",
     "get_futures_view": "本系統期貨建議（期交所 MIS 即時報價與 OpenAPI 保證金、加權指數 5 年回測）",
@@ -101,7 +102,7 @@ def _system() -> str:
             f"\n本隊目前持股：{held}。使用者說「我的股票」「持股」「庫存」「這些股票」時就是指這些；"
             "問到持股表現、要不要賣、要不要加碼時，先呼叫 get_portfolio 與 get_holding_watch（盤中動向），需要具體股數再呼叫 get_holding_advice；"
             "問到虧損怎麼補回、ETF 或期貨怎麼操作時呼叫 get_recovery_plan；問便宜又安全的股票時呼叫 get_value_picks；"
-            "問交易紀錄、勝率、賺賠、手續費、操作檢討時呼叫 get_trade_stats。"
+            "問交易紀錄、勝率、賺賠、手續費、操作檢討時呼叫 get_trade_stats；問大盤、該攻該守、要不要撤資時呼叫 get_regime。"
             "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）。")
 
 
@@ -254,6 +255,8 @@ TOOLS = [
     {"name": "get_value_picks", "description": "平價潛力股：股價上限內、模型看漲且波動與回檔小的股票排名（一張金額、收正機率、預期報酬、預期回檔）",
      "parameters": {"type": "object", "properties": {"max_price": {"type": "number", "description": "股價上限（元），預設 50"}}}},
     {"name": "get_recovery_plan", "description": "虧損怎麼補回：每檔持股續抱／加碼／換股／停損的比較與理由（含換股成本與回本所需天數）、期貨補回虧損方案、ETF 籃建議",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_regime", "description": "大盤攻守燈號與撤資預警：綠燈積極進攻／灰燈中性／黃燈預警暫停追高／紅燈轉弱提早撤資，含轉守與轉攻的具體點位、預警訊號與回測依據",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_trade_stats", "description": "交易紀錄統計與檢討：每次賣出的已實現損益與持有天數、勝率、平均獲利／虧損、獲利因子、每檔買賣次數與已實現＋未實現損益、手續費與證交稅、每日交易、競賽筆數與標的門檻",
      "parameters": {"type": "object", "properties": {}}},
@@ -470,6 +473,8 @@ def call_tool(name: str, args: dict) -> dict:
             return apidata.value_picks(float(args.get("max_price") or 50), limit=10)
         if name == "get_recovery_plan":
             return apidata.recovery_plan()
+        if name == "get_regime":
+            return apidata.live_regime()
         if name == "get_trade_stats":
             st = apidata.trade_ledger()["stats"]
             return {**st, "closed": st["closed"][:30], "daily": st["daily"][:20]}

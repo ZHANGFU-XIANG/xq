@@ -5,6 +5,7 @@ import HoldingWatch from '../components/HoldingWatch'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import Intraday, { useIntraday } from '../components/Intraday'
 import Potential from '../components/Potential'
+import RegimeBanner from '../components/RegimeBanner'
 import ValuePicks from '../components/ValuePicks'
 import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
@@ -164,11 +165,13 @@ export default function Overview() {
       <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
       <IndexTicker />
       <UrgentBanner />
+      <RegimeBanner compact />
       <HoldingWatch />
       <Balance report={r} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
-        <Stat label="總資產" value={fmtWan(pf.nav)} sub={live ? `即時・${live.as_of}` : '盤前報告快照'} />
+        <Stat label="總資產（含期貨、ETF）" value={fmtWan(pf.nav)}
+          sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}・${live.as_of}` : '盤前報告快照'} />
         <Stat label="累積報酬" value={fmtPct(pf.return_pct)} valueClass={tone(pf.return_pct)}
           sub={live?.holding_return_pct != null ? `總資產為準・App 未實現損益 ${fmtPct(live.holding_return_pct)}` : '總資產為準'} />
         <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />

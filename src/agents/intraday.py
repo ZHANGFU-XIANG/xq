@@ -168,7 +168,11 @@ def run(report: dict | None) -> dict:
     waits = [f"{r['code']} {r['name']}：{r['advice']}" for r in order_rows if r["status"] in ("接近限價", "不追價", "漲停買不到", "跌停賣不掉", "無報價")]
     if lp["funding"]["transfer_from_futures"] > 0 and building:
         actions.insert(0, f"【資金】下單前先把期貨戶 {lp['funding']['transfer_from_futures']:,} 元轉到證券戶，持股率才拉得上去")
+    regime = _regime(now)
+    if regime and regime["level"] in ("黃燈", "紅燈"):
+        actions.insert(0, f"【大盤{regime['level']}】{regime['headline']}；" + regime["actions"][0])
     return {
+        "regime": regime,
         "time": now.strftime("%Y-%m-%d %H:%M"), "slot": current_slot(now),
         "is_last_check": current_slot(now).endswith("13:00"), "market_open": market_open(current_slot(now)),
         "building": building, "taiex": _taiex_rt(), "nav": nav, "holding_ratio": ratio,
@@ -181,6 +185,23 @@ def run(report: dict | None) -> dict:
         "rule_notes": rule_notes,
         "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
     }
+
+
+def _regime(now) -> dict | None:
+    """大盤燈號＋盤中預判（即時加權指數是否跌破轉弱線／站回）。失敗不影響盤中建議。"""
+    try:
+        import pandas as pd
+
+        from src.agents import market_data, regime
+
+        tx = market_data.taiex(3)
+        tx = tx[tx.index < pd.Timestamp(now.date())]
+        live = (_taiex_rt() or {}).get("price")
+        r = regime.assess(tx, market_data.us_history(), live_price=live)
+        return {k: r[k] for k in ("state", "light", "level", "headline", "warnings", "actions", "lines", "offense")}
+    except Exception as e:  # noqa: BLE001
+        log.warning("大盤燈號計算失敗：%s", e)
+        return None
 
 
 def slim_deriv(d: dict) -> dict:
@@ -206,7 +227,12 @@ def email_body(out: dict) -> str:
     lines = [f"{title}（{slot_label(out['slot'])}{'' if not market_open(out['slot']) else ' 時段'}，每 40 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
              f"加權指數 {tx.get('price', '—')}（{tx.get('chg_pct', 0):+.2f}%）｜總資產 {out['nav']:,} 元｜實際持股率 {out['holding_ratio'] * 100:.1f}%"
              f"｜攻守 {out['allocation']['offense'] * 100:.0f}/{out['allocation']['defense'] * 100:.0f}",
-             "", "現在可以做：" if out["actions"] else "現在可以做：無，維持原掛單"]
+             ""]
+    rg = out.get("regime")
+    if rg:
+        lines += [f"大盤燈號：{rg['headline']}"] + [f"- {w}" for w in rg["warnings"]] + [
+            f"- 轉紅燈（撤資）線：收盤跌破 {rg['lines']['weak_enter']:,}；綠燈解除線：{rg['lines']['strong_exit']:,}", ""]
+    lines += ["現在可以做：" if out["actions"] else "現在可以做：無，維持原掛單"]
     lines += [f"- {a}" for a in out["actions"]]
     if out["waits"]:
         lines += ["", "掛單等待："] + [f"- {w}" for w in out["waits"]]

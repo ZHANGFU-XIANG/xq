@@ -1,10 +1,10 @@
 """AllocationAgent：動態決定「進攻籃 / 穩健籃 / ETF 籃」比例，並寫出每一項調整的理由。
 
 三籃比例都是「股票＋ETF 目標持股市值」的分數，合計為 1；期貨另計（不算持股率）。
-ETF 籃依基準比例（settings.allocation.etf）與大盤狀態調整，其餘部分再依下列訊號分給進攻／穩健
-（股票部分基準 進攻 60% / 穩健 40%，限制在 40%～70%）：
-- 大盤過熱（RSI、20 日漲幅、距季線）：每項成立進攻 −5%
-- 大盤健康上漲（站上季線、20 日漲幅為正）且調整 Agent 無重大失誤：進攻 +5%
+ETF 籃依基準比例（settings.allocation.etf）與大盤燈號調整，其餘部分再依下列訊號分給進攻／穩健：
+- 大盤燈號（src/agents/regime.py，回測驗證）：綠燈強勢進攻 85%、灰燈中性 60%、紅燈轉弱 30%
+  （2026-10-06 改：舊規則「過熱就減進攻」回測無益——RSI>70、20 日漲>8% 之後報酬反而較高，已移除）
+- 黃燈預警（VIX>25、費半大跌、逼近季線且月線下彎、重大國際事件）：進攻最多 60%，先暫停追高
 - 總資產自高點回撤：≥4% 進攻 −10%、≥8% 進攻 −20%
 - 競賽尾聲（剩餘 ≤15 交易日）：已正報酬 → 進攻 −10% 保住晉級資格；仍虧損 → 進攻 +10% 爭取轉正
 - 調整 Agent 偵測到重大失誤 → 進攻 −5%
@@ -13,36 +13,32 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.agents import regime as regime_mod
 from src.agents.alpha_model import _rsi
 from src.state import params
 
 
 def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initial: float, nav: float,
-           remaining_days: int, issues: list[dict]) -> dict:
+           remaining_days: int, issues: list[dict], us_hist: dict | None = None, events: list[dict] | None = None) -> dict:
     cfg = params.allocation()
-    off = cfg["base_offense"]
-    reasons = [f"基準配置：進攻籃 {cfg['base_offense'] * 100:.0f}%、穩健籃 {(1 - cfg['base_offense']) * 100:.0f}%"]
-    tx = taiex[taiex.index < target].Close
+    tx_df = taiex[taiex.index < target]
+    tx = tx_df.Close.dropna()
     rsi = float(_rsi(tx).iloc[-1])
     r20 = float(tx.iloc[-1] / tx.iloc[-21] - 1)
-    ma60 = float(tx.tail(60).mean())
-    dist60 = float(tx.iloc[-1] / ma60 - 1)
-    oh = cfg["overheat"]
-    hot = []
-    if rsi > oh["taiex_rsi"]:
-        hot.append(f"加權指數 RSI14 = {rsi:.1f} > {oh['taiex_rsi']}")
-    if r20 > oh["taiex_r20"]:
-        hot.append(f"加權指數 20 日漲幅 {r20 * 100:+.1f}% > {oh['taiex_r20'] * 100:.0f}%")
-    if dist60 > oh["taiex_dist_ma60"]:
-        hot.append(f"加權指數高於季線 {dist60 * 100:+.1f}% > {oh['taiex_dist_ma60'] * 100:.0f}%")
-    if hot:
-        off -= 0.05 * len(hot)
-        reasons.append(f"大盤過熱 → 進攻 −{5 * len(hot)}%：" + "；".join(hot) + "（高檔追價風險升高，提高穩健部位）")
-    elif dist60 > 0 and r20 > cfg["strong"]["taiex_r20_min"] and not issues:
-        off += 0.05
-        reasons.append(f"大盤健康上漲 → 進攻 +5%：站上季線 {dist60 * 100:+.1f}%、20 日漲幅 {r20 * 100:+.1f}%，且模型無重大失誤")
-    else:
-        reasons.append(f"大盤中性（RSI14 {rsi:.1f}、20 日 {r20 * 100:+.1f}%、距季線 {dist60 * 100:+.1f}%）→ 不調整")
+    dist60 = float(tx.iloc[-1] / tx.tail(60).mean() - 1)
+    rg = regime_mod.assess(tx_df, us_hist, events=events)
+    off = rg["offense"]
+    bt = rg["backtest"]
+    reasons = [f"{rg['headline']} → 進攻籃 {off * 100:.0f}%（已持續 {rg['days_in_state']} 個交易日）",
+               f"依據：{bt['period']}，{bt['adopted']['name']} 年化 {bt['adopted']['cagr']}%、最大回檔 {bt['adopted']['max_dd']}%，"
+               f"優於{bt['baseline']['name']}（{bt['baseline']['cagr']}%、{bt['baseline']['max_dd']}%）"]
+    tilt = round(cfg["base_offense"] - regime_mod.OFFENSE["中性"], 2)  # 調整 Agent 依兩籃實際表現學到的偏移
+    if tilt:
+        off += tilt
+        reasons.append(f"調整 Agent：兩籃實際表現 → 進攻 {tilt * 100:+.0f}%")
+    if rg["level"] == "黃燈" and off > regime_mod.OFFENSE["中性"]:
+        off = regime_mod.OFFENSE["中性"]
+        reasons.append(f"黃燈預警 → 進攻最多 {off * 100:.0f}%，先暫停追高：" + "；".join(rg["warnings"][:3]))
 
     if history:
         peak = max(max(h["nav"] for h in history), initial)
@@ -78,12 +74,12 @@ def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initi
     ecfg = cfg["etf"]
     e = ecfg["base"]
     etf_reasons = [f"ETF 基準比例 {ecfg['base'] * 100:.0f}%（分散個股風險、證交稅 0.1%）"]
-    if hot:
-        e += 0.05 * len(hot)
-        etf_reasons.append(f"大盤過熱 {len(hot)} 項 → ETF +{5 * len(hot)}%（以分散標的降低個股追高風險）")
-    elif dist60 > 0 and r20 > cfg["strong"]["taiex_r20_min"] and not issues:
+    if rg["state"] == "轉弱":
+        e += 0.10
+        etf_reasons.append("紅燈轉弱 → ETF +10%（分散個股下跌風險）")
+    elif rg["state"] == "強勢" and rg["level"] != "黃燈" and not issues:
         e -= 0.05
-        etf_reasons.append("大盤健康上漲 → ETF −5%，資金優先給個股")
+        etf_reasons.append("綠燈強勢 → ETF −5%，資金優先給進攻個股")
     if history:
         peak = max(max(h["nav"] for h in history), initial)
         if 1 - nav / peak >= cfg["drawdown_steps"][0][0]:
@@ -102,4 +98,5 @@ def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initi
                    f"ETF 籃 {e * 100:.0f}%")
     return {"offense": round(off * stock, 3), "defense": round((1 - off) * stock, 3), "etf": e,
             "stock_split": {"offense": off, "defense": round(1 - off, 2)}, "reasons": reasons, "etf_reasons": etf_reasons,
-            "taiex": {"rsi14": round(rsi, 1), "r20_pct": round(r20 * 100, 2), "dist_ma60_pct": round(dist60 * 100, 2)}}
+            "taiex": {"rsi14": round(rsi, 1), "r20_pct": round(r20 * 100, 2), "dist_ma60_pct": round(dist60 * 100, 2)},
+            "regime": rg}

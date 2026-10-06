@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 
+import pandas as pd
+
 from src.agents import on_demand
 from src.config import FACTS_DIR, REPORT_DIR, now_tw, rules, stock_meta
 from src.state import params
@@ -120,11 +122,21 @@ def portfolio() -> dict:
                              for lot in p.lots]})
     initial = rules()["capital"]["initial"]
     unreal = sum(x["pnl"] for x in pos)
+    fut_unreal = sum(x["value"] if x["root"] != "TXO" else
+                     ((x["price"] or x["avg_price"]) - x["avg_price"]) * x["multiplier"] * x["qty"] for x in derivs)
+    stock_mv = sum(x["market_value"] for x in pos)
     return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
             # 競賽 App「證券未實現損益」＝ 市值 − 成交價金（不含手續費）；App 顯示的報酬率 ＝ 損益 ÷ 初始資金 1,000 萬
             # 與上面的總資產報酬率差在已付手續費（總資產有扣、App 未實現損益沒扣）
             "holding_cost": round(sum(x["cost_amount"] for x in pos)), "unrealized_pnl": round(unreal),
             "holding_return_pct": round(unreal / initial * 100, 4), "fees_paid": round(sum(t["cost"] for t in pf.trades)),
+            # 總資產組成（證券市值含股票與 ETF；期貨戶權益含期貨未實現與選擇權市值）
+            "breakdown": {"stock_mv": round(sum(x["market_value"] for x in pos if x["asset"] == "STOCK")),
+                          "etf_mv": round(sum(x["market_value"] for x in pos if x["asset"] == "ETF")),
+                          "cash": round(pf.cash), "futures_equity": round(pf.futures_equity(marks)),
+                          "margin_loan": round(pf.margin_loan())},
+            "futures_unrealized": round(fut_unreal), "unrealized_total": round(unreal + fut_unreal),
+            "securities_mv": round(stock_mv),
             "futures_cash": round(pf.futures_cash), "futures_equity": round(pf.futures_equity(marks)), "derivatives": derivs,
             "holding_ratio": round(pf.holding_ratio({**prices, **marks}), 4),
             "margin_loan": round(pf.margin_loan()), "realized_pnl": round(pf.realized_pnl), "trade_count": pf.trade_count,
@@ -162,8 +174,25 @@ def trade_ledger() -> dict:
         out.append(item)
     stats = trade_review.review(rows, _prices(list({t["code"].strip() for t in rows if pfm.asset_of(t) in ("STOCK", "ETF")
                                                    and t["code"].strip().upper() not in ("FEE", "TRANSFER")})))
-    # 期貨／選擇權已實現損益＝帳戶總已實現 − 股票部分（期權逐口平倉損益由 portfolio 重播計算）
-    stats["summary"]["deriv_realized"] = round(pf.realized_pnl - stats["summary"]["realized"])
+    marks = {}
+    if pf.derivs:
+        try:
+            from src.agents import futures_data
+
+            marks = futures_data.marks(pf)
+        except Exception:  # noqa: BLE001  期交所行情暫時取不到時以均價計（未實現 0）
+            marks = {}
+    fut = trade_review.review_derivs(rows, marks)
+    sm = stats["summary"]
+    sm["deriv_realized"] = fut["realized"]
+    stats["derivs"] = fut
+    # 證券（股票＋ETF）／期貨（期貨＋選擇權）／全部 的損益與交易概況，前端篩選用
+    sec = {"realized": sm["realized"], "unrealized": sm["unrealized"], "total_pnl": sm["total_pnl"],
+           "fees": sm["fee"] + sm["tax"], "trade_count": sm["stock_trades"], "symbols": sm["symbols"]}
+    futs = {"realized": fut["realized"], "unrealized": fut["unrealized"], "total_pnl": fut["total_pnl"],
+            "fees": fut["fees"], "trade_count": fut["trade_count"], "symbols": len(fut["rows"])}
+    stats["segments"] = {"sec": sec, "fut": futs,
+                         "all": {k: sec[k] + futs[k] for k in sec}}
     return {"version": pfm.trades_version(rows), "rows": out[::-1],  # 最新在前
             "holdings": [{"code": c, "name": stock_meta(c).get("name", ""), "shares": p.shares} for c, p in pf.positions.items()],
             "derivs": [{"contract": c, "root": d.root, "kind": d.kind, "qty": d.qty, "avg_price": round(d.avg_price, 2)}
@@ -546,6 +575,33 @@ def _deriv_watch(pf) -> list[dict]:
     return out
 
 
+_REGIME: dict = {"t": 0.0, "v": None}
+
+
+def live_regime() -> dict:
+    """大盤攻守燈號（綠／灰／黃／紅）＋撤資預警；盤中用即時加權指數預判今天收盤會不會變燈。60 秒快取。"""
+    import time
+
+    from src.agents import regime
+
+    if _REGIME["v"] is not None and time.time() - _REGIME["t"] < 60:
+        return _REGIME["v"]
+    ctx = on_demand.context()
+    tx = ctx["taiex"]
+    tx = tx[tx.index < pd.Timestamp(now_tw().date())]  # 只用到昨天收盤的日 K，今天的看即時價
+    live = None
+    try:
+        live = (live_quotes([]).get("indices") or {}).get("TAIEX", {}).get("price")
+    except Exception:  # noqa: BLE001
+        pass
+    r = load_report() or {}
+    out = regime.assess(tx, ctx.get("us_hist"), live_price=live, events=r.get("macro"))
+    out["live_taiex"] = live
+    out["time"] = now_tw().strftime("%H:%M:%S")
+    _REGIME.update(t=time.time(), v=out)
+    return out
+
+
 def holding_watch() -> dict:
     """持股動向（盤中每分鐘）：每檔庫存判斷「盡快賣出／低檔可望反彈／注意／正常」，規則全由程式計算。
 
@@ -572,6 +628,10 @@ def holding_watch() -> dict:
     base = ctx["alpha"].get("up_base_rate") or 0.5
     hi_p = max(0.6, base + 0.08)
     plan = {i["code"]: i for i in ((on_demand._PLAN.get("v") or {}).get("items") or [])}  # 持股建議（5 分鐘快取，不在這裡重算）
+    try:
+        rg = live_regime()
+    except Exception:  # noqa: BLE001
+        rg = None
     items = []
     for c, pos in pf.positions.items():
         q = rt.get(c) or {}
@@ -597,6 +657,10 @@ def holding_watch() -> dict:
             sell.append(f"持股建議：{adv['verdict']}" + (f"（{adv['reasons'][0]}）" if adv.get("reasons") else ""))
         if chg is not None and chg <= -4 and p_up is not None and p_up < base:
             sell.append(f"今日 {chg:+.2f}% 重挫，模型一個月收正機率 {p_up * 100:.0f}% 低於全市場平均 {base * 100:.0f}%")
+        basket = (meta.get(c) or {}).get("basket") or "offense"
+        weak_stock = (ma20 and price < ma20) or (p_up is not None and p_up < base)
+        if rg and rg["state"] == "轉弱" and basket == "offense" and weak_stock:
+            sell.append(f"大盤紅燈轉弱，這檔進攻股也走弱（{'跌破 20 日均線' if ma20 and price < ma20 else f'收正機率 {p_up * 100:.0f}% 低於平均'}），提早撤出、改買穩健籃／ETF")
         oversold = []
         if rsi is not None and rsi <= 35:
             oversold.append(f"RSI {rsi:.0f}")
@@ -614,6 +678,8 @@ def holding_watch() -> dict:
                 watch.append(f"跌破 20 日均線 {ma20:.1f}")
             if stop and price <= stop * 1.03:
                 watch.append(f"距停損 {stop:g} 不到 3%")
+            if watch and rg and rg["level"] == "黃燈" and basket == "offense":
+                watch.append(f"大盤黃燈：若加權收盤跌破 {rg['lines']['weak_enter']:,} 點轉紅燈，這檔優先撤出")
         status = "盡快賣出" if sell else "低檔可望反彈" if rebound else "注意" if watch else "正常"
         items.append({"code": c, "name": stock_meta(c)["name"], "status": status, "reasons": sell or rebound or watch,
                       "price": price, "chg_pct": chg, "pnl_pct": round((price / pos.avg_cost - 1) * 100, 2) if pos.avg_cost else 0,
@@ -624,7 +690,8 @@ def holding_watch() -> dict:
     items.sort(key=lambda x: (order[x["status"]], x["chg_pct"] or 0))
     out = {"time": now_tw().strftime("%H:%M:%S"), "trading": alerts.is_trading_hours(), "base_rate": base, "items": items,
            "counts": {k: sum(1 for i in items if i["status"] == k) for k in order},
-           "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 盤中以即時價計算"}
+           "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 盤中以即時價計算",
+           "regime": {k: rg[k] for k in ("state", "light", "level", "headline", "warnings", "actions", "lines")} if rg else None}
     _WATCH.update(t=time.time(), v=out)
     return out
 

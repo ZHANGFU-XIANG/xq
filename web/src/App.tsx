@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import ChatPanel, { ChatProvider } from './components/Chat'
 import Layout from './components/Layout'
 import { Loading, PageTitle } from './components/ui'
@@ -13,7 +13,6 @@ import News from './pages/News'
 import Overview from './pages/Overview'
 import Portfolio from './pages/Portfolio'
 import Stock from './pages/Stock'
-import Trades from './pages/Trades'
 import Futures from './pages/Futures'
 import WeeklyReport from './components/WeeklyReport'
 
@@ -67,7 +66,7 @@ export default function App() {
             <Route path="alerts" element={<Alerts />} />
             <Route path="news" element={<News />} />
             <Route path="portfolio" element={<Portfolio />} />
-            <Route path="trades" element={<Trades />} />
+            <Route path="trades" element={<Navigate to="/portfolio#trades" replace />} />
             <Route path="model" element={<Model />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="*" element={<p className="text-muted">找不到這個頁面。</p>} />

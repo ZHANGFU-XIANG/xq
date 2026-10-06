@@ -121,4 +121,4 @@ def current_allocation(ctx: dict, target: dt.date, today: dt.date, nav: float) -
     recent = [e for e in tuner.history() if e.get("issues")]
     last_issues = recent[-1]["issues"] if recent and recent[-1]["date"] >= (today - dt.timedelta(days=5)).isoformat() else []
     return allocation.decide(ctx["taiex"], pd.Timestamp(target), pfm.load_history(), rules()["capital"]["initial"], nav,
-                             compliance.remaining_trading_days(today), last_issues)
+                             compliance.remaining_trading_days(today), last_issues, us_hist=ctx.get("us_hist"))

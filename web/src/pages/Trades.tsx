@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fragment, useState } from 'react'
 import CsvImport from '../components/CsvImport'
-import { Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
+import { Empty, ErrorNote, Loading, Section, Stat, StockLink } from '../components/ui'
 import { ApiError, del, get, post, put, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, tone } from '../lib/format'
 
@@ -238,13 +238,16 @@ function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
   )
 }
 
-function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>) => Promise<boolean>; busy: boolean }) {
+const inSeg = (seg: Seg, kind: string) => seg === 'all' || (seg === 'sec' ? kind === 'STOCK' || kind === 'ETF' : kind === 'FUT' || kind === 'OPT')
+
+function Ledger({ data, run, busy, seg }: { data: Json; run: (fn: () => Promise<Json>) => Promise<boolean>; busy: boolean; seg: Seg }) {
   const [editing, setEditing] = useState<number | null>(null)
   const [confirmDel, setConfirmDel] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState(false)
-  if (!data.rows.length) return <Empty>還沒有任何交易紀錄。</Empty>
-  const ids: number[] = data.rows.map((r: Json) => r.id)
+  const shown: Json[] = data.rows.filter((r: Json) => inSeg(seg, r.kind))
+  if (!shown.length) return <Empty>{data.rows.length ? `沒有${SEG_LABEL[seg]}的紀錄。` : '還沒有任何交易紀錄。'}</Empty>
+  const ids: number[] = shown.map((r: Json) => r.id)
   const live = new Set([...selected].filter((i) => ids.includes(i)))  // 重新整理後只保留仍存在的
   const allOn = live.size === ids.length
   const toggle = (id: number) => { setConfirmBulk(false); setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n }) }
@@ -283,7 +286,7 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
           <th className="text-right font-normal">手續費＋稅</th><th className="pl-4 font-normal">備註</th><th className="text-right font-normal">操作</th>
         </tr></thead>
         <tbody>
-          {data.rows.map((r: Json) => {
+          {shown.map((r: Json) => {
             const stock = r.kind === 'STOCK' || r.kind === 'ETF'
             return (
               <Fragment key={r.id}>
@@ -327,14 +330,72 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
   )
 }
 
-function Stats({ s }: { s: Json }) {
+
+export type Seg = 'all' | 'sec' | 'fut'
+export const SEG_LABEL: Record<Seg, string> = { all: '全部', sec: '證券（股票＋ETF）', fut: '期貨（期貨＋選擇權）' }
+
+function SegmentSummary({ s, seg }: { s: Json; seg: Seg }) {
+  const g = s.segments?.[seg]
+  if (!g) return null
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
+      <Stat label={`${SEG_LABEL[seg]}總損益`} value={fmtInt(g.total_pnl)} valueClass={tone(g.total_pnl)} sub="已實現＋未實現" />
+      <Stat label="已實現" value={fmtInt(g.realized)} valueClass={tone(g.realized)} sub={seg === 'sec' ? '含手續費與證交稅' : seg === 'fut' ? '含期貨手續費與交易稅' : '證券＋期貨'} />
+      <Stat label="未實現" value={fmtInt(g.unrealized)} valueClass={tone(g.unrealized)} sub={seg === 'fut' ? '期交所即時價' : '證券：市值 − 成交價金（同 App）'} />
+      <Stat label="手續費＋稅" value={fmtInt(g.fees)} />
+      <Stat label="交易筆數／標的" value={`${g.trade_count}／${g.symbols}`} />
+    </div>
+  )
+}
+
+function DerivStats({ d }: { d: Json }) {
+  if (!d?.rows?.length) return <p className="mb-6 text-muted">還沒有期貨或選擇權紀錄。</p>
+  return (
+    <>
+      <h3 className="mb-2 font-bold">期貨／選擇權各合約</h3>
+      <div className="mb-6 overflow-x-auto">
+        <table className="w-full min-w-[760px] text-[0.95rem]">
+          <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
+            <th className="py-2 font-normal">合約</th><th className="text-right font-normal">筆數</th><th className="text-right font-normal">未平倉</th>
+            <th className="text-right font-normal">均價</th><th className="text-right font-normal">現價</th><th className="text-right font-normal">已實現</th>
+            <th className="text-right font-normal">未實現</th><th className="text-right font-normal">合計</th><th className="text-right font-normal">費用</th>
+          </tr></thead>
+          <tbody>
+            {d.rows.map((x: Json) => (
+              <tr key={x.contract} className="border-b border-line/60">
+                <td className="py-1.5"><span className="text-fut">{x.kind}</span> {x.contract}<span className="ml-1 text-xs text-muted">{x.name}</span></td>
+                <td className="num text-right">{x.trades}</td>
+                <td className="num text-right">{x.qty ? `${x.qty > 0 ? '多' : '空'} ${Math.abs(x.qty)} 口` : '已平倉'}</td>
+                <td className="num text-right">{x.avg_price != null ? fmtNum(x.avg_price) : '—'}</td>
+                <td className="num text-right">{x.mark != null ? fmtNum(x.mark) : '—'}</td>
+                <td className={`num text-right ${tone(x.realized)}`}>{fmtInt(x.realized)}</td>
+                <td className={`num text-right ${tone(x.unrealized)}`}>{x.qty ? fmtInt(x.unrealized) : '—'}</td>
+                <td className={`num text-right font-medium ${tone(x.total_pnl)}`}>{fmtInt(x.total_pnl)}</td>
+                <td className="num text-right text-muted">{fmtInt(x.fees)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
+function Stats({ s, seg }: { s: Json; seg: Seg }) {
+  return (
+    <>
+      <SegmentSummary s={s} seg={seg} />
+      {seg !== 'fut' && <SecStats s={s} />}
+      {seg !== 'sec' && <DerivStats d={s.derivs} />}
+    </>
+  )
+}
+
+function SecStats({ s }: { s: Json }) {
   const m = s.summary
   return (
     <>
       <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4 lg:grid-cols-6">
-        <Stat label="總損益（已實現＋未實現）" value={fmtInt(m.total_pnl)} valueClass={tone(m.total_pnl)} sub="已實現含手續費與稅" />
-        <Stat label="已實現損益" value={fmtInt(m.realized)} valueClass={tone(m.realized)} sub={`${m.closed_count} 次賣出`} />
-        <Stat label="未實現損益" value={fmtInt(m.unrealized)} valueClass={tone(m.unrealized)} sub="市值 − 成交價金（同 App）" />
         <Stat label="勝率" value={m.win_rate == null ? '—' : `${m.win_rate}%`} sub={`賺 ${m.win_count} 次・賠 ${m.loss_count} 次`} />
         <Stat label="平均獲利／虧損" value={<span><span className="text-up">{fmtInt(m.avg_win)}</span>／<span className="text-down">{fmtInt(m.avg_loss)}</span></span>}
           sub={m.profit_factor != null ? `獲利因子 ${m.profit_factor}（> 1 代表賺的比賠的多）` : '獲利因子：需有賺有賠'} />
@@ -345,7 +406,6 @@ function Stats({ s }: { s: Json }) {
         <Stat label="手續費" value={fmtInt(m.fee)} sub={m.fee_adjust ? `另有 App 校正 ${fmtInt(m.fee_adjust)} 元` : undefined} />
         <Stat label="證交稅" value={fmtInt(m.tax)} />
         <Stat label="交易天數" value={m.active_days} />
-        {m.deriv_trades > 0 && <Stat label="期貨／選擇權已實現" value={fmtInt(m.deriv_realized)} valueClass={tone(m.deriv_realized)} sub={`${m.deriv_trades} 筆・選擇權已扣費用，期貨手續費另從期貨戶扣`} />}
       </div>
       <ul className="mb-6 space-y-1 text-sm">
         {m.checks.map((c: Json) => (
@@ -432,21 +492,22 @@ function Stats({ s }: { s: Json }) {
   )
 }
 
-export default function Trades() {
+/** 交易紀錄區塊（嵌在「持股與交易」頁）：view = trades（新增／匯入／列表）或 stats（統計）；seg = 全部／證券／期貨 */
+export default function TradeWorkspace({ view, seg }: { view: 'trades' | 'stats'; seg: Seg }) {
   const qc = useQueryClient()
   const { data, isLoading, error, refetch } = useQuery<Json>({ queryKey: ['trades'], queryFn: () => get('/api/trades') })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [formKey, setFormKey] = useState(0)
 
-  /** 執行寫入；成功後重新整理所有資料（持股、建議、警示都依交易紀錄計算）。 */
+  /** 執行寫入；成功後先更新本頁，其他資料（持股、建議、警示）在背景重算。 */
   async function run(fn: () => Promise<Json>): Promise<boolean> {
     setBusy(true)
     setMsg(null)
     try {
       const r = await fn()
       setMsg({ ok: true, text: r.message })
-      await qc.invalidateQueries({ queryKey: ['trades'] })  // 先更新本頁；其他頁（持股、建議、警示）在背景重算，不用等
+      await qc.invalidateQueries({ queryKey: ['trades'] })
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'trades' })
       return true
     } catch (e) {
@@ -460,30 +521,26 @@ export default function Trades() {
 
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
+  if (view === 'stats')
+    return <Section title={`統計與檢討・${SEG_LABEL[seg]}`} aside="數字由交易紀錄重播計算，賣出先進先出"><Stats s={data.stats} seg={seg} /></Section>
   return (
     <>
-      <PageTitle>交易紀錄與統計</PageTitle>
       {msg && <div className={`mb-4 rounded-md border px-3 py-2 text-sm ${msg.ok ? 'border-down/40 bg-down/5 text-down' : 'border-up/40 bg-up/5 text-up'}`}>{msg.text}</div>}
+      <Section title="全部交易" aside={`${SEG_LABEL[seg]}・最新在前・可修改、刪除或多選刪除`}>
+        <Ledger data={data} run={run} busy={busy} seg={seg} />
+      </Section>
 
       <Section title="新增紀錄" aside="股票、ETF、期貨、選擇權、資金調撥、手續費校正；過去日期也能補記">
         <TradeForm key={formKey} holdings={data.holdings} derivs={data.derivs} busy={busy}
           onSubmit={async (t) => { if (await run(() => post('/api/trades', { version: data.version, trade: t }))) setFormKey((k) => k + 1) }} />
         <p className="mt-2 text-xs text-muted">
           寫入前會重算整個帳戶（賣超過持有會被擋下）；雲端版會提交到 GitHub，所有頁面的持股、現金、建議都會跟著更新。
-          記錯了可以在下方「全部交易」按「修改」更正，或刪除後重記。
+          記錯了可以在「全部交易」按「修改」更正，或刪除後重記。
         </p>
       </Section>
 
       <Section title="匯入 XQ CSV" aside="委託回報或成交回報匯出的 CSV，已記錄過的自動標示">
         <CsvImport busy={busy} run={run} />
-      </Section>
-
-      <Section title="全部交易" aside={`${data.rows.length} 筆・最新在前・可修改、刪除或多選刪除`}>
-        <Ledger data={data} run={run} busy={busy} />
-      </Section>
-
-      <Section title="統計與檢討" aside="數字由交易紀錄重播計算，賣出先進先出">
-        <Stats s={data.stats} />
       </Section>
     </>
   )

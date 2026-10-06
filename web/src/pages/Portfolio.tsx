@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { createChart, LineSeries, type Time } from 'lightweight-charts'
-import { Fragment, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
+import RegimeBanner from '../components/RegimeBanner'
 import XQImport from '../components/XQImport'
+import TradeWorkspace, { SEG_LABEL, type Seg } from './Trades'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, fmtRatio, fmtWan, tone } from '../lib/format'
@@ -38,30 +40,62 @@ function Bar({ v, max }: { v: number; max: number }) {
   )
 }
 
+type Tab = 'holdings' | 'trades' | 'stats'
+const TABS: [Tab, string][] = [['holdings', '持股'], ['trades', '交易紀錄'], ['stats', '統計分析']]
+
 export default function Portfolio() {
   const { data: p, isLoading, error } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(15_000, 120_000) })
   const { data: r } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
+  const loc = useLocation()
+  const nav = useNavigate()
+  const tab: Tab = (['trades', 'stats'] as Tab[]).find((t) => loc.hash === `#${t}`) ?? 'holdings'
+  const [seg, setSeg] = useState<Seg>(() => {
+    try { return (localStorage.getItem('trade_seg') as Seg) || 'all' } catch { return 'all' }
+  })
+  const pickSeg = (s: Seg) => { setSeg(s); try { localStorage.setItem('trade_seg', s) } catch { /* 無法記住也沒關係 */ } }
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
+  const b = p.breakdown ?? {}
+  const pill = (on: boolean) => `rounded-md px-3 py-1 text-sm ${on ? 'bg-ink text-paper' : 'border border-line text-ink-2'}`
   const att = r?.attribution
   const maxAtt = Math.max(...(att?.rows ?? []).flatMap((x: Json) => [Math.abs(x.mkt_pct), Math.abs(x.ind_pct), Math.abs(x.idio_pct)]), 0.5)
   return (
     <>
-      <PageTitle>持股與損益</PageTitle>
-      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
-        <Stat label="總資產" value={fmtWan(p.nav)} />
+      <PageTitle>持股與交易</PageTitle>
+      <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
+        <Stat label="總資產（含期貨、ETF）" value={fmtWan(p.nav)}
+          sub={`股票 ${fmtWan(b.stock_mv)}・ETF ${fmtWan(b.etf_mv)}・證券現金 ${fmtWan(b.cash)}・期貨權益 ${fmtWan(b.futures_equity)}${b.margin_loan ? `・融資 −${fmtWan(b.margin_loan)}` : ''}`} />
         <Stat label="累積報酬（總資產）" value={fmtPct(p.return_pct)} valueClass={tone(p.return_pct)} sub="（總資產 − 1,000 萬）÷ 1,000 萬" />
-        <Stat label="未實現損益（同 App）" value={fmtPct(p.holding_return_pct)} valueClass={tone(p.holding_return_pct)}
-          sub={`${fmtInt(p.unrealized_pnl)} 元 ÷ 1,000 萬・不含已付手續費 ${fmtInt(p.fees_paid)} 元`} />
-        <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub="規則下限 70%" valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
+        <Stat label="未實現損益（證券＋期貨）" value={fmtInt(p.unrealized_total ?? p.unrealized_pnl)} valueClass={tone(p.unrealized_total ?? p.unrealized_pnl)}
+          sub={`證券 ${fmtInt(p.unrealized_pnl)}（同 App ${fmtPct(p.holding_return_pct)}）・期貨 ${fmtInt(p.futures_unrealized ?? 0)}`} />
+        <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub="股票＋ETF ÷ 總資產；規則下限 70%（期貨不計）" valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
         <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶權益 ${fmtWan(p.futures_equity ?? p.futures_cash)}`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />
       </div>
 
+      <RegimeBanner />
+
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="分頁">
+          {TABS.map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} className={pill(tab === t)}
+              onClick={() => nav({ hash: t === 'holdings' ? '' : t }, { replace: true })}>{label}</button>
+          ))}
+        </div>
+        {tab !== 'holdings' && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="篩選">
+            {(Object.keys(SEG_LABEL) as Seg[]).map((s) => (
+              <button key={s} className={pill(seg === s)} onClick={() => pickSeg(s)}>{SEG_LABEL[s]}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {tab !== 'holdings' ? <TradeWorkspace view={tab} seg={seg} /> : (<>
       <HoldingAdvice />
 
       <Section title="目前持股" aside="同一檔分批成交（整股／零股、不同時間）各自列出成本，賣出先進先出">
-        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入」貼上截圖或文字同步，到「交易紀錄」頁手動新增，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
+        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入」貼上截圖或文字同步，到上方「交易紀錄」分頁手動新增，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-[0.95rem]">
               <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
@@ -168,24 +202,7 @@ export default function Portfolio() {
         </Section>
       )}
 
-      <Section title="交易紀錄" aside={<Link to="/trades" className="text-link">全部紀錄、手動新增／修改／刪除與統計 →</Link>}>
-        {!p.trades.length ? <p className="text-muted">尚無交易紀錄。</p> : (
-          <table className="w-full text-[0.95rem]">
-            <tbody>
-              {p.trades.slice(0, 8).map((t: Json, i: number) => (
-                <tr key={i} className="border-b border-line/60">
-                  <td className="num py-1.5 text-muted">{t.date}</td>
-                  <td className={t.side === 'BUY' ? 'text-up' : 'text-down'}>{t.side === 'BUY' ? '買進' : '賣出'}</td>
-                  <td><StockLink code={t.code} /></td>
-                  <td className="num text-right">{fmtInt(Number(t.shares))} 股</td>
-                  <td className="num text-right">@ {t.price}</td>
-                  <td className="text-right text-sm text-muted">{t.margin === '1' ? '融資' : ''} {t.note}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Section>
+      </>)}
     </>
   )
 }

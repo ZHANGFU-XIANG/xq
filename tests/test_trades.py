@@ -221,3 +221,67 @@ def test_futures_advice_nets_existing_position():
     out = futures._net_existing(pfm.build_portfolio([fut("TMF", "BUY", 3)]), [dict(o)], [], 1e7)
     assert out[0]["qty"] == 4 and out[0]["margin"] == round(245350 / 7 * 4)
     assert futures._net_existing(pfm.build_portfolio([]), [dict(o)], [], 1e7)[0]["qty"] == 7
+
+
+def _tx(closes):
+    import pandas as pd
+
+    idx = pd.bdate_range("2026-01-01", periods=len(closes))
+    c = pd.Series(closes, index=idx, dtype=float)
+    return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c, "Volume": 1.0})
+
+
+def test_regime_states_and_lines():
+    from src.agents import regime
+
+    up = [100 * (1.004 ** i) for i in range(120)]  # 穩定上漲 → 綠燈
+    r = regime.assess(_tx(up))
+    assert r["state"] == "強勢" and r["level"] == "綠燈" and r["offense"] == 0.85
+    down = up + [up[-1] * (0.985 ** i) for i in range(1, 30)]  # 連跌 → 跌破季線 −2% → 紅燈
+    r2 = regime.assess(_tx(down))
+    assert r2["state"] == "轉弱" and r2["level"] == "紅燈" and r2["offense"] == 0.30
+    assert r2["lines"]["weak_enter"] < r2["lines"]["ma60"] < r2["lines"]["weak_exit"]
+    # 盤中預判：綠燈時即時價跌破轉弱線
+    r3 = regime.assess(_tx(up), live_price=r["lines"]["weak_enter"] - 1)
+    assert r3["level"] == "黃燈" and "明天起轉為紅燈" in r3["warnings"][0]
+    # 遲滯：剛跌回季線附近（未站回季線 +1%）仍維持紅燈
+    st = regime.states(_tx(down + [r2["lines"]["ma60"] * 1.0] * 2).Close)
+    assert st.iloc[-1] == "轉弱"
+
+
+def test_regime_yellow_from_vix_and_events():
+    import pandas as pd
+
+    from src.agents import regime
+
+    up = [100 * (1.004 ** i) for i in range(120)]
+    vix = pd.DataFrame({"Close": [20.0, 28.0]}, index=pd.bdate_range("2026-06-01", periods=2))
+    r = regime.assess(_tx(up), {"^VIX": vix}, events=[{"event": "某重大事件", "total_pct_nav": -1.5}])
+    assert r["level"] == "黃燈" and len(r["warnings"]) == 2
+
+
+def test_allocation_follows_regime_and_caps_on_yellow():
+    import pandas as pd
+
+    from src.agents import allocation
+
+    up = _tx([100 * (1.004 ** i) for i in range(120)])
+    t = up.index[-1] + pd.Timedelta(days=1)
+    a = allocation.decide(up, t, [], 1e7, 1e7, 30, [])
+    assert a["stock_split"]["offense"] == 0.85 and a["regime"]["level"] == "綠燈"
+    vix = pd.DataFrame({"Close": [20.0, 30.0]}, index=pd.bdate_range("2026-06-01", periods=2))
+    b = allocation.decide(up, t, [], 1e7, 1e7, 30, [], us_hist={"^VIX": vix})
+    assert b["stock_split"]["offense"] == 0.60  # 黃燈：進攻最多 60%
+
+
+def test_deriv_review_equity_method():
+    from src.agents import trade_review
+
+    rows = [{"date": "2026-10-06", "code": "TX", "side": "BUY", "shares": "2", "price": "49875", "asset": "FUT", "contract": "TX202610"},
+            {"date": "2026-10-07", "code": "TX", "side": "SELL", "shares": "1", "price": "50000", "asset": "FUT", "contract": "TX202610"}]
+    d = trade_review.review_derivs(rows, {"TX202610": 50100})
+    r = d["rows"][0]
+    assert r["qty"] == 1 and r["unrealized"] == (50100 - 49875) * 200
+    fees = pfm.deriv_cost("TX", 2, 49875) + pfm.deriv_cost("TX", 1, 50000)
+    assert r["realized"] == round((50000 - 49875) * 200 - fees)
+    assert r["total_pnl"] == r["realized"] + r["unrealized"]

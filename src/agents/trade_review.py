@@ -160,3 +160,38 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
         "daily": [{**d, **{k: round(d[k]) for k in ("buy_amount", "sell_amount", "realized", "fee_tax")}}
                   for d in sorted(days.values(), key=lambda d: d["date"], reverse=True)],
     }
+
+
+def review_derivs(trades: list[dict], marks: dict[str, float]) -> dict:
+    """期貨／選擇權逐合約統計：損益＝期貨戶現金變化＋未平倉部位價值（已扣手續費與交易稅）。"""
+    by: dict[str, list[dict]] = defaultdict(list)
+    for t in trades:
+        if str(t["code"]).strip().upper() in ("FEE", "TRANSFER") or pfm.asset_of(t) not in ("FUT", "OPT"):
+            continue
+        by[(t.get("contract") or t["code"]).strip().upper()].append(t)
+    start = float(rules()["capital"]["futures"])
+    rows = []
+    for contract, ts in by.items():
+        pf = pfm.build_portfolio(ts)
+        d = pf.derivs.get(contract)
+        root = ts[0]["code"].strip().upper()
+        kind = pfm.asset_of(ts[0])
+        mult = pfm.deriv_spec(root)["multiplier"]
+        mark = marks.get(contract)
+        qty = d.qty if d else 0
+        avg = d.avg_price if d else None
+        if d and mark is None:
+            mark = d.avg_price
+        value = d.value(mark) if d else 0.0  # 期貨：未實現；選擇權：市值
+        unreal = (value if kind == "FUT" else (mark - d.avg_price) * mult * d.qty) if d else 0.0
+        net = (pf.futures_cash - start) + value  # 現金變化（含手續費、平倉損益、權利金）＋部位價值
+        fees = sum(pfm.deriv_cost(root, int(float(t["shares"])), float(t["price"])) for t in ts)
+        rows.append({"contract": contract, "root": root, "kind": "期貨" if kind == "FUT" else "選擇權",
+                     "name": pfm.deriv_spec(root)["name"], "trades": len(ts), "qty": qty,
+                     "avg_price": round(avg, 2) if avg is not None else None, "mark": mark,
+                     "unrealized": round(unreal), "realized": round(net - unreal), "fees": round(fees), "total_pnl": round(net),
+                     "first_date": ts[0]["date"], "last_date": ts[-1]["date"]})
+    rows.sort(key=lambda r: -r["total_pnl"])
+    return {"rows": rows, "realized": sum(r["realized"] for r in rows), "unrealized": sum(r["unrealized"] for r in rows),
+            "total_pnl": sum(r["total_pnl"] for r in rows), "fees": sum(r["fees"] for r in rows),
+            "trade_count": sum(r["trades"] for r in rows), "open": sum(1 for r in rows if r["qty"])}

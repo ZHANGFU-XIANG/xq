@@ -1,6 +1,7 @@
 """手機即時通知：盤中每分鐘檢查持股動向與嚴重警示，有新狀況就寄 Email（手機 Gmail 會跳通知），網頁不用開著。
 
-- 觸發：持股新進入「盡快賣出」或「低檔可望反彈」、新的「嚴重」警示（跌停、跌破停損、重大負面新聞等）
+- 觸發：持股新進入「盡快賣出」或「低檔可望反彈」、新的「嚴重」警示（跌停、跌破停損、重大負面新聞等）、
+  大盤黃燈／紅燈（撤資預警）、盤中加權指數跌破轉弱線（預判今天收盤變燈）
 - 防洗版：同一檔同一種狀況一天只寄一次；同一分鐘的多則合併成一封
 - 只在雲端模式、交易時段（09:00～13:35）執行；Space 不能連 SMTP，由 GitHub Actions send-email.yml 代寄（用 GitHub Secrets 的 SMTP 設定）
 - 寄送失敗 10 分鐘後才重試，避免每分鐘重試洗版
@@ -30,6 +31,15 @@ def _events() -> list[tuple[str, str, str]]:
             out.append((f"{i['code']}|{i['status']}", f"{i['status']}：{i['code']} {i['name']}",
                         f"現價 {i['price']}" + (f"（{i['chg_pct']:+.2f}%）" if i.get("chg_pct") is not None else "")
                         + "\n" + "；".join(i["reasons"])))
+    try:  # 大盤黃燈／紅燈與盤中「快要變燈」預警：每種狀況一天寄一次
+        rg = data.live_regime()
+        if rg["level"] in ("黃燈", "紅燈"):
+            out.append((f"regime|{rg['level']}", rg["headline"],
+                        "\n".join([*rg["warnings"], "建議：", *rg["actions"]])))
+        if rg["warnings"] and rg["warnings"][0].startswith("盤中加權指數"):
+            out.append((f"regime-live|{rg['warnings'][0][:30]}", "大盤可能變燈：" + rg["warnings"][0][:40], rg["warnings"][0]))
+    except Exception:  # noqa: BLE001
+        pass
     al = data.live_alerts()
     for a in al.get("alerts", []):
         if a.get("level") == "嚴重" and a.get("scope") in ("持股", "部位", "規則"):  # 買進前、全市場的警示不寄

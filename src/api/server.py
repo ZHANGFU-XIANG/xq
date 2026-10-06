@@ -275,6 +275,11 @@ def holding_advice_(refresh: bool = False):
     return on_demand.portfolio_plan(refresh)
 
 
+@app.get("/api/regime", dependencies=[api])
+def regime_():
+    return data.live_regime()
+
+
 @app.get("/api/holding-watch", dependencies=[api])
 def holding_watch_():
     return data.holding_watch()

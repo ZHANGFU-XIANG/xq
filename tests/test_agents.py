@@ -140,17 +140,17 @@ def _taiex_series(rets):
     return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c, "Volume": 1.0})
 
 
-def test_allocation_reacts_to_overheat_drawdown_and_endgame():
+def test_allocation_reacts_to_regime_drawdown_and_endgame():
     from src.agents import allocation
     calm = _taiex_series([0.0005, -0.0004] * 60)
     t = calm.index[-1] + pd.Timedelta(days=1)
     base = allocation.decide(calm, t, [], 10_000_000, 10_000_000, 30, [])
     assert base["stock_split"]["offense"] == 0.60 and base["etf"] == 0.15
     assert abs(base["offense"] + base["defense"] + base["etf"] - 1) < 0.01  # 三籃合計 100%
-    hot = _taiex_series([0.0] * 80 + [0.01] * 25)  # 連漲 → RSI、20 日漲幅、距季線都過熱
+    hot = _taiex_series([0.0] * 80 + [0.01] * 25)  # 連漲：2026-10-06 起依回測改為綠燈加攻（舊「過熱就減碼」規則回測無益已移除）
     r = allocation.decide(hot, hot.index[-1] + pd.Timedelta(days=1), [], 10_000_000, 10_000_000, 30, [])
-    assert r["stock_split"]["offense"] == 0.45 and any("過熱" in x for x in r["reasons"])
-    assert r["etf"] == 0.30 and any("過熱" in x for x in r["etf_reasons"])  # 過熱提高 ETF 分散
+    assert r["stock_split"]["offense"] == 0.85 and any("綠燈" in x for x in r["reasons"])
+    assert r["etf"] == 0.10 and any("綠燈" in x for x in r["etf_reasons"])  # 強勢時資金優先給進攻個股
     hist = [{"date": "d", "nav": 10_500_000}]
     r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%
     assert r["stock_split"]["offense"] == 0.40 and r["etf"] == 0.25
