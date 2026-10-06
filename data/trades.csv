@@ -17,3 +17,4 @@ date,code,side,shares,price,margin,note,asset,contract
 2026-10-05,1560,BUY,41,1015,0,XQ CSV 匯入・零股・委託價,STOCK,
 2026-10-05,6196,BUY,1000,649,0,XQ CSV 匯入・整股・委託價,STOCK,
 2026-10-06,2889,BUY,3000,16.2,0,XQ CSV 匯入・整股・委託價,STOCK,
+2026-10-06,TX,BUY,2,49875,0,XQ CSV 匯入・新倉・委託價,FUT,TX202610
