@@ -16,14 +16,14 @@
   "2889": {
     "stop": 15.32,
     "tp_stage": 0,
-    "high": 16.100000381469727,
-    "shares": 57624,
+    "high": 16.200000762939453,
+    "shares": 60624,
     "basket": "defense"
   },
   "2915": {
     "stop": 55.38,
     "tp_stage": 0,
-    "high": 57.5,
+    "high": 57.599998474121094,
     "shares": 14345,
     "basket": "defense"
   },
@@ -58,7 +58,7 @@
   "6213": {
     "stop": 597.0,
     "tp_stage": 0,
-    "high": 751.0,
+    "high": 787.0,
     "shares": 1571,
     "basket": "offense"
   }
