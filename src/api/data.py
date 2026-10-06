@@ -80,6 +80,30 @@ def _prices(codes: list[str]) -> dict[str, float]:
     return prices
 
 
+def app_view(pf, sec_unreal: float, fut_unreal: float, marks: dict) -> dict:
+    """競賽 App「證券績效」頁的算法（10/06 對帳一致：現金 966,764、未實現 191,866、總值 10,191,866、報酬 1.9187%）：
+    - 投資組合總值 ＝ 初始資金 ＋ 未實現 ＋ 已實現（手續費不從總值扣）；投資報酬率 ＝ 總值 ÷ 初始 − 1
+    - 現股未實現 ＝ 市值 − 成交價金（每筆捨去）；期貨未實現用日盤結算價
+    - 持有現金 ＝ 證券戶現金 ＋ 期貨戶（現金 − 原始保證金 ＋ 未實現）
+    已實現損益尚無賣出紀錄可對帳（暫以扣除手續費與稅後計）。"""
+    from src.agents import futures_data
+
+    initial = rules()["capital"]["initial"]
+    margin = 0.0
+    if pf.derivs:
+        try:
+            margin = pf.margin_required(futures_data.margins())
+        except Exception:  # noqa: BLE001
+            margin = 0.0
+    unreal = sec_unreal + fut_unreal
+    realized = pf.realized_pnl
+    total = initial + unreal + realized
+    return {"total": round(total), "return_pct": round((total / initial - 1) * 100, 4),
+            "unrealized": round(unreal), "unrealized_sec": round(sec_unreal), "unrealized_fut": round(fut_unreal),
+            "realized": round(realized), "cash": round(pf.cash + pf.futures_equity(marks) - margin),
+            "margin": round(margin), "fees_paid": round(sum(t["cost"] for t in pf.trades))}
+
+
 def portfolio() -> dict:
     from src.agents import alerts, compliance
 
@@ -104,7 +128,7 @@ def portfolio() -> dict:
     for c, p in pf.positions.items():
         price = prices.get(c, p.avg_cost)
         mv = p.shares * price
-        gross = sum(lot.shares * lot.price for lot in p.lots)  # 成交價金（不含手續費），與競賽 App 的成本相同
+        gross = sum(lot.amount for lot in p.lots)  # 成交價金（每筆捨去、不含手續費），與競賽 App 的成本相同
         pos.append({"code": c, "name": stock_meta(c)["name"], "shares": p.shares, "avg_cost": round(p.avg_cost, 2),
                     "price": price, "market_value": round(p.shares * price), "pnl": round(mv - gross),  # 同競賽 App「未實現損益」：市值 − 成交價金（手續費不計）
                     "pnl_pct": round((mv / gross - 1) * 100, 2) if gross else 0, "cost_amount": round(gross),
@@ -121,13 +145,16 @@ def portfolio() -> dict:
                               "note": lot.note}
                              for lot in p.lots]})
     initial = rules()["capital"]["initial"]
-    unreal = sum(x["pnl"] for x in pos)
+    # 先加總再四捨五入（與 App 相同；逐檔四捨五入再加會差 1 元）
+    unreal = sum(p.shares * prices.get(c, p.avg_cost) - sum(lot.amount for lot in p.lots) for c, p in pf.positions.items())
     fut_unreal = sum(x["value"] if x["root"] != "TXO" else
                      ((x["price"] or x["avg_price"]) - x["avg_price"]) * x["multiplier"] * x["qty"] for x in derivs)
     stock_mv = sum(x["market_value"] for x in pos)
-    return {"nav": round(nav), "return_pct": round((nav / initial - 1) * 100, 3), "cash": round(pf.cash),
-            # 競賽 App「證券未實現損益」＝ 市值 − 成交價金（不含手續費）；App 顯示的報酬率 ＝ 損益 ÷ 初始資金 1,000 萬
-            # 與上面的總資產報酬率差在已付手續費（總資產有扣、App 未實現損益沒扣）
+    app = app_view(pf, unreal, fut_unreal, marks)
+    return {"nav": app["total"], "return_pct": app["return_pct"], "cash": round(pf.cash), "app": app,
+            # nav／return_pct 採競賽 App「投資組合總值／投資報酬率」口徑（初始 ＋ 未實現 ＋ 已實現，手續費不扣）
+            # nav_net 為實際淨值（現金 ＋ 市值 ＋ 期貨權益，已扣手續費）
+            "nav_net": round(nav), "return_net_pct": round((nav / initial - 1) * 100, 3),
             "holding_cost": round(sum(x["cost_amount"] for x in pos)), "unrealized_pnl": round(unreal),
             "holding_return_pct": round(unreal / initial * 100, 4), "fees_paid": round(sum(t["cost"] for t in pf.trades)),
             # 總資產組成（證券市值含股票與 ETF；期貨戶權益含期貨未實現與選擇權市值）

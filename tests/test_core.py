@@ -9,10 +9,13 @@ from src.state.portfolio import build_portfolio, trade_cost
 
 
 def test_trade_cost_stock_and_etf():
-    # 股票賣出：手續費 0.1425% + 證交稅 0.3%
-    assert trade_cost("2330", "SELL", 1000, 1000) == round(1_000_000 * 0.001425) + 3000
-    # ETF 賣出稅 0.1%
-    assert trade_cost("0050", "SELL", 1000, 100) == round(100_000 * 0.001425) + 100
+    # 股票賣出：手續費 0.1425%（無條件進位，與競賽 App 相同）+ 證交稅 0.3%
+    assert trade_cost("2330", "SELL", 1000, 1000) == 1425 + 3000
+    # ETF 賣出稅 0.1%；142.5 → 143（進位）
+    assert trade_cost("0050", "SELL", 1000, 100) == 143 + 100
+    # 成交價金捨去：528 股 × 28.6 = 15,100.8 → 15,100（App 成本），手續費 21.5 → 22
+    from src.state.portfolio import trade_amount
+    assert trade_amount(528, 28.6) == 15100 and trade_cost("3591", "BUY", 528, 28.6) == 22
     # 最低手續費 20 元
     assert trade_cost("2303", "BUY", 1, 50) == 20
 

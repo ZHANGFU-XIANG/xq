@@ -109,7 +109,8 @@ def futures_quotes(root: str) -> dict:
                 ref, last = _f(x["CRefPrice"]), _f(x["CLastPrice"])
                 price = last or ref
                 if price:
-                    out["months"][ym] = {"price": price, "ref": ref,
+                    out["months"][ym] = {"price": price, "ref": ref, "settlement": _f(x.get("SettlementPrice")),
+                                         "date": x.get("CDate", ""),
                                          "chg_pct": round((price / ref - 1) * 100, 2) if ref else None,
                                          "time": _fmt_time(x.get("CDate", ""), x.get("CTime", ""))}
             providers._mark(f"{TAIFEX} MIS", True)
@@ -134,7 +135,8 @@ def _daily_futures(root: str) -> dict:
                 continue
             p = _f(x.get("SettlementPrice")) or _f(x.get("Last"))
             if p:
-                months[x["ContractMonth(Week)"]] = {"price": p, "ref": None, "chg_pct": None, "time": x["Date"]}
+                months[x["ContractMonth(Week)"]] = {"price": p, "ref": None, "chg_pct": None, "time": x["Date"],
+                                                     "settlement": _f(x.get("SettlementPrice")), "date": x["Date"]}
         providers._mark(f"{TAIFEX} OpenAPI", True)
         return {"months": months, "source": f"{TAIFEX} OpenAPI 每日行情"}
     except Exception as e:  # noqa: BLE001
@@ -194,12 +196,22 @@ def margins() -> dict:
     return got or {k: {**v, "source": "備用值（期交所 2026-10-02 公告）"} for k, v in FALLBACK_MARGIN.items()}
 
 
+def day_session_open(now: dt.datetime | None = None) -> bool:
+    from src.config import is_trading_day
+
+    now = now or now_tw()
+    return is_trading_day(now.date()) and dt.time(8, 45) <= now.time() <= dt.time(13, 45)
+
+
 def marks(pf) -> dict[str, float]:
-    """持有期貨／選擇權的最新價格（給 Portfolio.nav 使用）。"""
+    """持有期貨／選擇權的評價價格（給 Portfolio.nav 使用）。
+    日盤交易中用即時成交價；其餘時間用日盤結算價（與競賽 App 相同：10/06 結算 50,082、未實現 82,800）。"""
     out = {}
+    live = day_session_open()
     for c, d in pf.derivs.items():
         if d.kind == "FUT":
-            p = quote(d.root, c[len(d.root):]).get("price")
+            q = quote(d.root, c[len(d.root):])
+            p = q.get("price") if live else (q.get("settlement") or q.get("price"))
         else:
             ym = c[3:9]
             p = next((r["last"] or r["ref"] for r in put_chain(ym) if r["contract"] == c), None)

@@ -169,7 +169,8 @@ def run_daily(mode: str, today: dt.date) -> dict:
                   "price": prices.get(c, 0), "pnl_pct": round((prices.get(c, p.avg_cost) / p.avg_cost - 1) * 100, 2),
                   "weight_pct": round(p.shares * prices.get(c, 0) / nav * 100, 2)} for c, p in pf.positions.items()]
     if mode == "postclose":
-        pfm.record_history(today.isoformat(), nav, pf.holding_ratio(prices))
+        # 走勢紀錄用競賽 App 口徑（初始 ＋ 未實現 ＋ 已實現），與 App 投資報酬率一致
+        pfm.record_history(today.isoformat(), pfm.app_total(pf, pipeline.with_marks(pf, prices)), pf.holding_ratio(prices))
     history = pfm.load_history()
     nq = market_data.nq_live() if mode == "preopen" else None
     top_picks = [{"code": s["code"], "name": s["name"], "sector": s["sector"], "score": s["score"],

@@ -208,7 +208,7 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
     {"name": "get_daily_report", "description": "取得某日（預設最新）每日報告重點：攻守配置、交易建議、規則檢查、大盤預測、排行",
      "parameters": {"type": "object", "properties": {"date": {"type": "string", "description": "YYYY-MM-DD，可省略"}}}},
-    {"name": "get_portfolio", "description": "目前持股、現金、總資產、報酬率、持股率、交易紀錄",
+    {"name": "get_portfolio", "description": "目前持股、現金、總資產、報酬率、持股率、交易紀錄。nav／return_pct 是競賽 App 口徑（投資組合總值＝1,000 萬＋未實現＋已實現，手續費不扣，與 App 一致），nav_net／return_net_pct 為扣手續費後淨值，app.cash 為 App 的持有現金",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "search_news", "description": "搜尋新聞（個股名稱或關鍵字），回傳標題與連結",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},

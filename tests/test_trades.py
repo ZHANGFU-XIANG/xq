@@ -283,5 +283,26 @@ def test_deriv_review_equity_method():
     r = d["rows"][0]
     assert r["qty"] == 1 and r["unrealized"] == (50100 - 49875) * 200
     fees = pfm.deriv_cost("TX", 2, 49875) + pfm.deriv_cost("TX", 1, 50000)
-    assert r["realized"] == round((50000 - 49875) * 200 - fees)
+    assert r["realized"] == (50000 - 49875) * 200  # App 口徑：已實現不含手續費
+    assert r["fees"] == round(fees) and r["net_after_fees"] == r["realized"] + r["unrealized"] - round(fees)
     assert r["total_pnl"] == r["realized"] + r["unrealized"]
+
+
+def test_matches_competition_app_20261006():
+    """以 10/06 XQ 成交回報（44 筆證券＋大台 2 口）重播，與競賽 App「證券績效」逐項一致。"""
+    import csv
+    from pathlib import Path
+
+    rows = list(csv.DictReader(open(Path(__file__).parent / "fixtures" / "app_20261006_trades.csv", encoding="utf-8")))
+    pf = pfm.build_portfolio(rows)
+    close = {"2889": 16.2, "3591": 27.05, "2915": 57.6, "6213": 787.0, "1560": 1030.0, "3189": 1070.0,
+             "6196": 663.0, "2845": 12.85, "5880": 25.95}
+    prices = {**close, "TX202610": 50082.0}  # 期貨用日盤結算價
+    cost = sum(lot.amount for p in pf.positions.values() for lot in p.lots)
+    sec = sum(p.shares * close[c] for c, p in pf.positions.items()) - cost
+    assert cost == 7_702_300
+    assert round(sec) == 109_066
+    assert pf.derivs["TX202610"].value(50082.0) == 82_800
+    assert round(pfm.app_total(pf, prices)) == 10_191_866  # 投資組合總值（報酬率 1.9187%）
+    margin = 2 * 701_000  # 大台原始保證金
+    assert round(pf.cash + pf.futures_equity(prices) - margin) == 966_764  # 持有現金

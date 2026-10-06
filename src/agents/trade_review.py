@@ -30,11 +30,8 @@ def _tdays(d0: str, d1: str) -> int | None:
 
 
 def fee_tax(code: str, side: str, shares: int, price: float) -> tuple[float, float]:
-    """拆開手續費與證交稅（合計等於 portfolio.trade_cost）。"""
-    c = rules()["costs"]
-    amount = shares * price
-    fee = max(c["min_commission"], round(amount * c["commission"])) if shares else 0
-    tax = round(amount * (c["etf_tax"] if pfm.is_etf(code) else c["stock_tax"])) if side == "SELL" else 0
+    """拆開手續費與證交稅（與 portfolio.trade_cost 相同算法：價金捨去、手續費進位）。"""
+    fee, tax = pfm.fee_and_tax(code, side, shares, price)
     return float(fee), float(tax)
 
 
@@ -80,15 +77,17 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
         if side == "BUY":
             s["buys"] += 1
             s["buy_shares"] += shares
-            s["buy_amount"] += shares * price
-            d["buy_amount"] += shares * price
-            lots[code].append({"date": date, "shares": shares, "price": price, "unit_cost": (shares * price + fee) / shares})
+            amt = pfm.trade_amount(shares, price)
+            s["buy_amount"] += amt
+            d["buy_amount"] += amt
+            lots[code].append({"date": date, "shares": shares, "price": price, "amount": amt, "unit_cost": (amt + fee) / shares})
             continue
         s["sells"] += 1
         s["sell_shares"] += shares
-        s["sell_amount"] += shares * price
-        d["sell_amount"] += shares * price
-        net_unit = (shares * price - fee - tax) / shares  # 每股實收（扣手續費與證交稅）
+        amt = pfm.trade_amount(shares, price)
+        s["sell_amount"] += amt
+        d["sell_amount"] += amt
+        net_unit = (amt - fee - tax) / shares  # 每股實收（扣手續費與證交稅）
         left, pnl, cost, gross, day_sh = shares, 0.0, 0.0, 0.0, 0
         first = lots[code][0]["date"] if lots[code] else date
         while left > 0 and lots[code]:  # 先進先出：一次賣出可能跨好幾個買進批次
@@ -96,8 +95,9 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
             take = min(left, lot["shares"])
             pnl += take * (net_unit - lot["unit_cost"])
             cost += take * lot["unit_cost"]
-            gross += take * lot["price"]
+            gross += lot["amount"] * take / lot["shares"]
             day_sh += take * (_tdays(lot["date"], date) or 0)
+            lot["amount"] -= lot["amount"] * take / lot["shares"]
             lot["shares"] -= take
             left -= take
             if lot["shares"] == 0:
@@ -112,11 +112,12 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
     # 每檔：目前持有與未實現（同競賽 App：市值 − 成交價金，不含手續費）
     for code, s in per.items():
         held = sum(lt["shares"] for lt in lots[code])
-        gross = sum(lt["shares"] * lt["price"] for lt in lots[code])
+        gross = sum(lt["amount"] for lt in lots[code])
         px = prices.get(code)
         s["held_shares"] = held
         s["price"] = px
-        s["unrealized"] = round(held * px - gross) if held and px else 0
+        s["_unreal"] = held * px - gross if held and px else 0.0  # 未四捨五入，總計時先加總再四捨五入（同 App）
+        s["unrealized"] = round(s["_unreal"])
         s["total_pnl"] = round(s["realized"] + s["unrealized"])
         for k in ("buy_amount", "sell_amount", "fee", "tax", "realized"):
             s[k] = round(s[k])
@@ -129,7 +130,7 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
     fee_total = sum(s["fee"] for s in per.values())
     tax_total = sum(s["tax"] for s in per.values())
     realized = sum(s["realized"] for s in per.values())
-    unreal = sum(s["unrealized"] for s in per.values())
+    unreal = sum(s.pop("_unreal") for s in per.values())
     trade_count = sum(s["buys"] + s["sells"] for s in per.values()) + other["deriv"]
     req = rules().get("requirements", {})
     min_trades, min_symbols = req.get("min_trades", 10), req.get("min_symbols", 5)
@@ -163,7 +164,7 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
 
 
 def review_derivs(trades: list[dict], marks: dict[str, float]) -> dict:
-    """期貨／選擇權逐合約統計：損益＝期貨戶現金變化＋未平倉部位價值（已扣手續費與交易稅）。"""
+    """期貨／選擇權逐合約統計（App 口徑：已實現、未實現都不含手續費，手續費另列；net_after_fees 為扣費後）。"""
     by: dict[str, list[dict]] = defaultdict(list)
     for t in trades:
         if str(t["code"]).strip().upper() in ("FEE", "TRANSFER") or pfm.asset_of(t) not in ("FUT", "OPT"):
@@ -186,10 +187,12 @@ def review_derivs(trades: list[dict], marks: dict[str, float]) -> dict:
         unreal = (value if kind == "FUT" else (mark - d.avg_price) * mult * d.qty) if d else 0.0
         net = (pf.futures_cash - start) + value  # 現金變化（含手續費、平倉損益、權利金）＋部位價值
         fees = sum(pfm.deriv_cost(root, int(float(t["shares"])), float(t["price"])) for t in ts)
+        realized = net + fees - unreal  # 已實現不含手續費（與 App 相同：10/06 期貨已實現 0，手續費另計）
         rows.append({"contract": contract, "root": root, "kind": "期貨" if kind == "FUT" else "選擇權",
                      "name": pfm.deriv_spec(root)["name"], "trades": len(ts), "qty": qty,
                      "avg_price": round(avg, 2) if avg is not None else None, "mark": mark,
-                     "unrealized": round(unreal), "realized": round(net - unreal), "fees": round(fees), "total_pnl": round(net),
+                     "unrealized": round(unreal), "realized": round(realized), "fees": round(fees),
+                     "total_pnl": round(realized + unreal), "net_after_fees": round(net),
                      "first_date": ts[0]["date"], "last_date": ts[-1]["date"]})
     rows.sort(key=lambda r: -r["total_pnl"])
     return {"rows": rows, "realized": sum(r["realized"] for r in rows), "unrealized": sum(r["unrealized"] for r in rows),

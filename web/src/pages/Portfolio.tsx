@@ -63,13 +63,15 @@ export default function Portfolio() {
     <>
       <PageTitle>持股與交易</PageTitle>
       <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
-        <Stat label="總資產（含期貨、ETF）" value={fmtWan(p.nav)}
-          sub={`股票 ${fmtWan(b.stock_mv)}・ETF ${fmtWan(b.etf_mv)}・證券現金 ${fmtWan(b.cash)}・期貨權益 ${fmtWan(b.futures_equity)}${b.margin_loan ? `・融資 −${fmtWan(b.margin_loan)}` : ''}`} />
-        <Stat label="累積報酬（總資產）" value={fmtPct(p.return_pct)} valueClass={tone(p.return_pct)} sub="（總資產 − 1,000 萬）÷ 1,000 萬" />
-        <Stat label="未實現損益（證券＋期貨）" value={fmtInt(p.unrealized_total ?? p.unrealized_pnl)} valueClass={tone(p.unrealized_total ?? p.unrealized_pnl)}
-          sub={`證券 ${fmtInt(p.unrealized_pnl)}（同 App ${fmtPct(p.holding_return_pct)}）・期貨 ${fmtInt(p.futures_unrealized ?? 0)}`} />
-        <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub="股票＋ETF ÷ 總資產；規則下限 70%（期貨不計）" valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
-        <Stat label="證券戶現金" value={fmtWan(p.cash)} sub={`期貨戶權益 ${fmtWan(p.futures_equity ?? p.futures_cash)}`} />
+        <Stat label="投資組合總值（同 App）" value={fmtInt(p.nav)}
+          sub={`1,000 萬 ＋ 未實現 ＋ 已實現（手續費不扣）・扣費後淨值 ${fmtInt(p.nav_net)}`} />
+        <Stat label="投資報酬率（同 App）" value={fmtPct(p.return_pct, 4)} valueClass={tone(p.return_pct)}
+          sub={`扣手續費後 ${fmtPct(p.return_net_pct, 3)}・已付手續費 ${fmtInt(p.app?.fees_paid ?? p.fees_paid)}`} />
+        <Stat label="未實現損益（同 App）" value={fmtInt(p.unrealized_total ?? p.unrealized_pnl)} valueClass={tone(p.unrealized_total ?? p.unrealized_pnl)}
+          sub={`現股 ${fmtInt(p.unrealized_pnl)}・期貨 ${fmtInt(p.futures_unrealized ?? 0)}（收盤後用結算價）`} />
+        <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub={`股票 ${fmtWan(b.stock_mv)}＋ETF ${fmtWan(b.etf_mv)} ÷ 淨值；下限 70%（期貨不計）`} valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
+        <Stat label="持有現金（同 App）" value={fmtInt(p.app?.cash ?? p.cash)}
+          sub={`證券戶 ${fmtInt(p.cash)}＋期貨戶可用 ${fmtInt((p.app?.cash ?? p.cash) - p.cash)}（權益 ${fmtWan(p.futures_equity)} − 保證金 ${fmtWan(p.app?.margin ?? 0)}）`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />
       </div>
 

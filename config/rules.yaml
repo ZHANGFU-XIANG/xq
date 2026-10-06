@@ -31,7 +31,8 @@ costs:
   stock_tax: 0.003                  # 含現股當沖
   etf_tax: 0.001
   commission: 0.001425
-  min_commission: 20                # 假設值，依平台實際為準
+  min_commission: 20                # 每筆成交計算、無條件進位、最低 20 元（10/05 App 淨收付 7,664,805 = 價金 7,653,700 + 手續費 11,105 驗證）
+  amount_rounding: floor            # 成交價金 = 股數 × 價格，元以下無條件捨去（App 成本與未實現損益依此）
   index_futures_tax: 0.00002
   options_tax: 0.0001
 
@@ -61,7 +62,8 @@ futures:
     MTX: {name: 小型臺指, multiplier: 50, margin_name: 小型臺指}
     TMF: {name: 微型臺指期貨, multiplier: 10, margin_name: 微型臺指期貨}
     TXO: {name: 臺指選擇權, multiplier: 50}
-  commission_per_contract: {TX: 60, MTX: 30, TMF: 15, TXO: 25}   # 假設值（官網未列期貨手續費），依平台實際為準
+  commission_per_contract: {TX: 80, MTX: 30, TMF: 15, TXO: 25}   # TX 80 由 10/06 App 持有現金反推（2 口費用 560 = 2 ×（80 + 期交稅 200））；其餘為假設值
+  tax_rounding: ceil_per_contract   # 期交稅每口計算、無條件進位（49,875 點 × 200 × 0.002% = 199.5 → 200）
 
 penalties:
   holding_ratio_penalty: 0.002      # 每次扣報酬率 0.2%，每日收盤評估，只算實際持股

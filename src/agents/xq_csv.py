@@ -32,7 +32,9 @@ COLS = {
     "order_qty": ("原委託", "委託數量", "委託量"),
     "limit": ("價格", "委託價", "委託價格"),
     "filled": ("成交", "成交數量", "成交股數", "成交量"),
-    "avg": ("成交均價", "成交價", "成交價格"),
+    "avg": ("成交均價", "成交單價", "成交價", "成交價格"),
+    "order_no": ("委託書號", "委託單號", "書號"),
+    "amount": ("成交價金",),
     "date": ("交易日期", "成交日期", "日期"),
     "status": ("狀態", "委託狀態"),
 }
@@ -81,7 +83,8 @@ def _side(text: str) -> tuple[str | None, bool]:
     return None, False
 
 
-def parse(raw: bytes) -> dict:
+def parse(raw: bytes, date_map: dict[str, str] | None = None) -> dict:
+    """date_map：{委託書號: YYYY-MM-DD}，成交回報沒有日期時用來補（由同時上傳的委託回報取得）。"""
     text = decode(raw)
     rows = list(csv.reader(io.StringIO(text)))
     rows = [[c.strip().strip("\t").strip() for c in r] for r in rows if any(c.strip() for c in r)]
@@ -100,7 +103,10 @@ def parse(raw: bytes) -> dict:
 
     out, skipped, warns = [], [], []
     used_limit = False
-    for r in rows[1:]:
+    is_fills = idx["order_qty"] is None and idx["avg"] is not None  # 成交回報：每列一筆成交、有成交單價
+    nodate = 0
+    body = rows[1:][::-1] if is_fills else rows[1:]  # 成交回報由新到舊排列，反轉成時間順序（同日先進先出）
+    for seq, r in enumerate(body):
         name_cell = get(r, "name")
         kind_cell = get(r, "kind")
         if "選擇權" in kind_cell or "選擇權" in name_cell:
@@ -140,22 +146,61 @@ def parse(raw: bytes) -> dict:
             continue
         if not avg:
             used_limit = True
-        d = get(r, "date") or get(r, "time")[:10]
-        d = d.replace("/", "-")[:10]
+        d = (get(r, "date") or get(r, "time")[:10]).replace("/", "-")[:10]
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
-            skipped.append(f"{label}：日期格式看不懂（{d}）")
-            continue
-        out.append({"date": d, "time": get(r, "time"), "code": code, "name": name, "side": side, "margin": margin,
+            d = (date_map or {}).get(get(r, "order_no"), "")  # 成交回報的時間只有分秒 → 用委託書號對日期
+            if not d:
+                nodate += 1
+        out.append({"date": d, "time": f"{seq:05d}" if is_fills else get(r, "time"), "code": code, "name": name, "side": side, "margin": margin,
+                    "order_no": get(r, "order_no"), "amount_file": _num(get(r, "amount")),
                     "shares": shares, "price": round(price, 4), "price_source": "成交均價" if avg else "委託價",
                     "board": "零股" if odd else "整股", "status": status,
                     "partial": bool(_num(get(r, "order_qty")) and filled < (_num(get(r, "order_qty")) or 0))})
-    out.sort(key=lambda x: (x["date"], x["time"]))  # 依委託時間由早到晚，先進先出才正確
+    out.sort(key=lambda x: (x["date"] or "9999", x["time"]))  # 依時間由早到晚，先進先出才正確
     if used_limit:
         warns.append("這份 CSV 沒有成交均價，價格先用「委託價」。實際成交價可能較好（例如 10/05 聯茂零股委託 724、實際 723），"
                      "請對照 XQ 成交回報修改後再匯入，或匯入後在列表按「修改」。")
     if any(x["partial"] for x in out):
         warns.append("有部分成交的委託，只記錄已成交的數量。")
-    return {"rows": out, "skipped": skipped, "warnings": warns, "columns": header}
+    if nodate:
+        warns.append(f"{nodate} 筆成交沒有日期（成交回報只有時間）：請同時選擇委託回報 CSV 以委託書號對出日期，或在下方逐筆填寫。")
+    return {"rows": out, "skipped": skipped, "warnings": warns, "columns": header, "kind": "fills" if is_fills else "orders"}
+
+
+def order_dates(raw: bytes) -> dict[str, str]:
+    """委託回報 → {委託書號: 交易日期}。"""
+    rows = [[c.strip().strip("	").strip() for c in r] for r in csv.reader(io.StringIO(decode(raw))) if any(c.strip() for c in r)]
+    if not rows:
+        return {}
+    i_no, i_d = _col(rows[0], "order_no"), _col(rows[0], "date")
+    if i_no is None or i_d is None:
+        return {}
+    out = {}
+    for r in rows[1:]:
+        if max(i_no, i_d) < len(r):
+            d = r[i_d].replace("/", "-")[:10]
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                out[r[i_no]] = d
+    return out
+
+
+def parse_many(files: list[bytes]) -> dict:
+    """一次匯入多個 CSV：有成交回報就只用成交回報記帳（委託回報只用來補日期，避免重複計算）。"""
+    dmap: dict[str, str] = {}
+    for raw in files:
+        dmap.update(order_dates(raw))
+    parsed = [parse(raw, dmap) for raw in files]
+    errors = [p["error"] for p in parsed if p.get("error")]
+    ok = [p for p in parsed if not p.get("error")]
+    if not ok:
+        return {"error": "；".join(errors) or "沒有可匯入的資料"}
+    use = [p for p in ok if p["kind"] == "fills"] or ok
+    rows = sorted([r for p in use for r in p["rows"]], key=lambda x: (x["date"] or "9999", x["time"]))
+    notes = [w for p in use for w in p["warnings"]]
+    if len(use) < len(ok):
+        notes.append(f"同時有委託回報與成交回報：以成交回報（實際成交價）記帳，委託回報只用來對日期（對到 {len(dmap)} 筆委託書號）。")
+    return {"rows": rows, "skipped": [x for p in use for x in p["skipped"]], "warnings": list(dict.fromkeys(notes)) + errors,
+            "kinds": [p["kind"] for p in ok]}
 
 
 def _future(name: str) -> dict | None:
@@ -200,6 +245,7 @@ def _future_row(r, get, name_cell: str, fut: dict, skipped: list[str]) -> dict |
         return None
     d = (get(r, "date") or get(r, "time")[:10]).replace("/", "-")[:10]
     return {"kind": "FUT", "date": d, "time": get(r, "time"), "code": fut["root"], "name": name_cell, "side": side,
+            "order_no": get(r, "order_no"), "amount_file": None,
             "margin": False, "shares": int(round(filled)), "price": round(price, 4),
             "contract": f"{fut['root']}{fut['ym']}" if fut["ym"] else "", "ym": fut["ym"] or "",
             "price_source": "成交均價" if avg else "委託價", "board": get(r, "open_close") or "期貨", "status": get(r, "status"),

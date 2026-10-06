@@ -170,10 +170,10 @@ export default function Overview() {
       <Balance report={r} />
 
       <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
-        <Stat label="總資產（含期貨、ETF）" value={fmtWan(pf.nav)}
+        <Stat label="投資組合總值（同 App）" value={fmtWan(pf.nav)}
           sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}・${live.as_of}` : '盤前報告快照'} />
-        <Stat label="累積報酬" value={fmtPct(pf.return_pct)} valueClass={tone(pf.return_pct)}
-          sub={live?.holding_return_pct != null ? `總資產為準・App 未實現損益 ${fmtPct(live.holding_return_pct)}` : '總資產為準'} />
+        <Stat label="投資報酬率（同 App）" value={fmtPct(pf.return_pct, 4)} valueClass={tone(pf.return_pct)}
+          sub={live?.return_net_pct != null ? `扣手續費後 ${fmtPct(live.return_net_pct, 3)}` : '盤前報告快照'} />
         <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />
         <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
           sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔・買賣各算一筆`} />

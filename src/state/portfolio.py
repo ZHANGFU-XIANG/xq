@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import math
 import io
 import json
 from dataclasses import dataclass, field
@@ -44,12 +45,13 @@ def deriv_spec(root: str) -> dict:
 
 
 def deriv_cost(root: str, qty: int, price: float) -> float:
-    """期貨／選擇權成本：手續費（每口，假設值）＋交易稅（期貨 0.002%、選擇權依權利金）。"""
+    """期貨／選擇權成本：每口手續費＋每口交易稅（無條件進位，與競賽 App 相同；10/06 大台 2 口 = 560 元驗證）。"""
     fr = rules()["futures"]
     c = rules()["costs"]
     mult = deriv_spec(root)["multiplier"]
     tax_rate = c["options_tax"] if root == "TXO" else c["index_futures_tax"]
-    return float(fr["commission_per_contract"].get(root, 30) * qty + round(price * mult * qty * tax_rate))
+    per_lot_tax = math.ceil(price * mult * tax_rate - 1e-9)
+    return float((fr["commission_per_contract"].get(root, 30) + per_lot_tax) * qty)
 
 
 def parse_option(contract: str) -> dict:
@@ -63,11 +65,23 @@ def is_etf(code: str) -> bool:
     return code.startswith("00") or bool(stock_meta(code).get("is_etf"))
 
 
-def trade_cost(code: str, side: str, shares: int, price: float) -> float:
+def trade_amount(shares: int, price: float) -> int:
+    """成交價金：股數 × 價格，元以下無條件捨去（與競賽 App 相同，例如 528 股 × 28.6 = 15,100.8 → 15,100）。"""
+    return int(math.floor(shares * price + 1e-6))
+
+
+def fee_and_tax(code: str, side: str, shares: int, price: float) -> tuple[int, int]:
+    """手續費：每筆成交 0.1425%、無條件進位、最低 20 元（App 驗證）。
+    證交稅：賣出時 0.3%（ETF 0.1%），元以下捨去（法定計算方式；尚未有賣出紀錄可與 App 核對）。"""
     c = rules()["costs"]
-    amount = shares * price
-    fee = max(c["min_commission"], round(amount * c["commission"])) if shares else 0
-    tax = round(amount * (c["etf_tax"] if is_etf(code) else c["stock_tax"])) if side == "SELL" else 0
+    amount = trade_amount(shares, price)
+    fee = max(c["min_commission"], math.ceil(amount * c["commission"] - 1e-9)) if shares else 0
+    tax = math.floor(amount * (c["etf_tax"] if is_etf(code) else c["stock_tax"]) + 1e-9) if side == "SELL" else 0
+    return int(fee), int(tax)
+
+
+def trade_cost(code: str, side: str, shares: int, price: float) -> float:
+    fee, tax = fee_and_tax(code, side, shares, price)
     return float(fee + tax)
 
 
@@ -79,6 +93,7 @@ class Lot:
     price: float
     cost_basis: float              # 含手續費（部分賣出後按比例遞減）
     note: str = ""
+    amount: float = 0.0            # 成交價金（不含手續費，元以下捨去；部分賣出後按比例遞減）
 
     @property
     def unit_cost(self) -> float:
@@ -230,21 +245,22 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
         shares, price = int(float(t["shares"])), float(t["price"])
         margin = str(t.get("margin", "0")).strip() in ("1", "true", "True", "Y")
         cost = trade_cost(code, side, shares, price)
+        amount = trade_amount(shares, price)
         pos = pf.positions.setdefault(code, Position(code))
         if side == "BUY":
-            loan = round(shares * price * credit["margin_ratio"]) if margin else 0.0
-            pf.cash -= shares * price + cost - loan
+            loan = round(amount * credit["margin_ratio"]) if margin else 0.0
+            pf.cash -= amount + cost - loan
             pos.shares += shares
-            pos.cost_basis += shares * price + cost
+            pos.cost_basis += amount + cost
             pos.margin_loan += loan
-            pos.lots.append(Lot(t.get("date", ""), shares, price, shares * price + cost, t.get("note") or ""))
+            pos.lots.append(Lot(t.get("date", ""), shares, price, amount + cost, t.get("note") or "", amount))
         elif side == "SELL":
             if shares > pos.shares:
                 raise ValueError(f"{t['date']} {code} 賣出 {shares} 股超過持有 {pos.shares} 股")
             frac = shares / pos.shares
             repay = pos.margin_loan * frac
             basis = _consume_fifo(pos, shares)
-            proceeds = shares * price - cost
+            proceeds = amount - cost
             pf.cash += proceeds - repay
             pf.realized_pnl += proceeds - basis
             pos.shares -= shares
@@ -286,6 +302,7 @@ def _consume_fifo(pos: Position, shares: int) -> float:
         part = lot.cost_basis * take / lot.shares
         basis += part
         lot.cost_basis -= part
+        lot.amount -= lot.amount * take / lot.shares
         lot.shares -= take
         left -= take
         if lot.shares == 0:
@@ -354,3 +371,14 @@ def record_history(date: str, nav: float, holding_ratio: float) -> list[dict]:
     hist.sort(key=lambda h: h["date"])
     HISTORY_JSON.write_text(json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
     return hist
+
+
+def app_total(pf: Portfolio, prices: dict[str, float]) -> float:
+    """競賽 App「投資組合總值」＝ 初始資金 ＋ 未實現 ＋ 已實現（手續費不從總值扣）。
+    現股未實現＝市值 − 成交價金；期貨未實現用 prices 中的合約價（收盤後為結算價）。"""
+    sec = sum(p.shares * prices.get(c, p.avg_cost) - sum(lot.amount for lot in p.lots) for c, p in pf.positions.items())
+    fut = 0.0
+    for c, d in pf.derivs.items():
+        px = prices.get(c, d.avg_price)
+        fut += d.value(px) if d.kind == "FUT" else (px - d.avg_price) * d.multiplier * d.qty
+    return rules()["capital"]["initial"] + sec + fut + pf.realized_pnl

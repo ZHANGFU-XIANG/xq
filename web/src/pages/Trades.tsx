@@ -340,7 +340,7 @@ function SegmentSummary({ s, seg }: { s: Json; seg: Seg }) {
   return (
     <div className="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-5">
       <Stat label={`${SEG_LABEL[seg]}總損益`} value={fmtInt(g.total_pnl)} valueClass={tone(g.total_pnl)} sub="已實現＋未實現" />
-      <Stat label="已實現" value={fmtInt(g.realized)} valueClass={tone(g.realized)} sub={seg === 'sec' ? '含手續費與證交稅' : seg === 'fut' ? '含期貨手續費與交易稅' : '證券＋期貨'} />
+      <Stat label="已實現" value={fmtInt(g.realized)} valueClass={tone(g.realized)} sub={seg === 'sec' ? '含手續費與證交稅' : seg === 'fut' ? '不含手續費（同 App）' : '證券＋期貨'} />
       <Stat label="未實現" value={fmtInt(g.unrealized)} valueClass={tone(g.unrealized)} sub={seg === 'fut' ? '期交所即時價' : '證券：市值 − 成交價金（同 App）'} />
       <Stat label="手續費＋稅" value={fmtInt(g.fees)} />
       <Stat label="交易筆數／標的" value={`${g.trade_count}／${g.symbols}`} />

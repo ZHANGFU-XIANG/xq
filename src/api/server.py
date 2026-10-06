@@ -207,24 +207,28 @@ def trade_bulk_delete(body: TradeBulkDelete):
 
 
 class CsvFile(BaseModel):
-    data: str  # base64（瀏覽器讀檔，XQ 匯出為 Big5）
+    data: str | None = None  # base64（瀏覽器讀檔，XQ 匯出為 Big5）
+    files: list[str] = []    # 一次多個檔案（成交回報＋委託回報：委託回報用來對出成交日期）
 
 
 @app.post("/api/xq/csv", dependencies=[api])
 def xq_csv_(body: CsvFile):
-    """XQ 匯出的委託／成交回報 CSV → 成交草稿（標示已記錄過的），使用者核對價格後用 /api/trades/bulk 寫入。"""
+    """XQ 匯出的委託／成交回報 CSV → 成交草稿（標示已記錄過的），使用者核對後用 /api/trades/bulk 寫入。"""
     import base64
 
     from src.agents import xq_csv
     from src.state import portfolio as pfm
 
-    if len(body.data) > 3_000_000:
-        raise HTTPException(413, "檔案太大（上限約 2MB）")
+    blobs = [x for x in ([body.data] if body.data else []) + body.files if x]
+    if not blobs:
+        raise HTTPException(400, "沒有檔案")
+    if sum(len(x) for x in blobs) > 6_000_000:
+        raise HTTPException(413, "檔案太大（合計上限約 4MB）")
     try:
-        raw = base64.b64decode(body.data.split(",", 1)[1] if body.data.startswith("data:") else body.data)
+        raws = [base64.b64decode(x.split(",", 1)[1] if x.startswith("data:") else x) for x in blobs]
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, "檔案格式錯誤") from e
-    out = xq_csv.parse(raw)
+    out = xq_csv.parse_many(raws)
     if out.get("rows") is not None:
         xq_csv.mark_duplicates(out["rows"])
     out["version"] = pfm.trades_version()
