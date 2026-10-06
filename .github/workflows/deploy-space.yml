@@ -8,6 +8,11 @@ on:
     paths-ignore: ["data/**", "reports/**", "config/learned_params.yaml", "docs/**", "README.md"]
   workflow_dispatch:
 
+# 同時只部署一次：連續推送時排隊執行，避免兩個部署同時推到 Space 被拒絕（10/06 22:56 發生過）
+concurrency:
+  group: deploy-space
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
