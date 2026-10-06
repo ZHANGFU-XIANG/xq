@@ -157,3 +157,26 @@ def test_xq_futures_csv(ledger):
     assert len(r["skipped"]) == 1  # 刪單略過
     assert xq_csv._future("小型台指106") == {"root": "MTX", "ym": "202610"}
     assert xq_csv._future("微型台指1610")["ym"] is None  # 讀不出合理年月 → 讓使用者填
+
+
+def test_attribution_survives_nan_rows(monkeypatch):
+    """10/06 盤前：yfinance 加權指數／個股最後一列 NaN 讓整份報告失敗。"""
+    import numpy as np
+    import pandas as pd
+
+    from src.agents import attribution
+
+    monkeypatch.setattr(attribution, "tw_institutional", lambda c: pd.DataFrame())
+    idx = pd.bdate_range("2026-07-01", periods=60)
+    rng = np.random.default_rng(0)
+    close = pd.Series(20000 * np.cumprod(1 + rng.normal(0, 0.01, 60)), index=idx)
+    tx = pd.DataFrame({"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1.0})
+    tx.loc[idx[-2], "Close"] = np.nan  # 中間缺一天
+    stock = pd.DataFrame({"Open": close / 100, "Close": close / 100, "Volume": 1000.0}, index=idx)
+    bad = stock.copy()
+    bad.loc[idx[-2]:, "Close"] = np.nan  # 這檔最後兩天沒有價格
+    out = attribution.attribute({"2330": 1000, "2884": 1000}, {"2330": stock, "2884": bad}, tx, ["2330", "2884"],
+                                pd.Timestamp(idx[-1]) + pd.Timedelta(days=1), {}, {})
+    assert out["taiex_ret_pct"] == out["taiex_ret_pct"]  # 不是 NaN
+    assert [r["code"] for r in out["rows"]] == ["2330"]
+    assert all(isinstance(r["pnl"], int) for r in out["rows"])

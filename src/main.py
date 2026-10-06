@@ -125,7 +125,12 @@ def run_daily(mode: str, today: dt.date) -> dict:
     # 今日漲跌歸因（持股；尚無持股時改為前 5 名候選）
     att_targets = {c: p.shares for c, p in pf.positions.items()} or {s["code"]: 0 for s in ranked[:5]}
     us_prev = {r["ticker"]: r for r in market_data.us_snapshot(us_hist, (ctx["taiex"][ctx["taiex"].index < pd.Timestamp(target)].index[-1]).date())}
-    att = attribution.attribute(att_targets, panel, ctx["taiex"], ctx["codes"], pd.Timestamp(target), us_prev, senti["by_code"])
+    try:
+        att = attribution.attribute(att_targets, panel, ctx["taiex"], ctx["codes"], pd.Timestamp(target), us_prev, senti["by_code"])
+    except Exception as e:  # noqa: BLE001  歸因只是報告的一節，資料缺值時不能讓整份盤前報告失敗（10/06 07:00、08:20 就是這樣）
+        log.exception("漲跌歸因失敗，本次報告略過歸因：%s", e)
+        last = ctx["taiex"][ctx["taiex"].index < pd.Timestamp(target)]
+        att = {"date": str(last.index[-1].date()), "taiex_ret_pct": None, "sector_median_pct": {}, "rows": [], "total_pnl": 0}
     today_pnls = {r["code"]: r["pnl"] for r in att["rows"] if r["shares"]}
 
     # ---- 決策層

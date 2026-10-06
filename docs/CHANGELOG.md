@@ -5,6 +5,7 @@
 ## 2026-10-06
 
 **伺服器錯誤與 log 問題修正**（依 Hugging Face Space 執行 log）
+- 10/06 07:00 盤前報告、08:20 開盤前更新雲端執行失敗（`cannot convert float NaN to integer`，10:37 備援排程才補跑出盤前報告）：盤前時段 yfinance 加權指數／美股最後一列是 NaN，漲跌歸因計算崩潰。加權指數與美股資料去掉缺值列；歸因遇缺值跳過該檔；歸因整段出錯時改記警告、報告照常產出。
 - `/api/report` 500（持股頁、每日建議頁打不開）：10/06 盤前報告的美股快照 19 檔是 NaN（yfinance 最後一列缺值），JSON 無法輸出。美股資料去掉缺值列、報告存檔與所有 API 回應把 NaN 轉成 null，並修復 10/06 報告檔。
 - 網站盤中即時通知信一天失敗 50 次（`Network is unreachable`）：Hugging Face Space 不能連外部 SMTP。改由網站觸發 GitHub Actions `send-email.yml` 代寄；失敗 10 分鐘後才重試。
 - 證交所 MIS／上市上櫃行情逾時或斷線：失敗重試一次；MIS 失敗時沿用 15 分鐘內的最後報價，總資產不再瞬間跳回昨收。

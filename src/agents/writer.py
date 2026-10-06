@@ -58,7 +58,7 @@ def template_text(facts: dict) -> dict:
                    f"（{tx['after_open']}）；樣本外方向命中率 {tx['gap_hit_rate'] * 100:.1f}%，誤差區間約 ±{tx['gap_band_pct']:.2f}%。")
     att = facts.get("attribution") or {}
     daily = _fmt_list(att.get("rows", []), lambda r: f"{r['code']} {r['name']} {r['verdict']}", "尚無持股可歸因。")
-    if att:
+    if att and att.get("taiex_ret_pct") is not None:
         daily = f"{att['date']} 加權指數 {att['taiex_ret_pct']:+.2f}%。" + daily
     rec = facts.get("recovery") or {}
     recovery = "；".join(rec.get("summary", [])) + "。" + _fmt_list(

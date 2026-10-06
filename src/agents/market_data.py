@@ -195,7 +195,8 @@ def taiex(years: int = 3) -> pd.DataFrame:
         df.index = pd.to_datetime(df.index.date)
         return df[["Open", "High", "Low", "Close", "Volume"]]
 
-    return _cached(f"taiex_{years}y_{dt.date.today()}", fetch, 3)
+    # 盤前時段 yfinance 最後一列可能是 NaN（10/06 盤前、開盤前更新因此失敗），一律去掉
+    return _cached(f"taiex_{years}y_{dt.date.today()}", fetch, 3).dropna(subset=["Close"])
 
 
 def tw_revenue(code: str) -> dict:

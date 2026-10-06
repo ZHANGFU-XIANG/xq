@@ -6,23 +6,29 @@
 """
 from __future__ import annotations
 
+import logging
+import math
+
 import pandas as pd
 
 from src.agents.market_data import tw_institutional
 from src.config import stock_meta
+
+log = logging.getLogger(__name__)
 
 
 def _beta(stock: pd.Series, mkt: pd.Series, n: int = 120) -> float:
     df = pd.concat([stock, mkt], axis=1, join="inner").dropna().tail(n)
     if len(df) < 30 or df.iloc[:, 1].var() == 0:
         return 1.0
-    return float(df.iloc[:, 0].cov(df.iloc[:, 1]) / df.iloc[:, 1].var())
+    b = float(df.iloc[:, 0].cov(df.iloc[:, 1]) / df.iloc[:, 1].var())
+    return b if math.isfinite(b) else 1.0
 
 
 def attribute(codes_shares: dict[str, int], panel: dict[str, pd.DataFrame], taiex: pd.DataFrame,
               universe_codes: list[str], target: pd.Timestamp, us_snap_prev: dict[str, dict],
               senti_by_code: dict) -> dict:
-    tx = taiex[taiex.index < target]
+    tx = taiex[taiex.index < target].dropna(subset=["Close"])  # 資料源偶有 NaN 列
     day = tx.index[-1]
     mkt_ret = float(tx.Close.iloc[-1] / tx.Close.iloc[-2] - 1)
     mret_series = tx.Close.pct_change()
@@ -47,8 +53,15 @@ def attribute(codes_shares: dict[str, int], panel: dict[str, pd.DataFrame], taie
         df = panel.get(code)
         if df is None or day not in df.index:
             continue
-        df = df[df.index <= day]
+        df = df[df.index <= day].dropna(subset=["Close"])
+        if len(df) < 2 or df.index[-1] != day:
+            continue
         prev_c, c, o = float(df.Close.iloc[-2]), float(df.Close.iloc[-1]), float(df.Open.iloc[-1])
+        if not (math.isfinite(o) and o > 0):
+            o = c
+        if not all(math.isfinite(x) and x > 0 for x in (prev_c, c)):
+            log.warning("歸因略過 %s：價格缺值", code)
+            continue
         ret = c / prev_c - 1
         meta = stock_meta(code)
         beta = _beta(df.Close.pct_change(), mret_series)
@@ -63,6 +76,8 @@ def attribute(codes_shares: dict[str, int], panel: dict[str, pd.DataFrame], taie
         gap = o / prev_c - 1
         intra = c / o - 1
         vol_ratio = float(df.Volume.iloc[-1] / df.Volume.tail(21).head(20).mean())
+        if not math.isfinite(vol_ratio):
+            vol_ratio = 1.0
         inst = tw_institutional(code)
         inst_today = None
         if not inst.empty and pd.Timestamp(day) in inst.index:
