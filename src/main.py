@@ -308,9 +308,12 @@ def run_weekly(today: dt.date) -> None:
     d.image(nav_png)
     d.h1("本週交易紀錄")
     if trades:
-        d.table(["日期", "代號", "方向", "股數", "價格", "融資", "備註"],
-                [[t["date"], t["code"], t["side"], t["shares"], t["price"], t.get("margin", ""), t.get("note", "")]
-                 for t in trades])
+        from src.agents.weekly import _merge_fills
+
+        rows = _merge_fills([t for t in trades if t["code"].upper() not in ("FEE", "TRANSFER")])  # 同一委託多次成交合併
+        d.table(["日期", "代號", "方向", "數量", "均價", "成交筆數", "備註"],
+                [[t["date"], t.get("contract") or t["code"], "買進" if t["side"] == "BUY" else "賣出", t["shares"], t["price"],
+                  t.get("fills", 1), t.get("note", "")] for t in rows])
     else:
         d.para("本週無交易。")
     docx_builder.tuner_section(d, tune, ctx["alpha"])
