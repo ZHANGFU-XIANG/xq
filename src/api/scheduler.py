@@ -17,8 +17,10 @@ from src import schedule
 from src.config import now_tw
 
 log = logging.getLogger(__name__)
-_sent: set[str] = set()  # 今天已觸發的時段（日期＋key）
+_sent: dict[str, tuple[float, int]] = {}  # 今天已觸發的時段（日期＋key）→ (最後觸發時間, 已觸發次數)
 _retry_at: dict[str, float] = {}  # 觸發失敗的時段 5 分鐘後再試
+RERUN_AFTER = 15 * 60  # 觸發後 15 分鐘仍未完成（執行失敗）→ 有效時間內再觸發
+MAX_TRIES = 3
 state: dict = {"last": None, "error": None}
 
 
@@ -35,14 +37,19 @@ def tick(now=None) -> list[str]:
     fired = []
     for key, mode, _start in schedule.due(now):
         tag = f"{now.date()} {key}"
-        if tag in _sent or schedule.done(key, now.date()) or time.time() < _retry_at.get(tag, 0):
+        if schedule.done(key, now.date()) or time.time() < _retry_at.get(tag, 0):
             continue
+        last, tries = _sent.get(tag, (0.0, 0))
+        if tries and (tries >= MAX_TRIES or time.time() - last < RERUN_AFTER):
+            continue
+        # 已觸發過但 15 分鐘後仍未完成：多半是執行失敗（例如 10/06 盤前資料缺值），有效時間內重試；
+        # 若其實已完成只是還沒同步到網站，workflow 的 gate 會略過，不會重算
         try:
             dispatch(mode)
-            _sent.add(tag)
+            _sent[tag] = (time.time(), tries + 1)
             fired.append(key)
             state.update(last={"key": key, "time": now.strftime("%m/%d %H:%M:%S")}, error=None)
-            log.info("已觸發排程 %s", key)
+            log.info("已觸發排程 %s%s", key, f"（第 {tries + 1} 次，前次未完成）" if tries else "")
         except Exception as e:  # noqa: BLE001
             _retry_at[tag] = time.time() + 300
             state["error"] = f"{now:%m/%d %H:%M} {key}：{str(e)[:160]}"

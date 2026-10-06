@@ -180,3 +180,29 @@ def test_attribution_survives_nan_rows(monkeypatch):
     assert out["taiex_ret_pct"] == out["taiex_ret_pct"]  # 不是 NaN
     assert [r["code"] for r in out["rows"]] == ["2330"]
     assert all(isinstance(r["pnl"], int) for r in out["rows"])
+
+
+def test_scheduler_retries_unfinished_slot(monkeypatch):
+    """觸發後 15 分鐘仍未完成 → 有效時間內重試，最多 3 次；完成後不再觸發。"""
+    import datetime as dt
+
+    from src import schedule
+    from src.api import scheduler
+    from src.config import TW_TZ
+
+    clock = {"t": dt.datetime(2026, 10, 7, 8, 20, tzinfo=TW_TZ)}
+    done = {"v": False}
+    fired = []
+    monkeypatch.setattr(scheduler, "_sent", {})
+    monkeypatch.setattr(scheduler, "dispatch", lambda mode: fired.append((clock["t"].strftime("%H:%M"), mode)))
+    monkeypatch.setattr(scheduler.time, "time", lambda: clock["t"].timestamp())
+    monkeypatch.setattr(schedule, "done", lambda key, day: done["v"])
+    for _ in range(80):  # 08:20 ~ 09:00，每 30 秒（第 3 次後不再觸發）
+        scheduler.tick(clock["t"])
+        clock["t"] += dt.timedelta(seconds=30)
+    assert [f for f in fired if f[1] == "preopen"] == [("08:20", "preopen"), ("08:35", "preopen"), ("08:50", "preopen")]
+    done["v"] = True
+    n = len(fired)
+    clock["t"] = dt.datetime(2026, 10, 7, 9, 0, tzinfo=TW_TZ)
+    scheduler.tick(clock["t"])
+    assert len(fired) == n  # 已完成就不觸發

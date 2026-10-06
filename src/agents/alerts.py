@@ -62,7 +62,7 @@ def _get_json(url: str, params: dict | None = None, timeout: float | tuple = 30,
         except Exception:  # noqa: BLE001
             if i == tries - 1:
                 raise
-            time.sleep(1)
+            time.sleep(1 + 2 * i)
 
 
 def _is_stock_code(code: str) -> bool:
@@ -87,7 +87,7 @@ def market_quotes() -> list[dict]:
         except Exception as e:  # noqa: BLE001
             log.warning("上市行情失敗：%s", e)
         try:
-            for x in _get_json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=60):
+            for x in _get_json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=60, tries=3):
                 code = x["SecuritiesCompanyCode"]
                 close, chg = _num(x.get("Close")), _num(x.get("Change"))
                 if not _is_stock_code(code) or not close or chg is None:
