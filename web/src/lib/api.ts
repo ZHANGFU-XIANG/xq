@@ -64,6 +64,17 @@ export const post = (path: string, body?: unknown): Promise<Json> =>
     body: body === undefined ? undefined : JSON.stringify(body),
   }).then(handle)
 
+export const put = (path: string, body?: unknown): Promise<Json> =>
+  fetch(path, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(handle)
+
+export const del = (path: string): Promise<Json> =>
+  fetch(path, { method: 'DELETE', credentials: 'include', headers: authHeaders() }).then(handle)
+
 export type ChatEvent =
   | { type: 'tool'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; name: string; ok: boolean; action: { id: string; summary: string } | null }

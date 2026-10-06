@@ -13,6 +13,8 @@ trades.csv 欄位：date,code,side,shares,price,margin,note,asset,contract
 from __future__ import annotations
 
 import csv
+import hashlib
+import io
 import json
 from dataclasses import dataclass, field
 
@@ -186,6 +188,25 @@ def append_trades(rows: list[dict]) -> None:
             w.writeheader()
         for r in rows:
             w.writerow({k: r.get(k, "") for k in TRADE_FIELDS})
+
+
+def trades_csv_text(rows: list[dict]) -> str:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=TRADE_FIELDS, lineterminator="\n")
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: r.get(k, "") or "" for k in TRADE_FIELDS})
+    return buf.getvalue()
+
+
+def trades_version(rows: list[dict] | None = None) -> str:
+    """交易紀錄內容的指紋：手動修改時用來確認編輯的是最新版本（避免覆蓋別處剛寫入的成交）。"""
+    return hashlib.sha1(trades_csv_text(load_trades() if rows is None else rows).encode("utf-8")).hexdigest()[:12]
+
+
+def write_trades(rows: list[dict]) -> None:
+    """整份改寫 trades.csv（手動新增／修改／刪除用）。"""
+    TRADES_CSV.write_text(trades_csv_text(rows), encoding="utf-8", newline="")
 
 
 def build_portfolio(trades: list[dict] | None = None) -> Portfolio:

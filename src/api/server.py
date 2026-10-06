@@ -20,11 +20,24 @@ from sse_starlette.sse import EventSourceResponse
 from src.agents import on_demand
 from src.api import auth, chat_agent, data, notifier, scheduler, sync
 from src.config import CACHE_DIR, DATA_DIR, FACTS_DIR, REPORT_DIR, ROOT
+from src.utils import json_safe
 
 log = logging.getLogger("api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _cloud = sync.cloud()
-app = FastAPI(title="投資競賽助手", docs_url=None if _cloud else "/api/docs", openapi_url=None if _cloud else "/api/openapi.json")
+
+
+class SafeJSONResponse(JSONResponse):
+    """任何 API 回應裡的 NaN／Infinity 都轉成 null，避免單一缺值讓整頁 500（10/06 盤前報告的美股快照就是這樣壞的）。"""
+
+    def render(self, content) -> bytes:
+        try:
+            return super().render(content)
+        except ValueError:
+            return super().render(json_safe(content))
+
+
+app = FastAPI(title="投資競賽助手", default_response_class=SafeJSONResponse, docs_url=None if _cloud else "/api/docs", openapi_url=None if _cloud else "/api/openapi.json")
 for _d in (DATA_DIR, CACHE_DIR, FACTS_DIR, REPORT_DIR):  # 公開 Space 不含資料夾，啟動時建立
     _d.mkdir(parents=True, exist_ok=True)
 _LOGIN_FAILS: dict[str, list[float]] = {}
@@ -133,6 +146,55 @@ def news(key: str | None = None):
 @app.get("/api/portfolio", dependencies=[api])
 def portfolio():
     return data.portfolio()
+
+
+# ---------------------------------------------------------------- 交易紀錄：手動新增／修改／刪除與統計
+class TradeIn(BaseModel):
+    date: str
+    code: str
+    side: str
+    shares: float
+    price: float
+    margin: bool = False
+    note: str = ""
+
+
+class TradeEdit(BaseModel):
+    version: str
+    trade: TradeIn | None = None
+
+
+def _trade_op(op: str, version: str, trade: TradeIn | None = None, tid: int | None = None):
+    try:
+        return data.trade_mutate(op, version, trade.model_dump() if trade else None, tid)
+    except sync.ConflictError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/trades", dependencies=[api])
+def trades_():
+    return data.trade_ledger()
+
+
+@app.post("/api/trades", dependencies=[api])
+def trade_add(body: TradeEdit):
+    if not body.trade:
+        raise HTTPException(400, "缺少交易內容")
+    return _trade_op("add", body.version, body.trade)
+
+
+@app.put("/api/trades/{tid}", dependencies=[api])
+def trade_update(tid: int, body: TradeEdit):
+    if not body.trade:
+        raise HTTPException(400, "缺少交易內容")
+    return _trade_op("update", body.version, body.trade, tid)
+
+
+@app.delete("/api/trades/{tid}", dependencies=[api])
+def trade_delete(tid: int, version: str):
+    return _trade_op("delete", version, None, tid)
 
 
 @app.get("/api/quotes", dependencies=[api])

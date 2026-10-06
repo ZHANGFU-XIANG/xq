@@ -52,6 +52,19 @@ def _roc_date(s) -> str | None:
     return s or None
 
 
+def _get_json(url: str, params: dict | None = None, timeout: float | tuple = 30, tries: int = 2):
+    """GET JSON，失敗（逾時、連線中斷、回傳空白）間隔 1 秒重試；證交所／櫃買偶爾斷線或回空內容，重試一次多半就好。"""
+    for i in range(tries):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception:  # noqa: BLE001
+            if i == tries - 1:
+                raise
+            time.sleep(1)
+
+
 def _is_stock_code(code: str) -> bool:
     return bool(re.fullmatch(r"\d{4}|00\d{2,4}[A-Z]?", code))
 
@@ -63,7 +76,7 @@ def market_quotes() -> list[dict]:
     def fetch():
         out = []
         try:
-            for x in requests.get("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", timeout=30).json():
+            for x in _get_json("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", timeout=30):
                 close, chg = _num(x.get("ClosingPrice")), _num(x.get("Change"))
                 if not _is_stock_code(x["Code"]) or not close or chg is None:
                     continue
@@ -74,7 +87,7 @@ def market_quotes() -> list[dict]:
         except Exception as e:  # noqa: BLE001
             log.warning("上市行情失敗：%s", e)
         try:
-            for x in requests.get("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=60).json():
+            for x in _get_json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", timeout=60):
                 code = x["SecuritiesCompanyCode"]
                 close, chg = _num(x.get("Close")), _num(x.get("Change"))
                 if not _is_stock_code(code) or not close or chg is None:
@@ -160,6 +173,7 @@ def attention_lists() -> dict[str, dict]:
 # ---------------------------------------------------------------- 盤中即時報價
 _RT: dict[str, tuple[float, dict]] = {}  # 每檔即時報價快取：不同頁面、不同組合的請求共用，減少打證交所 MIS 的次數
 RT_TTL = 4.0
+RT_STALE = 900.0
 
 
 def realtime(codes: list[str]) -> dict[str, dict]:
@@ -173,16 +187,17 @@ def realtime(codes: list[str]) -> dict[str, dict]:
     for i in range(0, len(missing), 80):
         for c, q in _realtime_fetch(missing[i:i + 80]).items():
             _RT[c] = (time.time(), q)
-    return {c: _RT[c][1] for c in codes if c in _RT and time.time() - _RT[c][0] < 120}
+    # MIS 偶爾逾時：沿用 15 分鐘內最後一次報價（避免損益瞬間跳回昨收），更舊的才放棄
+    return {c: _RT[c][1] for c in codes if c in _RT and time.time() - _RT[c][0] < RT_STALE}
 
 
 def _realtime_fetch(codes: list[str]) -> dict[str, dict]:
     chans = "|".join(f"{'otc' if stock_meta(c).get('market') == 'TPEx' else 'tse'}_{c}.tw" for c in codes)
     try:
-        r = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
-                         params={"ex_ch": chans, "json": 1, "delay": 0}, timeout=15)
+        js = _get_json("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
+                       params={"ex_ch": chans, "json": 1, "delay": 0}, timeout=(5, 10))
         out = {}
-        for m in r.json().get("msgArray", []):
+        for m in js.get("msgArray", []):
             last = _num(m.get("z")) or _num((m.get("b") or "").split("_")[0]) or _num(m.get("o"))
             prev = _num(m.get("y"))
             up, down = _num(m.get("u")), _num(m.get("w"))
@@ -530,7 +545,7 @@ def taiex_today() -> dict | None:
 
     def fetch():
         try:
-            for x in requests.get("https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX", timeout=30).json():
+            for x in _get_json("https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX", timeout=30):
                 if x.get("指數") == "發行量加權股價指數":
                     pct = _num(x.get("漲跌百分比")) or 0.0
                     return {"close": _num(x.get("收盤指數")), "chg_pct": -pct if x.get("漲跌") == "-" else pct,

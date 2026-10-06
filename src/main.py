@@ -29,6 +29,7 @@ from src.llm.client import get_client
 from src.reports import charts, docx_builder, emailer, pptx_builder
 from src.state import params
 from src.state import portfolio as pfm
+from src.utils import json_safe
 
 log = logging.getLogger("orchestrator")
 PENDING_JSON = DATA_DIR / "pending_orders.json"
@@ -240,7 +241,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
     docx_path = docx_builder.build_daily(facts, text, ch, out_dir / f"{stem}.docx")
     pptx_path = pptx_builder.build_daily(facts, text, ch, out_dir / f"{stem}.pptx")
     FACTS_DIR.mkdir(parents=True, exist_ok=True)
-    (FACTS_DIR / f"{stem}.json").write_text(json.dumps({**facts, "text": text}, ensure_ascii=False, indent=1, default=str),
+    (FACTS_DIR / f"{stem}.json").write_text(json.dumps(json_safe({**facts, "text": text}), ensure_ascii=False, indent=1, default=str),
                                              encoding="utf-8")
     orders_csv = out_dir / f"{stem}_下單清單.csv"
     with orders_csv.open("w", encoding="utf-8-sig", newline="") as f:

@@ -1,0 +1,34 @@
+name: send-email
+
+# 網站（Hugging Face Space）不能對外連 SMTP（只開放 80/443），盤中即時通知改由網站觸發這個 workflow 代寄。
+# 主旨與內容經環境變數傳入（不直接展開在指令裡，避免內容中的特殊字元被當成指令）。
+on:
+  workflow_dispatch:
+    inputs:
+      subject:
+        description: 主旨
+        required: true
+      body:
+        description: 內容（純文字）
+        required: true
+
+concurrency:
+  group: send-email
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+      REPORT_TO: ${{ secrets.REPORT_TO }}
+      MAIL_SUBJECT: ${{ inputs.subject }}
+      MAIL_BODY: ${{ inputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - name: Send
+        run: python3 scripts/send_email.py

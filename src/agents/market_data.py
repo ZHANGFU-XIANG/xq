@@ -57,7 +57,7 @@ def us_history(years: int = 2, max_age_hours: float = 2) -> dict[str, pd.DataFra
                     df = yf.Ticker(t).history(period=f"{years}y", auto_adjust=False)
                     if not df.empty:
                         df.index = pd.to_datetime(df.index.date)
-                        out[t] = df[["Open", "High", "Low", "Close", "Volume"]]
+                        out[t] = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])  # 美股盤中／剛收盤時最後一列可能是 NaN
                         break
                 except Exception as e:  # noqa: BLE001
                     log.warning("yfinance %s 失敗(%s): %s", t, attempt, e)
@@ -65,7 +65,8 @@ def us_history(years: int = 2, max_age_hours: float = 2) -> dict[str, pd.DataFra
         return out
 
     tag = hashlib.md5(",".join(us_tickers()).encode()).hexdigest()[:8]
-    return _cached(f"us_{years}y_{dt.date.today()}_{tag}", fetch, max_age_hours)
+    hist = _cached(f"us_{years}y_{dt.date.today()}_{tag}", fetch, max_age_hours)
+    return {t: df.dropna(subset=["Close"]) for t, df in hist.items()}
 
 
 def us_snapshot(hist: dict[str, pd.DataFrame], before: dt.date) -> list[dict]:
@@ -77,7 +78,7 @@ def us_snapshot(hist: dict[str, pd.DataFrame], before: dt.date) -> list[dict]:
         df = hist.get(t)
         if df is None:
             continue
-        df = df[df.index < pd.Timestamp(before)]
+        df = df[df.index < pd.Timestamp(before)].dropna(subset=["Close"])  # 舊快取可能含 NaN 列（10/06 報告因此無法顯示）
         if len(df) < 2:
             continue
         last, prev = df.iloc[-1], df.iloc[-2]

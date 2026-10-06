@@ -60,6 +60,10 @@ FastAPI；React 前端與 API 在同一個網址。
 | GET | `/api/news?key=` | 報告內的新聞、事件、國際大事、市場觀點 |
 | GET | `/api/news/live?refresh=` | 即時新聞（5 分鐘快取，只留財經，含分類） |
 | GET | `/api/portfolio` | 由成交紀錄重算的持倉（含每批成交 `lots`：成本、損益）、現金、總資產、持股率（即時價）、期貨部位、即時規則檢查、總資產歷史 |
+| GET | `/api/trades` | 全部交易紀錄（`id`＝在 trades.csv 的順序、`version`＝內容指紋）、目前持有、統計（`stats`：已實現交易先進先出、勝率、每檔、每日、競賽門檻） |
+| POST | `/api/trades` | `{version, trade:{date, code, side, shares, price, margin, note}}` 手動新增一筆；重算整個帳戶驗證（賣超過持有回 400），版本不符回 409；雲端 commit 到 GitHub |
+| PUT | `/api/trades/{id}` | 同上，修改一筆 |
+| DELETE | `/api/trades/{id}?version=` | 刪除一筆 |
 | GET | `/api/holding-watch` | 持股動向（50 秒快取）：每檔「盡快賣出／注意／低檔可望反彈／正常」與理由 |
 | GET | `/api/value-picks?max_price=&etf=` | 平價潛力股：股價上限內、通過安全條件的模型排名 |
 | POST | `/api/xq/import` | `{text, complete}` 貼上 XQ 庫存文字 → 解析並與系統持倉對帳，差異建立待確認動作 |

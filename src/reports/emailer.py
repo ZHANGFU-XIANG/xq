@@ -1,9 +1,15 @@
-"""以 Gmail SMTP 寄送報告（需環境變數 SMTP_USER、SMTP_APP_PASSWORD、REPORT_TO）。"""
+"""以 Gmail SMTP 寄送報告（需環境變數 SMTP_USER、SMTP_APP_PASSWORD、REPORT_TO）。
+
+網站（Hugging Face Space，APP_MODE=cloud）不能對外連 SMTP（只開放 80/443，直接連會 Network is unreachable），
+改觸發 GitHub Actions 的 send-email.yml 代寄；收件人與帳密用 GitHub Secrets。附件只能由 GitHub Actions 端寄送。
+"""
 from __future__ import annotations
 
 import logging
 import os
 import smtplib
+
+import requests
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -12,7 +18,30 @@ from src.config import settings
 log = logging.getLogger(__name__)
 
 
+def _via_github(subject: str, body: str) -> bool:
+    repo, tok = os.environ["GITHUB_REPO"], os.environ["GITHUB_TOKEN"]
+    if len(body) > 20000:  # workflow_dispatch 輸入有長度上限
+        body = body[:20000] + "\n…（內容過長已截斷，詳情請開網站）"
+    try:
+        r = requests.post(f"https://api.github.com/repos/{repo}/actions/workflows/send-email.yml/dispatches",
+                          headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"},
+                          json={"ref": os.getenv("GITHUB_BRANCH", "main"), "inputs": {"subject": subject[:200], "body": body}},
+                          timeout=30)
+        r.raise_for_status()
+        log.info("已交由 GitHub Actions 代寄：%s", subject)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.error("GitHub 代寄失敗：%s", e)
+        return False
+
+
 def send(subject: str, body: str, attachments: list[Path]) -> bool:
+    if not settings()["email"]["enabled"]:
+        return False
+    if os.getenv("APP_MODE") == "cloud" and os.getenv("GITHUB_REPO") and os.getenv("GITHUB_TOKEN"):
+        if attachments:
+            log.warning("網站代寄不含附件（%d 個）", len(attachments))
+        return _via_github(subject, body)
     user, pwd = os.getenv("SMTP_USER"), os.getenv("SMTP_APP_PASSWORD")
     to = [t.strip() for t in (os.getenv("REPORT_TO") or ",".join(settings()["email"]["to"] or [])).split(",") if t.strip()]
     if not settings()["email"]["enabled"] or not (user and pwd and to):

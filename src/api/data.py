@@ -63,20 +63,27 @@ def report_summary(date: str | None = None) -> dict:
     }
 
 
-def portfolio() -> dict:
-    from src.agents import alerts, compliance
+def _prices(codes: list[str]) -> dict[str, float]:
+    """即時價（盤中為最新成交、盤後為今日收盤）；取不到才用日 K 最後一筆。"""
+    from src.agents import alerts
 
-    pf = pfm.build_portfolio()
-    meta = pfm.load_meta()
-    # 即時價（盤中為最新成交、盤後為今日收盤）；取不到才用日 K 最後一筆
-    rt = alerts.realtime(list(pf.positions)) if pf.positions else {}
+    rt = alerts.realtime(codes) if codes else {}
     prices = {c: q["price"] for c, q in rt.items() if q.get("price")}
-    for c in pf.positions:
+    for c in codes:
         if c in prices:
             continue
         df = on_demand.price_df(c)
         if not df.empty:
             prices[c] = float(df.Close.iloc[-1])
+    return prices
+
+
+def portfolio() -> dict:
+    from src.agents import alerts, compliance
+
+    pf = pfm.build_portfolio()
+    meta = pfm.load_meta()
+    prices = _prices(list(pf.positions))
     marks = {}
     derivs = []
     if pf.derivs:
@@ -126,6 +133,107 @@ def portfolio() -> dict:
                            if not c["item"].startswith("執行建議後")],
             "as_of": now_tw().strftime("%H:%M:%S"), "trades": pf.trades[-50:][::-1],
             "nav_history": pfm.load_history()}
+
+
+# ---------------------------------------------------------------- 交易紀錄（手動新增／修改／刪除）與統計
+SIDE_LABEL = {"BUY": "買進", "SELL": "賣出", "ADJ": "手續費校正", "TO_FUTURES": "轉入期貨戶", "TO_SECURITIES": "轉回證券戶"}
+
+
+def trade_ledger() -> dict:
+    """全部交易紀錄（id＝在 trades.csv 的順序）＋統計分析。"""
+    from src.agents import trade_review
+
+    rows = pfm.load_trades()
+    pf = pfm.build_portfolio(rows)
+    out = []
+    for i, t in enumerate(rows):
+        code, side = t["code"].strip(), t["side"].strip().upper()
+        kind = pfm.asset_of(t) if code.upper() not in ("FEE", "TRANSFER") else ("CASH" if code.upper() == "FEE" else "TRANSFER")
+        item = {"id": i, **{k: t.get(k) or "" for k in pfm.TRADE_FIELDS}, "kind": kind, "side_label": SIDE_LABEL.get(side, side)}
+        if kind in ("STOCK", "ETF"):
+            shares, price = int(float(t["shares"])), float(t["price"])
+            fee, tax = trade_review.fee_tax(code, side, shares, price)
+            item.update(name=stock_meta(code).get("name", ""), amount=round(shares * price), fee=fee, tax=tax,
+                        board="整股" if shares % 1000 == 0 else "零股" if shares < 1000 else "整股＋零股")
+        out.append(item)
+    stats = trade_review.review(rows, _prices(list({t["code"].strip() for t in rows if pfm.asset_of(t) in ("STOCK", "ETF")
+                                                   and t["code"].strip().upper() not in ("FEE", "TRANSFER")})))
+    return {"version": pfm.trades_version(rows), "rows": out[::-1],  # 最新在前
+            "holdings": [{"code": c, "name": stock_meta(c).get("name", ""), "shares": p.shares} for c, p in pf.positions.items()],
+            "stats": stats}
+
+
+def _clean_trade(t: dict, base: dict | None = None) -> dict:
+    """驗證並整理一筆手動輸入的成交；base 為修改前的那一列（保留期貨合約等欄位）。"""
+    import datetime as dt
+    import re
+
+    base = base or {}
+    row = {k: base.get(k, "") or "" for k in pfm.TRADE_FIELDS}
+    code = str(t.get("code", row["code"])).strip().upper()
+    side = str(t.get("side", row["side"])).strip().upper()
+    special = code in ("FEE", "TRANSFER")
+    try:
+        d = dt.date.fromisoformat(str(t.get("date", row["date"])).strip())
+    except ValueError as e:
+        raise ValueError("日期格式要是 2026-10-06") from e
+    if d > now_tw().date():
+        raise ValueError("日期不能是未來")
+    try:
+        shares = float(t.get("shares", row["shares"]))
+        price = float(t.get("price", row["price"]))
+    except (TypeError, ValueError) as e:
+        raise ValueError("股數與價格要是數字") from e
+    if shares <= 0 or shares != int(shares):
+        raise ValueError("股數要是正整數（1 張 = 1000 股）")
+    if price <= 0 and not special:
+        raise ValueError("價格要大於 0")
+    if not special:
+        if side not in ("BUY", "SELL"):
+            raise ValueError("買賣方向只能是買進或賣出")
+        if pfm.asset_of({**row, "code": code}) in ("STOCK", "ETF"):
+            if not re.fullmatch(r"\d{4,6}[A-Z]?", code):
+                raise ValueError(f"股票代號格式不對：{code}")
+            from src.agents.universe import stock_info
+
+            info = stock_info()
+            if info and code not in info:  # 股票清單載入失敗時不擋
+                raise ValueError(f"查無股票代號 {code}（請確認是上市櫃股票或 ETF）")
+    row.update(date=d.isoformat(), code=code, side=side, shares=str(int(shares)),
+               price=f"{price:.6f}".rstrip("0").rstrip("."),
+               margin="1" if str(t.get("margin", row["margin"])).strip().lower() in ("1", "true", "y") else "0",
+               note=" ".join(str(t.get("note", row["note"]) or "").replace(",", "，").split())[:80])
+    return row
+
+
+def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | None = None) -> dict:
+    """op：add／update／delete。驗證後整份改寫（雲端 commit 到 GitHub），回傳新版本與說明。"""
+    from src.api import sync
+
+    rows = pfm.load_trades()
+    if op != "add" and (tid is None or not 0 <= tid < len(rows)):
+        raise ValueError("找不到這筆交易，請重新整理")
+    if op == "add":
+        new = _clean_trade(trade or {})
+        rows = rows + [new]
+        what = f"新增 {new['date']} {SIDE_LABEL.get(new['side'], new['side'])} {new['code']} {new['shares']} 股 @ {new['price']}"
+    elif op == "update":
+        old = rows[tid]
+        new = _clean_trade(trade or {}, old)
+        rows = rows[:tid] + [new] + rows[tid + 1:]
+        what = f"修改 {old['date']} {old['code']} {old['side']} {old['shares']}@{old['price']} → {new['date']} {new['code']} {new['side']} {new['shares']}@{new['price']}"
+    elif op == "delete":
+        old = rows[tid]
+        rows = rows[:tid] + rows[tid + 1:]
+        what = f"刪除 {old['date']} {SIDE_LABEL.get(old['side'].upper(), old['side'])} {old['code']} {old['shares']} 股 @ {old['price']}"
+    else:
+        raise ValueError(f"未知操作 {op}")
+    rows = sorted(rows, key=lambda r: r["date"])  # 依日期重播（同一天維持原順序），先進先出才正確
+    try:
+        msg = sync.replace_trades(rows, f"manual trade edit: {what}", version)
+    except ValueError as e:
+        raise ValueError(f"無法寫入：{e}") from e
+    return {"ok": True, "message": f"已{what}。{msg}", "version": pfm.trades_version(rows)}
 
 
 def macro_latest() -> dict:

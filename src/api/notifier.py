@@ -2,7 +2,8 @@
 
 - 觸發：持股新進入「盡快賣出」或「低檔可望反彈」、新的「嚴重」警示（跌停、跌破停損、重大負面新聞等）
 - 防洗版：同一檔同一種狀況一天只寄一次；同一分鐘的多則合併成一封
-- 只在雲端模式、交易時段（09:00～13:35）執行；需 Space Secrets 設定 SMTP_USER、SMTP_APP_PASSWORD、REPORT_TO
+- 只在雲端模式、交易時段（09:00～13:35）執行；Space 不能連 SMTP，由 GitHub Actions send-email.yml 代寄（用 GitHub Secrets 的 SMTP 設定）
+- 寄送失敗 10 分鐘後才重試，避免每分鐘重試洗版
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from src.config import now_tw
 log = logging.getLogger(__name__)
 _sent: set[str] = set()
 state: dict = {"last": None, "error": None, "count": 0}
+_retry_at = 0.0
 
 
 def _events() -> list[tuple[str, str, str]]:
@@ -37,10 +39,11 @@ def _events() -> list[tuple[str, str, str]]:
 
 
 def tick() -> int:
+    global _retry_at
     from src.agents import alerts
     from src.reports import emailer
 
-    if not alerts.is_trading_hours():
+    if not alerts.is_trading_hours() or time.time() < _retry_at:
         return 0
     day = now_tw().date().isoformat()
     new = [(k, t, b) for k, t, b in _events() if f"{day}|{k}" not in _sent]
@@ -53,7 +56,8 @@ def tick() -> int:
             _sent.add(f"{day}|{k}")
         state.update(last=f"{now_tw():%m/%d %H:%M} {new[0][1]}", error=None, count=state["count"] + 1)
         return len(new)
-    state["error"] = "Email 未寄出（Space 尚未設定 SMTP_USER／SMTP_APP_PASSWORD／REPORT_TO）"
+    _retry_at = time.time() + 600
+    state["error"] = f"{now_tw():%H:%M} Email 未寄出（GitHub 代寄失敗，10 分鐘後重試；檢查 Space 的 GITHUB_TOKEN 是否有 Actions 權限）"
     return 0
 
 

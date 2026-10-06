@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import logging
 import os
 import shutil
@@ -104,6 +106,37 @@ def record_trades(rows: list[dict], message: str | None = None) -> str:
     requests.put(api, headers=_gh_headers(), json=body, timeout=30).raise_for_status()
     pfm.append_trades(rows)  # 本機副本立即反映，下次 pull 會與 repo 一致
     return f"已提交到 GitHub（{repo} data/trades.csv）"
+
+
+def replace_trades(rows: list[dict], message: str, base_version: str) -> str:
+    """整份改寫交易紀錄（手動新增／修改／刪除）。base_version 與目前內容不同時拒絕（代表別處剛寫入過）。"""
+    pfm.build_portfolio(rows)  # 先驗證：賣超過持有等錯誤會丟 ValueError
+    text = pfm.trades_csv_text(rows)
+    if not cloud():
+        if pfm.trades_version() != base_version:
+            raise ConflictError("交易紀錄剛被更新過，請重新整理後再改")
+        pfm.write_trades(rows)
+        return "已寫入本機 data/trades.csv"
+    repo = os.environ["GITHUB_REPO"]
+    api = f"https://api.github.com/repos/{repo}/contents/data/trades.csv"
+    r = requests.get(api, headers=_gh_headers(), timeout=30)
+    r.raise_for_status()
+    cur = base64.b64decode(r.json()["content"]).decode("utf-8")
+    cur_rows = [x for x in csv.DictReader(io.StringIO(cur.lstrip("﻿"))) if x.get("code")]
+    if pfm.trades_version(cur_rows) != base_version:
+        pfm.write_trades(cur_rows)  # 本機副本同步成 GitHub 最新版，使用者重新整理就能看到
+        raise ConflictError("交易紀錄剛被更新過（例如 XQ 匯入或 AI 助理記錄），請重新整理後再改")
+    body = {"message": message, "content": base64.b64encode(text.encode("utf-8")).decode(), "sha": r.json()["sha"]}
+    resp = requests.put(api, headers=_gh_headers(), json=body, timeout=30)
+    if resp.status_code == 409:
+        raise ConflictError("交易紀錄剛被更新過，請重新整理後再改")
+    resp.raise_for_status()
+    pfm.write_trades(rows)
+    return f"已提交到 GitHub（{repo} data/trades.csv）"
+
+
+class ConflictError(Exception):
+    pass
 
 
 def run_workflow(mode: str) -> str:

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createChart, LineSeries, type Time } from 'lightweight-charts'
 import { Fragment, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
 import XQImport from '../components/XQImport'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
@@ -60,7 +61,7 @@ export default function Portfolio() {
       <HoldingAdvice />
 
       <Section title="目前持股" aside="同一檔分批成交（整股／零股、不同時間）各自列出成本，賣出先進先出">
-        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入」貼上截圖或文字同步，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
+        {!p.positions.length ? <Empty>還沒有持股。在 XQ 成交後，用下方「從 XQ 匯入」貼上截圖或文字同步，到「交易紀錄」頁手動新增，或跟 AI 助理說「我買了 2330 一張 1000 元」。</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-[0.95rem]">
               <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
@@ -167,11 +168,11 @@ export default function Portfolio() {
         </Section>
       )}
 
-      <Section title="交易紀錄">
+      <Section title="交易紀錄" aside={<Link to="/trades" className="text-link">全部紀錄、手動新增／修改／刪除與統計 →</Link>}>
         {!p.trades.length ? <p className="text-muted">尚無交易紀錄。</p> : (
           <table className="w-full text-[0.95rem]">
             <tbody>
-              {p.trades.map((t: Json, i: number) => (
+              {p.trades.slice(0, 8).map((t: Json, i: number) => (
                 <tr key={i} className="border-b border-line/60">
                   <td className="num py-1.5 text-muted">{t.date}</td>
                   <td className={t.side === 'BUY' ? 'text-up' : 'text-down'}>{t.side === 'BUY' ? '買進' : '賣出'}</td>

@@ -69,6 +69,10 @@ def roc_to_iso(s: str) -> str:
 
 def overview(code: str) -> dict:
     """公司概況：基本資料、主要業務、財報摘要（近期各期）、月營收、重大訊息、內部人持股、股利。"""
+    from src.state.portfolio import is_etf
+
+    if is_etf(code):  # ETF 沒有公司資料，觀測站只會回「公司代號格式錯誤」，不必查
+        return {"code": code, "error": "ETF 沒有公司概況資料（請看 ETF 的成分股與折溢價）"}
     r = _post("t146sb05", {"companyId": code})
     if not r:
         return {"code": code, "error": "公開資訊觀測站查無資料（ETF 或已下市股票沒有公司資料）"}
