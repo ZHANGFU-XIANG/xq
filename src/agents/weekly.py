@@ -17,7 +17,7 @@ import logging
 import pandas as pd
 
 from src.agents import market_data
-from src.config import DATA_DIR, FACTS_DIR, is_trading_day, rules, stock_meta
+from src.config import DATA_DIR, FACTS_DIR, is_trading_day, now_tw, rules, stock_meta
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
@@ -66,19 +66,50 @@ def _close_on(code: str, d: dt.date) -> float | None:
         return None
 
 
-def _fut_close_on(root: str, d: dt.date) -> float | None:
+def _fut_close_on(contract: str, root: str, d: dt.date) -> float | None:
+    """該合約當日的日盤結算價（與競賽 App 評價相同）；期交所歷史資料尚未公布當天時改用即時行情的結算價。"""
     from src.agents import futures_data
 
-    hist = [h for h in futures_data.history(root, 40) if h["time"] <= d.isoformat()]
-    return hist[-1]["close"] if hist else None
+    hist = [h for h in futures_data.history(root, 40) if h["time"] <= d.isoformat() and h.get("contract") == contract]
+    if hist and hist[-1]["time"] == d.isoformat():
+        return hist[-1].get("settlement") or hist[-1]["close"]
+    q = futures_data.quote(root, contract[len(root):])
+    if d >= now_tw().date() - dt.timedelta(days=3) and (q.get("settlement") or q.get("price")):
+        return q.get("settlement") or q.get("price")
+    return (hist[-1].get("settlement") or hist[-1]["close"]) if hist else None
 
 
 def _prices_on(pf: pfm.Portfolio, d: dt.date) -> dict:
     prices = {c: p for c in pf.positions if (p := _close_on(c, d)) is not None}
     for c, dv in pf.derivs.items():
-        if dv.kind == "FUT" and (p := _fut_close_on(dv.root, d)) is not None:
+        if dv.kind == "FUT" and (p := _fut_close_on(c, dv.root, d)) is not None:
             prices[c] = p
     return prices
+
+
+def _merge_fills(rows: list[dict]) -> list[dict]:
+    """同一筆委託（委託書號相同）分成多次成交時合併成一列，價格用成交量加權平均（週報用）。"""
+    import re
+
+    out: dict[tuple, dict] = {}
+    for i, t in enumerate(rows):
+        m = re.search(r"委託書號\s*(\S+)", t.get("note") or "")
+        key = (t["code"], t.get("contract") or "", t["side"], m.group(1) if m else f"#{i}")
+        q, px = int(float(t["shares"])), float(t["price"])
+        amt = pfm.trade_amount(q, px) if pfm.asset_of(t) in ("STOCK", "ETF") else 0  # 逐筆捨去後加總（同 App）
+        if key in out:
+            g = out[key]
+            g["_qty"] += q
+            g["_px"] += q * px
+            g["_amt"] += amt
+            g["_n"] += 1
+        else:
+            out[key] = {**t, "_qty": q, "_px": q * px, "_amt": amt, "_n": 1}
+    merged = []
+    for g in out.values():
+        merged.append({**{k: v for k, v in g.items() if not k.startswith("_")}, "shares": str(g["_qty"]),
+                       "price": str(round(g["_px"] / g["_qty"], 4)), "fills": g["_n"], "amount": g["_amt"]})
+    return merged
 
 
 def _reason_for(t: dict, facts: list[dict], intra: list[dict]) -> dict:
@@ -138,9 +169,10 @@ def collect(any_day: dt.date) -> dict:
     initial = rules()["capital"]["initial"]
 
     def nav_at(d: dt.date) -> tuple[float, float, pfm.Portfolio]:
+        """競賽 App 口徑：投資組合總值（初始＋未實現＋已實現）與 App 持股率。"""
         pf = pfm.build_portfolio([t for t in all_trades if t["date"] <= d.isoformat()])
         prices = _prices_on(pf, d)
-        return pf.nav(prices), pf.holding_ratio(prices), pf
+        return pfm.app_total(pf, prices), pf.holding_ratio(prices), pf
 
     start_day = mon - dt.timedelta(days=1)
     nav0 = nav_at(start_day)[0] if any(t["date"] <= start_day.isoformat() for t in all_trades) else float(initial)
@@ -151,15 +183,16 @@ def collect(any_day: dt.date) -> dict:
         facts = _facts_for(d)
         intra = _intraday_for(d)
         mkt = _day_market(d, facts, tx)
-        day_trades = [t for t in all_trades if t["date"] == d.isoformat() and t["code"].upper() != "TRANSFER"]
-        for t in day_trades:
+        day_rows = [t for t in all_trades if t["date"] == d.isoformat() and t["code"].upper() not in ("TRANSFER", "FEE")]
+        for t in _merge_fills(day_rows):
             asset = pfm.asset_of(t)
             qty, price = int(float(t["shares"])), float(t["price"])
             mult = pfm.deriv_spec(t["code"].upper())["multiplier"] if asset in ("FUT", "OPT") else 1
             name = (t.get("contract") or t["code"]) if asset in ("FUT", "OPT") else stock_meta(t["code"])["name"]
+            amount = round(qty * price * mult) if asset in ("FUT", "OPT") else t["amount"]
             trades.append({"date": d.isoformat(), "weekday": WEEKDAYS[d.weekday()], "code": t["code"], "name": name,
                            "asset": asset, "side": t["side"], "qty": qty, "unit": "口" if asset in ("FUT", "OPT") else "股",
-                           "price": price, "amount": round(qty * price * mult), "market": mkt,
+                           "price": round(price, 4), "amount": amount, "fills": t.get("fills", 1), "market": mkt,
                            "reason": _reason_for(t, facts, intra)})
         if mkt["trading"] and d <= dt.date.today():
             nav, ratio, _ = nav_at(d)
@@ -176,7 +209,7 @@ def collect(any_day: dt.date) -> dict:
         px = prices1.get(c, p.avg_cost)
         holdings.append({"code": c, "name": stock_meta(c)["name"], "asset": "ETF" if stock_meta(c).get("is_etf") else "STOCK",
                          "shares": p.shares, "avg_cost": round(p.avg_cost, 2), "price": px,
-                         "value": round(p.shares * px), "pnl": round(p.shares * px - p.cost_basis),
+                         "value": round(p.shares * px), "pnl": round(p.shares * px - sum(lot.amount for lot in p.lots)),  # 同 App：市值 − 成交價金
                          "pnl_pct": round((px / p.avg_cost - 1) * 100, 2) if p.avg_cost else 0,
                          "weight_pct": round(p.shares * px / nav1 * 100, 2) if nav1 else 0})
     for c, dv in pf1.derivs.items():
@@ -192,7 +225,8 @@ def collect(any_day: dt.date) -> dict:
     for c in set(pf0.positions) | set(pf1.positions) | {t["code"] for t in trades if t["asset"] in ("STOCK", "ETF")}:
         v0 = pf0.positions[c].shares * p0.get(c, pf0.positions[c].avg_cost) if c in pf0.positions else 0
         v1 = pf1.positions[c].shares * prices1.get(c, pf1.positions[c].avg_cost) if c in pf1.positions else 0
-        flow = sum((-1 if t["side"] == "BUY" else 1) * t["amount"] for t in trades if t["code"] == c)
+        flow = sum((-1 if t["side"] == "BUY" else 1) * pfm.trade_amount(int(float(t["shares"])), float(t["price"]))
+                   for t in all_trades if t["code"] == c and start_day.isoformat() < t["date"] <= end_day.isoformat())
         contrib[c] = round(v1 - v0 + flow)
     contrib_rows = sorted(({"code": c, "name": stock_meta(c)["name"], "pnl": v} for c, v in contrib.items() if v),
                           key=lambda r: -abs(r["pnl"]))[:10]

@@ -170,12 +170,15 @@ class Portfolio:
         return self.cash + self.futures_equity(prices) + self.market_value(prices) - self.margin_loan()
 
     def holding_ratio(self, prices: dict[str, float]) -> float:
-        """持股率 = 持有部位市值 / 總資產（規則：須 ≥ 70%）。預設只算股票＋ETF。"""
-        nav = self.nav(prices)
+        """持股率（競賽 App 算法，10/06 對帳 76.11%）：
+        股票＋ETF 市值 ÷（市值 ＋ 持有現金 ＋ 期貨原始保證金 ＋ 期貨未實現）。
+        持有現金已含期貨未實現，App 分母等於「淨值 ＋ 期貨未實現」（期貨未實現計入兩次），期貨不算持股。"""
         held = self.market_value(prices)
         if rules().get("futures", {}).get("count_in_holding"):
             held += self.futures_notional(prices)
-        return held / nav if nav > 0 else 0.0
+        fut_unreal = sum(d.value(prices.get(c)) for c, d in self.derivs.items() if d.kind == "FUT")
+        denom = self.nav(prices) + fut_unreal
+        return held / denom if denom > 0 else 0.0
 
 
 def load_trades() -> list[dict]:

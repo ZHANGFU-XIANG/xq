@@ -69,7 +69,7 @@ export default function Portfolio() {
           sub={`扣手續費後 ${fmtPct(p.return_net_pct, 3)}・已付手續費 ${fmtInt(p.app?.fees_paid ?? p.fees_paid)}`} />
         <Stat label="未實現損益（同 App）" value={fmtInt(p.unrealized_total ?? p.unrealized_pnl)} valueClass={tone(p.unrealized_total ?? p.unrealized_pnl)}
           sub={`現股 ${fmtInt(p.unrealized_pnl)}・期貨 ${fmtInt(p.futures_unrealized ?? 0)}（收盤後用結算價）`} />
-        <Stat label="持股率" value={fmtRatio(p.holding_ratio)} sub={`股票 ${fmtWan(b.stock_mv)}＋ETF ${fmtWan(b.etf_mv)} ÷ 淨值；下限 70%（期貨不計）`} valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
+        <Stat label="持股率（同 App）" value={fmtRatio(p.holding_ratio, 2)} sub={`股票 ${fmtWan(b.stock_mv)}＋ETF ${fmtWan(b.etf_mv)} ÷（市值＋持有現金＋期貨保證金＋期貨未實現）；期貨不算持股，下限 70%`} valueClass={p.holding_ratio < 0.7 ? 'text-warn' : ''} />
         <Stat label="持有現金（同 App）" value={fmtInt(p.app?.cash ?? p.cash)}
           sub={`證券戶 ${fmtInt(p.cash)}＋期貨戶可用 ${fmtInt((p.app?.cash ?? p.cash) - p.cash)}（權益 ${fmtWan(p.futures_equity)} − 保證金 ${fmtWan(p.app?.margin ?? 0)}）`} />
         <Stat label="交易筆數／標的" value={`${p.trade_count}／${p.traded_symbols.length}`} sub="門檻 10 筆、5 檔" />

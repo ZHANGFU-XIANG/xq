@@ -306,3 +306,4 @@ def test_matches_competition_app_20261006():
     assert round(pfm.app_total(pf, prices)) == 10_191_866  # 投資組合總值（報酬率 1.9187%）
     margin = 2 * 701_000  # 大台原始保證金
     assert round(pf.cash + pf.futures_equity(prices) - margin) == 966_764  # 持有現金
+    assert round(pf.holding_ratio(prices) * 100, 2) == 76.11  # App 持股率

@@ -174,7 +174,7 @@ export default function Overview() {
           sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}・${live.as_of}` : '盤前報告快照'} />
         <Stat label="投資報酬率（同 App）" value={fmtPct(pf.return_pct, 4)} valueClass={tone(pf.return_pct)}
           sub={live?.return_net_pct != null ? `扣手續費後 ${fmtPct(live.return_net_pct, 3)}` : '盤前報告快照'} />
-        <Stat label="目前持股率" value={fmtRatio(pf.holding_ratio)} sub="規則下限 70%" />
+        <Stat label="持股率（同 App）" value={fmtRatio(pf.holding_ratio, 2)} sub="期貨不算持股；規則下限 70%" />
         <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
           sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔・買賣各算一筆`} />
         <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub={`盤前計畫 ${r.generated_at}`} />
