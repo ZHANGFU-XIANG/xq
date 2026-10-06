@@ -271,14 +271,34 @@ def _desc(r: dict) -> str:
     return f"{r['date']} {side} {r['code']} {r['shares']} 股 @ {r['price']}"
 
 
-def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | None = None) -> dict:
-    """op：add／update／delete。驗證後整份改寫（雲端 commit 到 GitHub），回傳新版本與說明。"""
+def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | None = None,
+                 trades: list[dict] | None = None, ids: list[int] | None = None) -> dict:
+    """op：add／update／delete／bulk_add（trades，一次 commit）／bulk_delete（ids，一次 commit）。
+    驗證後整份改寫（雲端 commit 到 GitHub），回傳新版本與說明。"""
     from src.api import sync
 
     rows = pfm.load_trades()
-    if op != "add" and (tid is None or not 0 <= tid < len(rows)):
+    if op in ("update", "delete") and (tid is None or not 0 <= tid < len(rows)):
         raise ValueError("找不到這筆交易，請重新整理")
-    if op == "add":
+    if op == "bulk_add":
+        if not trades:
+            raise ValueError("沒有要新增的紀錄")
+        new = []
+        for i, t in enumerate(trades, 1):
+            try:
+                new.append(_clean_trade(t))
+            except ValueError as e:
+                raise ValueError(f"第 {i} 筆（{t.get('code', '')}）：{e}") from e
+        rows = rows + new
+        what = f"匯入 {len(new)} 筆（{'、'.join(_desc(n) for n in new[:3])}{' 等' if len(new) > 3 else ''}）"
+    elif op == "bulk_delete":
+        sel = sorted(set(ids or []))
+        if not sel or any(not 0 <= i < len(rows) for i in sel):
+            raise ValueError("選取的紀錄不存在，請重新整理")
+        gone = [rows[i] for i in sel]
+        rows = [r for i, r in enumerate(rows) if i not in set(sel)]
+        what = f"刪除 {len(gone)} 筆（{'、'.join(_desc(g) for g in gone[:3])}{' 等' if len(gone) > 3 else ''}）"
+    elif op == "add":
         new = _clean_trade(trade or {})
         rows = rows + [new]
         what = f"新增 {_desc(new)}"

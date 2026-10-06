@@ -105,3 +105,55 @@ def test_derivative_round_trip_replays():
     assert not pf.derivs and pf.realized_pnl > 0
     with pytest.raises(ValueError):  # 選擇權只做買方
         pfm.build_portfolio(rows + [{**_t("2026-10-06", "TXO", "SELL", 1, 60), "asset": "OPT", "contract": "TXO202610P22000"}])
+
+
+XQ_CSV = ("委託時間,\t委託書號,\t盤別,\t交易類別,\t委託種類,\t股票名稱,\t原委託,\t價格,\t取消,\t成交,\t成交均價,\t來源別,\t交易日期,\t狀態\n"
+          "2026/10/06 12:09:44.673,0apGk,盤中零股,現股買進,ROD,國巨*(2327),200股,622.00,0股,0股,,GPhone,2026/10/06,委託成功\n"
+          "2026/10/06 12:04:46.900,0apFC,整股,現股買進,ROD,國票金(2884),3,16.20,0,3,,GPhone,2026/10/06,完全成交\n"
+          "2026/10/06 10:00:00.000,0apAA,盤中零股,現股賣出,ROD,台積電(2330),500股,1100.00,0股,300股,1105.5,GPhone,2026/10/06,部分成交\n"
+          "2026/10/05 09:00:00.000,0anAA,整股,現股買進,ROD,台積電(2330),1,1000.00,0,1,,GPhone,2026/10/05,完全成交\n"
+          "2026/10/05 09:01:00.000,0anAB,整股,融券賣出,ROD,台積電(2330),1,1000.00,0,1,,GPhone,2026/10/05,完全成交\n").encode("cp950")
+
+
+def test_xq_csv_parse_units_and_duplicates(ledger):
+    from src.agents import xq_csv
+
+    r = xq_csv.parse(XQ_CSV)
+    rows = xq_csv.mark_duplicates(r["rows"])
+    got = [(x["date"], x["code"], x["side"], x["shares"], x["price"], x["price_source"], x["duplicate"]) for x in rows]
+    assert got == [
+        ("2026-10-05", "2330", "BUY", 1000, 1000.0, "委託價", True),     # 已記錄（不比價格）
+        ("2026-10-06", "2330", "SELL", 300, 1105.5, "成交均價", False),  # 零股、部分成交只取成交量、用成交均價
+        ("2026-10-06", "2884", "BUY", 3000, 16.2, "委託價", False),      # 整股：3 張
+    ]
+    assert any("2327" in s for s in r["skipped"]) and any("融券" in s for s in r["skipped"])
+    assert r["warnings"]
+
+
+def test_bulk_add_and_delete_single_commit(ledger):
+    v = pfm.trades_version()
+    data.trade_mutate("bulk_add", v, trades=[_t("2026-10-06", "2884", "BUY", 3000, 16.2), _t("2026-10-06", "2330", "SELL", 300, 1105)])
+    rows = pfm.load_trades()
+    assert len(rows) == 5
+    with pytest.raises(ValueError):  # 任何一筆不合法 → 全部不寫入
+        data.trade_mutate("bulk_add", pfm.trades_version(), trades=[_t("2026-10-06", "2884", "SELL", 99999, 16)])
+    assert len(pfm.load_trades()) == 5
+    data.trade_mutate("bulk_delete", pfm.trades_version(), ids=[3, 4])
+    assert len(pfm.load_trades()) == 3
+    with pytest.raises(ValueError):
+        data.trade_mutate("bulk_delete", pfm.trades_version(), ids=[99])
+
+
+def test_xq_futures_csv(ledger):
+    from src.agents import xq_csv
+
+    raw = ("委託時間,\t委託書號,\t交易種類,\t買賣別,\t商品名稱,\t倉別,\t委託條件,\t委託價格,\t委託數量,\t取消,\t成交,\t有效數量,\t來源別,\t交易日期,\t狀態\n"
+           "2026/10/06 09:23:36,01NYf,期貨,買進,台股指數106,新倉,ROD,49875.000,2,0,2,0,GPhone,2026/10/06,完全成交\n"
+           "2026/10/06 10:00:00,01NYg,期貨,賣出,微型台指106,新倉,ROD,49800.000,3,3,0,0,GPhone,2026/10/06,刪單成功\n").encode("cp950")
+    r = xq_csv.parse(raw)
+    rows = xq_csv.mark_duplicates(r["rows"])
+    assert [(x["kind"], x["contract"], x["side"], x["shares"], x["price"], x["board"]) for x in rows] == [
+        ("FUT", "TX202610", "BUY", 2, 49875.0, "新倉")]
+    assert len(r["skipped"]) == 1  # 刪單略過
+    assert xq_csv._future("小型台指106") == {"root": "MTX", "ym": "202610"}
+    assert xq_csv._future("微型台指1610")["ym"] is None  # 讀不出合理年月 → 讓使用者填

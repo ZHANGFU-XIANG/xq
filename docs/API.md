@@ -64,6 +64,9 @@ FastAPI；React 前端與 API 在同一個網址。
 | POST | `/api/trades` | `{version, trade:{kind, date, code, side, shares, price, margin, contract, note}}` 手動新增一筆（kind：STOCK／ETF／FUT（contract=TMF202610，shares=口數）／OPT（contract=TXO202610P22000，只做買方）／TRANSFER（side=TO_FUTURES/TO_SECURITIES，price=金額）／CASH（手續費校正，可為負））；重算整個帳戶驗證（賣超過持有回 400），版本不符回 409；雲端 commit 到 GitHub |
 | PUT | `/api/trades/{id}` | 同上，修改一筆 |
 | DELETE | `/api/trades/{id}?version=` | 刪除一筆 |
+| POST | `/api/trades/bulk` | `{version, trades:[...]}` 一次新增多筆（CSV 匯入用；任一筆不合法全部不寫入，一次 commit） |
+| POST | `/api/trades/bulk-delete` | `{version, ids:[...]}` 多選刪除（一次 commit） |
+| POST | `/api/xq/csv` | `{data}`（base64）XQ 委託／成交回報 CSV（Big5，證券與期貨）→ 成交草稿，標示已記錄過的（同日期、代號／合約、買賣、數量）；不寫入 |
 | GET | `/api/holding-watch` | 持股動向（50 秒快取）：每檔「盡快賣出／注意／低檔可望反彈／正常」與理由 |
 | GET | `/api/value-picks?max_price=&etf=` | 平價潛力股：股價上限內、通過安全條件的模型排名 |
 | POST | `/api/xq/import` | `{text, complete}` 貼上 XQ 庫存文字 → 解析並與系統持倉對帳，差異建立待確認動作 |

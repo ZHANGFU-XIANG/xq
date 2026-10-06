@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fragment, useState } from 'react'
+import CsvImport from '../components/CsvImport'
 import { Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { ApiError, del, get, post, put, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, tone } from '../lib/format'
@@ -240,11 +241,43 @@ function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
 function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>) => Promise<boolean>; busy: boolean }) {
   const [editing, setEditing] = useState<number | null>(null)
   const [confirmDel, setConfirmDel] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [confirmBulk, setConfirmBulk] = useState(false)
   if (!data.rows.length) return <Empty>還沒有任何交易紀錄。</Empty>
+  const ids: number[] = data.rows.map((r: Json) => r.id)
+  const live = new Set([...selected].filter((i) => ids.includes(i)))  // 重新整理後只保留仍存在的
+  const allOn = live.size === ids.length
+  const toggle = (id: number) => { setConfirmBulk(false); setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n }) }
+  async function bulkDelete() {
+    if (await run(() => post('/api/trades/bulk-delete', { version: data.version, ids: [...live] }))) {
+      setSelected(new Set())
+      setConfirmBulk(false)
+    }
+  }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] text-[0.95rem]">
+      <div className="mb-2 flex min-h-8 flex-wrap items-center gap-3 text-sm">
+        <span className="text-muted">{live.size ? `已選 ${live.size} 筆` : '勾選左側方框可一次刪除多筆'}</span>
+        {live.size > 0 && !confirmBulk && (
+          <>
+            <button className="rounded-md border border-up/50 px-3 py-1 text-up" onClick={() => setConfirmBulk(true)}>刪除選取的 {live.size} 筆</button>
+            <button className="text-muted" onClick={() => setSelected(new Set())}>取消選取</button>
+          </>
+        )}
+        {confirmBulk && (
+          <>
+            <span className="text-up">確定刪除 {live.size} 筆？刪除後持股、現金、損益會重新計算</span>
+            <button disabled={busy} className="rounded-md bg-up px-3 py-1 text-white disabled:opacity-50" onClick={bulkDelete}>{busy ? '刪除中…' : '確定刪除'}</button>
+            <button className="text-muted" onClick={() => setConfirmBulk(false)}>取消</button>
+          </>
+        )}
+      </div>
+      <table className="w-full min-w-[860px] text-[0.95rem]">
         <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
+          <th className="w-8 py-2 font-normal">
+            <input type="checkbox" aria-label="全選" checked={allOn}
+              onChange={() => { setConfirmBulk(false); setSelected(allOn ? new Set() : new Set(ids)) }} />
+          </th>
           <th className="py-2 font-normal">日期</th><th className="font-normal">買賣</th><th className="font-normal">標的</th>
           <th className="text-right font-normal">數量</th><th className="text-right font-normal">成交價</th><th className="text-right font-normal">價金</th>
           <th className="text-right font-normal">手續費＋稅</th><th className="pl-4 font-normal">備註</th><th className="text-right font-normal">操作</th>
@@ -254,7 +287,8 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
             const stock = r.kind === 'STOCK' || r.kind === 'ETF'
             return (
               <Fragment key={r.id}>
-                <tr className="border-b border-line/60">
+                <tr className={`border-b border-line/60 ${live.has(r.id) ? 'bg-up/5' : ''}`}>
+                  <td className="py-1.5"><input type="checkbox" aria-label={`選取 ${r.date} ${r.code}`} checked={live.has(r.id)} onChange={() => toggle(r.id)} /></td>
                   <td className="num py-1.5 text-muted">{r.date}</td>
                   <td className={r.side === 'BUY' ? 'text-up' : r.side === 'SELL' ? 'text-down' : 'text-ink-2'}>{r.side_label}{r.margin === '1' ? '（融資）' : ''}</td>
                   <td>{stock ? <StockLink code={r.code} name={r.name} /> : <span className="text-ink-2">{r.contract || (r.kind === 'CASH' ? '證券戶' : '證券戶 ↔ 期貨戶')}{r.name ? <span className="ml-1 text-muted">{r.name}</span> : null}</span>}</td>
@@ -279,7 +313,7 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
                   </td>
                 </tr>
                 {editing === r.id && (
-                  <tr><td colSpan={9} className="py-2">
+                  <tr><td colSpan={10} className="py-2">
                     <TradeForm initial={r} holdings={data.holdings} derivs={data.derivs} busy={busy} onCancel={() => setEditing(null)}
                       onSubmit={async (t) => { if (await run(() => put(`/api/trades/${r.id}`, { version: data.version, trade: t }))) setEditing(null) }} />
                   </td></tr>
@@ -412,7 +446,8 @@ export default function Trades() {
     try {
       const r = await fn()
       setMsg({ ok: true, text: r.message })
-      await qc.invalidateQueries()
+      await qc.invalidateQueries({ queryKey: ['trades'] })  // 先更新本頁；其他頁（持股、建議、警示）在背景重算，不用等
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'trades' })
       return true
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : '寫入失敗' })
@@ -439,7 +474,11 @@ export default function Trades() {
         </p>
       </Section>
 
-      <Section title="全部交易" aside={`${data.rows.length} 筆・最新在前・可修改或刪除`}>
+      <Section title="匯入 XQ CSV" aside="委託回報或成交回報匯出的 CSV，已記錄過的自動標示">
+        <CsvImport busy={busy} run={run} />
+      </Section>
+
+      <Section title="全部交易" aside={`${data.rows.length} 筆・最新在前・可修改、刪除或多選刪除`}>
         <Ledger data={data} run={run} busy={busy} />
       </Section>
 

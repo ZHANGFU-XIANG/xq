@@ -175,6 +175,61 @@ def _trade_op(op: str, version: str, trade: TradeIn | None = None, tid: int | No
         raise HTTPException(400, str(e)) from e
 
 
+class TradeBulk(BaseModel):
+    version: str
+    trades: list[TradeIn]
+
+
+class TradeBulkDelete(BaseModel):
+    version: str
+    ids: list[int]
+
+
+@app.post("/api/trades/bulk", dependencies=[api])
+def trade_bulk_add(body: TradeBulk):
+    try:
+        return data.trade_mutate("bulk_add", body.version, trades=[t.model_dump() for t in body.trades])
+    except sync.ConflictError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/trades/bulk-delete", dependencies=[api])
+def trade_bulk_delete(body: TradeBulkDelete):
+    try:
+        return data.trade_mutate("bulk_delete", body.version, ids=body.ids)
+    except sync.ConflictError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class CsvFile(BaseModel):
+    data: str  # base64（瀏覽器讀檔，XQ 匯出為 Big5）
+
+
+@app.post("/api/xq/csv", dependencies=[api])
+def xq_csv_(body: CsvFile):
+    """XQ 匯出的委託／成交回報 CSV → 成交草稿（標示已記錄過的），使用者核對價格後用 /api/trades/bulk 寫入。"""
+    import base64
+
+    from src.agents import xq_csv
+    from src.state import portfolio as pfm
+
+    if len(body.data) > 3_000_000:
+        raise HTTPException(413, "檔案太大（上限約 2MB）")
+    try:
+        raw = base64.b64decode(body.data.split(",", 1)[1] if body.data.startswith("data:") else body.data)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, "檔案格式錯誤") from e
+    out = xq_csv.parse(raw)
+    if out.get("rows") is not None:
+        xq_csv.mark_duplicates(out["rows"])
+    out["version"] = pfm.trades_version()
+    return out
+
+
 @app.get("/api/trades", dependencies=[api])
 def trades_():
     return data.trade_ledger()
