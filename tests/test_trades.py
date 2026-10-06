@@ -72,3 +72,36 @@ def test_json_safe_replaces_nan():
     out = json_safe({"a": float("nan"), "b": [1.5, float("inf")], "c": "x"})
     assert out == {"a": None, "b": [1.5, None], "c": "x"}
     assert not any(isinstance(v, float) and not math.isfinite(v) for v in out["b"] if v is not None)
+
+
+def _clean(**t):
+    from src.api.data import _clean_trade
+
+    return _clean_trade({"date": "2026-10-06", **t})
+
+
+def test_clean_trade_all_kinds():
+    fut = _clean(kind="FUT", code="TMF", side="BUY", shares=2, price=23000, contract="TMF202610")
+    assert fut["asset"] == "FUT" and fut["contract"] == "TMF202610"
+    opt = _clean(kind="OPT", code="TXO", side="BUY", shares=1, price=45, contract="TXO202610P22000")
+    assert opt["asset"] == "OPT" and opt["code"] == "TXO"
+    tr = _clean(kind="TRANSFER", side="TO_FUTURES", price=500000)
+    assert tr["code"] == "TRANSFER" and tr["shares"] == "1"
+    fee = _clean(kind="CASH", price=-20)
+    assert fee["code"] == "FEE" and fee["side"] == "ADJ" and fee["price"] == "-20"
+    for bad in [dict(kind="FUT", code="TMF", side="BUY", shares=1, price=1, contract="TX202610"),
+                dict(kind="OPT", code="TXO", side="BUY", shares=1, price=1, contract="TXO202610X22000"),
+                dict(kind="TRANSFER", side="SIDEWAYS", price=1), dict(kind="CASH", price=0),
+                dict(kind="STOCK", code="123456", side="BUY", shares=1, price=1)]:
+        with pytest.raises(ValueError):
+            _clean(**bad)
+
+
+def test_derivative_round_trip_replays():
+    rows = BASE + [_t("2026-10-06", "TRANSFER", "TO_FUTURES", 1, 300000),
+                   {**_t("2026-10-06", "TXO", "BUY", 2, 40), "asset": "OPT", "contract": "TXO202610P22000"},
+                   {**_t("2026-10-06", "TXO", "SELL", 2, 60), "asset": "OPT", "contract": "TXO202610P22000"}]
+    pf = pfm.build_portfolio(rows)
+    assert not pf.derivs and pf.realized_pnl > 0
+    with pytest.raises(ValueError):  # 選擇權只做買方
+        pfm.build_portfolio(rows + [{**_t("2026-10-06", "TXO", "SELL", 1, 60), "asset": "OPT", "contract": "TXO202610P22000"}])

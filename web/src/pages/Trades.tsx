@@ -21,84 +21,215 @@ function estimate(code: string, side: string, shares: number, price: number) {
   return { amount, fee, tax }
 }
 
-type Draft = { date: string; side: 'BUY' | 'SELL'; code: string; lots: string; odd: string; price: string; margin: boolean; note: string }
+type Kind = 'STOCK' | 'FUT' | 'OPT' | 'TRANSFER' | 'CASH'
+const KINDS: [Kind, string][] = [['STOCK', '股票／ETF'], ['FUT', '期貨'], ['OPT', '選擇權'], ['TRANSFER', '資金調撥'], ['CASH', '手續費校正']]
+const FUT_ROOTS: [string, string, number][] = [['TMF', '微台', 10], ['MTX', '小台', 50], ['TX', '大台', 200]]
+const thisMonth = () => today().slice(0, 7)
+const ymOf = (s: string) => `${s.slice(0, 4)}-${s.slice(4, 6)}`
+const OPT_RE = /^TXO(\d{6})([CP])(\d+)$/
 
-const fromRow = (r?: Json): Draft => {
-  if (!r) return { date: today(), side: 'BUY', code: '', lots: '', odd: '', price: '', margin: false, note: '' }
-  const sh = Number(r.shares)
-  return { date: r.date, side: r.side, code: r.code, lots: String(Math.floor(sh / 1000) || ''), odd: String(sh % 1000 || ''),
-    price: String(r.price), margin: r.margin === '1', note: r.note ?? '' }
+type Draft = {
+  kind: Kind; date: string; side: 'BUY' | 'SELL'; code: string; lots: string; odd: string; qty: string; price: string
+  margin: boolean; note: string; root: string; ym: string; cp: 'C' | 'P'; strike: string; dir: 'TO_FUTURES' | 'TO_SECURITIES'; amount: string
 }
 
-function TradeForm({ initial, holdings, busy, onSubmit, onCancel }: {
-  initial?: Json; holdings: Json[]; busy: boolean; onSubmit: (t: Json) => void; onCancel?: () => void
+const blank = (): Draft => ({ kind: 'STOCK', date: today(), side: 'BUY', code: '', lots: '', odd: '', qty: '', price: '', margin: false,
+  note: '', root: 'TMF', ym: thisMonth(), cp: 'P', strike: '', dir: 'TO_FUTURES', amount: '' })
+
+/** 把一列紀錄轉回表單欄位（修改既有紀錄用） */
+const fromRow = (r?: Json): Draft => {
+  const d = blank()
+  if (!r) return d
+  const base = { ...d, date: r.date, note: r.note ?? '' }
+  if (r.kind === 'TRANSFER') return { ...base, kind: 'TRANSFER', dir: r.side, amount: String(r.price) }
+  if (r.kind === 'CASH') return { ...base, kind: 'CASH', amount: String(r.price) }
+  if (r.kind === 'FUT') return { ...base, kind: 'FUT', side: r.side, root: r.code, ym: ymOf(r.contract.slice(r.code.length)), qty: String(r.shares), price: String(r.price) }
+  if (r.kind === 'OPT') {
+    const m = OPT_RE.exec(r.contract) ?? []
+    return { ...base, kind: 'OPT', side: r.side, ym: m[1] ? ymOf(m[1]) : d.ym, cp: (m[2] as 'C' | 'P') ?? 'P', strike: m[3] ?? '', qty: String(r.shares), price: String(r.price) }
+  }
+  const sh = Number(r.shares)
+  return { ...base, side: r.side, code: r.code, lots: String(Math.floor(sh / 1000) || ''), odd: String(sh % 1000 || ''),
+    price: String(r.price), margin: r.margin === '1' }
+}
+
+/** 表單 → API 內容；欄位不完整回 null */
+function toPayload(d: Draft): Json | null {
+  const price = Number(d.price) || 0
+  const qty = Number(d.qty) || 0
+  const base = { date: d.date, note: d.note }
+  if (!d.date) return null
+  switch (d.kind) {
+    case 'STOCK': {
+      const shares = (Number(d.lots) || 0) * 1000 + (Number(d.odd) || 0)
+      const code = d.code.trim().toUpperCase()
+      if (!code || shares <= 0 || price <= 0) return null
+      return { ...base, kind: 'STOCK', side: d.side, code, shares, price, margin: d.side === 'BUY' && d.margin }
+    }
+    case 'FUT':
+      if (qty <= 0 || price <= 0 || !d.ym) return null
+      return { ...base, kind: 'FUT', side: d.side, code: d.root, contract: `${d.root}${d.ym.replace('-', '')}`, shares: qty, price }
+    case 'OPT':
+      if (qty <= 0 || price <= 0 || !d.ym || !Number(d.strike)) return null
+      return { ...base, kind: 'OPT', side: d.side, code: 'TXO', contract: `TXO${d.ym.replace('-', '')}${d.cp}${Number(d.strike)}`, shares: qty, price }
+    case 'TRANSFER':
+      return Number(d.amount) > 0 ? { ...base, kind: 'TRANSFER', side: d.dir, price: Number(d.amount) } : null
+    case 'CASH':
+      return Number(d.amount) ? { ...base, kind: 'CASH', price: Number(d.amount) } : null
+  }
+}
+
+function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
+  initial?: Json; holdings: Json[]; derivs: Json[]; busy: boolean; onSubmit: (t: Json) => void; onCancel?: () => void
 }) {
   const [d, setD] = useState<Draft>(() => fromRow(initial))
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }))
+  const payload = toPayload(d)
   const shares = (Number(d.lots) || 0) * 1000 + (Number(d.odd) || 0)
   const price = Number(d.price) || 0
+  const qty = Number(d.qty) || 0
   const held = holdings.find((h) => h.code === d.code.trim().toUpperCase())
   const est = estimate(d.code, d.side, shares, price)
-  const valid = d.code.trim() && shares > 0 && price > 0 && d.date
+  const mult = d.kind === 'OPT' ? 50 : FUT_ROOTS.find((r) => r[0] === d.root)?.[2] ?? 0
+  const openDerivs = derivs.filter((x) => (d.kind === 'FUT' ? x.kind === 'FUT' : x.kind === 'OPT'))
   const input = 'rounded-md border border-line bg-paper px-2 py-1 text-ink outline-none focus:border-link'
-  const sideBtn = (s: 'BUY' | 'SELL') =>
-    `rounded-md px-3 py-1 ${d.side === s ? (s === 'BUY' ? 'bg-up text-white' : 'bg-down text-white') : 'border border-line text-ink-2'}`
+  const field = 'flex flex-col gap-1 text-muted'
+  const pill = (on: boolean, color = 'bg-ink text-paper') => `rounded-md px-3 py-1 ${on ? color : 'border border-line text-ink-2'}`
+  const sideLabels = d.kind === 'FUT' ? ['買進（做多／平空）', '賣出（做空／平多）'] : d.kind === 'OPT' ? ['買進（建倉）', '賣出（平倉）'] : ['買進', '賣出']
+
+  /** 從既有期貨／選擇權部位帶入平倉內容 */
+  function closeDeriv(x: Json) {
+    const c: string = x.contract
+    if (x.kind === 'FUT') set({ root: x.root, ym: ymOf(c.slice(x.root.length)), side: x.qty > 0 ? 'SELL' : 'BUY', qty: String(Math.abs(x.qty)) })
+    else {
+      const m = OPT_RE.exec(c) ?? []
+      set({ ym: m[1] ? ymOf(m[1]) : d.ym, cp: (m[2] as 'C' | 'P') ?? 'P', strike: m[3] ?? '', side: 'SELL', qty: String(x.qty) })
+    }
+  }
+
   return (
     <form className="rounded-lg border border-line bg-paper p-4 text-sm"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (valid) onSubmit({ date: d.date, side: d.side, code: d.code.trim().toUpperCase(), shares, price, margin: d.side === 'BUY' && d.margin, note: d.note })
-      }}>
+      onSubmit={(e) => { e.preventDefault(); if (payload) onSubmit(payload) }}>
+      <div className="mb-3 flex flex-wrap gap-1.5" role="tablist" aria-label="類別">
+        {KINDS.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={d.kind === k} className={pill(d.kind === k)} onClick={() => set({ kind: k })}>{label}</button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <div className="flex gap-1.5" role="group" aria-label="買賣方向">
-          <button type="button" className={sideBtn('BUY')} onClick={() => set({ side: 'BUY' })}>買進</button>
-          <button type="button" className={sideBtn('SELL')} onClick={() => set({ side: 'SELL' })}>賣出</button>
-        </div>
-        <label className="flex flex-col gap-1 text-muted">日期
+        {(d.kind === 'STOCK' || d.kind === 'FUT' || d.kind === 'OPT') && (
+          <div className="flex gap-1.5" role="group" aria-label="買賣方向">
+            <button type="button" className={pill(d.side === 'BUY', 'bg-up text-white')} onClick={() => set({ side: 'BUY' })}>{sideLabels[0]}</button>
+            <button type="button" className={pill(d.side === 'SELL', 'bg-down text-white')} onClick={() => set({ side: 'SELL' })}>{sideLabels[1]}</button>
+          </div>
+        )}
+        {d.kind === 'TRANSFER' && (
+          <div className="flex gap-1.5" role="group" aria-label="調撥方向">
+            <button type="button" className={pill(d.dir === 'TO_FUTURES')} onClick={() => set({ dir: 'TO_FUTURES' })}>證券戶 → 期貨戶</button>
+            <button type="button" className={pill(d.dir === 'TO_SECURITIES')} onClick={() => set({ dir: 'TO_SECURITIES' })}>期貨戶 → 證券戶</button>
+          </div>
+        )}
+        <label className={field}>日期
           <input type="date" value={d.date} max={today()} onChange={(e) => set({ date: e.target.value })} className={`${input} num`} required />
         </label>
-        <label className="flex flex-col gap-1 text-muted">代號
-          <input value={d.code} onChange={(e) => set({ code: e.target.value })} list="trade-holdings" placeholder="2330"
-            className={`${input} num w-24`} required />
-          <datalist id="trade-holdings">
-            {holdings.map((h) => <option key={h.code} value={h.code}>{h.name}（持有 {fmtInt(h.shares)} 股）</option>)}
-          </datalist>
-        </label>
-        <label className="flex flex-col gap-1 text-muted">張
-          <input type="number" min={0} step={1} value={d.lots} onChange={(e) => set({ lots: e.target.value })} className={`${input} num w-20`} />
-        </label>
-        <label className="flex flex-col gap-1 text-muted">零股（股）
-          <input type="number" min={0} max={999} step={1} value={d.odd} onChange={(e) => set({ odd: e.target.value })} className={`${input} num w-20`} />
-        </label>
-        <label className="flex flex-col gap-1 text-muted">成交價
-          <input type="number" min={0} step="any" value={d.price} onChange={(e) => set({ price: e.target.value })} className={`${input} num w-24`} required />
-        </label>
-        {d.side === 'BUY' && (
-          <label className="inline-flex items-center gap-1.5 pb-1 text-ink-2">
-            <input type="checkbox" checked={d.margin} onChange={(e) => set({ margin: e.target.checked })} /> 融資
+
+        {d.kind === 'STOCK' && (
+          <>
+            <label className={field}>代號
+              <input value={d.code} onChange={(e) => set({ code: e.target.value })} list="trade-holdings" placeholder="2330 或 0050"
+                className={`${input} num w-28`} required />
+              <datalist id="trade-holdings">
+                {holdings.map((h) => <option key={h.code} value={h.code}>{h.name}（持有 {fmtInt(h.shares)} 股）</option>)}
+              </datalist>
+            </label>
+            <label className={field}>張
+              <input type="number" min={0} step={1} value={d.lots} onChange={(e) => set({ lots: e.target.value })} className={`${input} num w-20`} />
+            </label>
+            <label className={field}>零股（股）
+              <input type="number" min={0} max={999} step={1} value={d.odd} onChange={(e) => set({ odd: e.target.value })} className={`${input} num w-20`} />
+            </label>
+            <label className={field}>成交價
+              <input type="number" min={0} step="any" value={d.price} onChange={(e) => set({ price: e.target.value })} className={`${input} num w-24`} required />
+            </label>
+            {d.side === 'BUY' && (
+              <label className="inline-flex items-center gap-1.5 pb-1 text-ink-2">
+                <input type="checkbox" checked={d.margin} onChange={(e) => set({ margin: e.target.checked })} /> 融資
+              </label>
+            )}
+          </>
+        )}
+
+        {(d.kind === 'FUT' || d.kind === 'OPT') && (
+          <>
+            {d.kind === 'FUT' ? (
+              <label className={field}>商品
+                <select value={d.root} onChange={(e) => set({ root: e.target.value })} className={input}>
+                  {FUT_ROOTS.map(([r, n, m]) => <option key={r} value={r}>{r} {n}（每點 {m} 元）</option>)}
+                </select>
+              </label>
+            ) : (
+              <>
+                <div className="flex gap-1.5" role="group" aria-label="買權或賣權">
+                  <button type="button" className={pill(d.cp === 'P')} onClick={() => set({ cp: 'P' })}>賣權 P</button>
+                  <button type="button" className={pill(d.cp === 'C')} onClick={() => set({ cp: 'C' })}>買權 C</button>
+                </div>
+                <label className={field}>履約價
+                  <input type="number" min={0} step={50} value={d.strike} onChange={(e) => set({ strike: e.target.value })} className={`${input} num w-24`} required />
+                </label>
+              </>
+            )}
+            <label className={field}>合約月份
+              <input type="month" value={d.ym} onChange={(e) => set({ ym: e.target.value })} className={`${input} num`} required />
+            </label>
+            <label className={field}>口數
+              <input type="number" min={1} step={1} value={d.qty} onChange={(e) => set({ qty: e.target.value })} className={`${input} num w-20`} required />
+            </label>
+            <label className={field}>{d.kind === 'FUT' ? '成交點數' : '權利金（點）'}
+              <input type="number" min={0} step="any" value={d.price} onChange={(e) => set({ price: e.target.value })} className={`${input} num w-28`} required />
+            </label>
+          </>
+        )}
+
+        {(d.kind === 'TRANSFER' || d.kind === 'CASH') && (
+          <label className={field}>{d.kind === 'TRANSFER' ? '金額（元）' : '校正金額（元，正數＝多扣、負數＝退回）'}
+            <input type="number" step="any" value={d.amount} onChange={(e) => set({ amount: e.target.value })} className={`${input} num w-36`} required />
           </label>
         )}
+
         <label className="flex min-w-40 flex-1 flex-col gap-1 text-muted">備註（理由）
-          <input value={d.note} onChange={(e) => set({ note: e.target.value })} maxLength={80} placeholder="例如：跌破停損、換股" className={input} />
+          <input value={d.note} onChange={(e) => set({ note: e.target.value })} maxLength={80}
+            placeholder={d.kind === 'CASH' ? '例如：依 App 淨收付校正' : '例如：跌破停損、換股、避險'} className={input} />
         </label>
       </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {held && d.side === 'SELL' && (
+        {d.kind === 'STOCK' && held && d.side === 'SELL' && (
           <button type="button" className="rounded-md border border-line px-2 py-0.5 text-ink-2"
             onClick={() => set({ lots: String(Math.floor(held.shares / 1000) || ''), odd: String(held.shares % 1000 || '') })}>
             全部賣出（{qtyText(held.shares)}）
           </button>
         )}
-        {held && <span className="text-muted">{held.name} 目前持有 {qtyText(held.shares)}</span>}
-        {shares > 0 && price > 0 && (
+        {d.kind === 'STOCK' && held && <span className="text-muted">{held.name} 目前持有 {qtyText(held.shares)}</span>}
+        {d.kind === 'STOCK' && shares > 0 && price > 0 && (
           <span className="num text-ink-2">
             {qtyText(shares)}・價金 {fmtInt(est.amount)}・手續費約 {fmtInt(est.fee)}{d.side === 'SELL' ? `・證交稅約 ${fmtInt(est.tax)}` : ''}
           </span>
         )}
+        {(d.kind === 'FUT' || d.kind === 'OPT') && openDerivs.map((x) => (
+          <button key={x.contract} type="button" className="rounded-md border border-line px-2 py-0.5 text-ink-2" onClick={() => closeDeriv(x)}>
+            平倉 {x.contract}（{x.qty > 0 ? '多' : '空'} {Math.abs(x.qty)} 口，均價 {x.avg_price}）
+          </button>
+        ))}
+        {(d.kind === 'FUT' || d.kind === 'OPT') && qty > 0 && price > 0 && (
+          <span className="num text-ink-2">
+            {d.kind === 'FUT' ? '契約價值' : '權利金'} {fmtInt(price * mult * qty)} 元（{price} 點 × {mult} 元 × {qty} 口）
+          </span>
+        )}
+        {d.kind === 'OPT' && <span className="text-muted">競賽只做買方：賣出僅限平倉</span>}
       </div>
       <div className="mt-3 flex gap-2">
-        <button type="submit" disabled={busy || !valid} className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-40">
-          {busy ? '寫入中…' : initial ? '儲存修改' : '新增交易'}
+        <button type="submit" disabled={busy || !payload} className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-40">
+          {busy ? '寫入中…' : initial ? '儲存修改' : '新增紀錄'}
         </button>
         {onCancel && <button type="button" onClick={onCancel} className="rounded-md border border-line px-3 py-1.5">取消</button>}
       </div>
@@ -126,11 +257,11 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
                 <tr className="border-b border-line/60">
                   <td className="num py-1.5 text-muted">{r.date}</td>
                   <td className={r.side === 'BUY' ? 'text-up' : r.side === 'SELL' ? 'text-down' : 'text-ink-2'}>{r.side_label}{r.margin === '1' ? '（融資）' : ''}</td>
-                  <td>{stock ? <StockLink code={r.code} name={r.name} /> : <span className="text-ink-2">{r.contract || r.code}</span>}</td>
+                  <td>{stock ? <StockLink code={r.code} name={r.name} /> : <span className="text-ink-2">{r.contract || (r.kind === 'CASH' ? '證券戶' : '證券戶 ↔ 期貨戶')}{r.name ? <span className="ml-1 text-muted">{r.name}</span> : null}</span>}</td>
                   <td className="num text-right">{stock ? qtyText(Number(r.shares)) : r.kind === 'FUT' || r.kind === 'OPT' ? `${r.shares} 口` : '—'}</td>
                   <td className="num text-right">{stock || r.kind === 'FUT' || r.kind === 'OPT' ? r.price : '—'}</td>
-                  <td className="num text-right">{stock ? fmtInt(r.amount) : r.kind === 'CASH' || r.kind === 'TRANSFER' ? fmtInt(Number(r.price)) : '—'}</td>
-                  <td className="num text-right text-muted">{stock ? fmtInt(r.fee + r.tax) : '—'}</td>
+                  <td className="num text-right">{r.amount != null ? fmtInt(r.amount) : fmtInt(Number(r.price))}</td>
+                  <td className="num text-right text-muted">{r.fee != null ? fmtInt(r.fee + r.tax) : '—'}</td>
                   <td className="max-w-64 truncate pl-4 text-sm text-muted" title={r.note}>{r.note}</td>
                   <td className="whitespace-nowrap text-right text-sm">
                     {confirmDel === r.id ? (
@@ -141,7 +272,7 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
                       </>
                     ) : (
                       <>
-                        {stock && <button className="mr-3 text-link" onClick={() => { setEditing(editing === r.id ? null : r.id); setConfirmDel(null) }}>修改</button>}
+                        <button className="mr-3 text-link" onClick={() => { setEditing(editing === r.id ? null : r.id); setConfirmDel(null) }}>修改</button>
                         <button className="text-muted hover:text-up" onClick={() => { setConfirmDel(r.id); setEditing(null) }}>刪除</button>
                       </>
                     )}
@@ -149,7 +280,7 @@ function Ledger({ data, run, busy }: { data: Json; run: (fn: () => Promise<Json>
                 </tr>
                 {editing === r.id && (
                   <tr><td colSpan={9} className="py-2">
-                    <TradeForm initial={r} holdings={data.holdings} busy={busy} onCancel={() => setEditing(null)}
+                    <TradeForm initial={r} holdings={data.holdings} derivs={data.derivs} busy={busy} onCancel={() => setEditing(null)}
                       onSubmit={async (t) => { if (await run(() => put(`/api/trades/${r.id}`, { version: data.version, trade: t }))) setEditing(null) }} />
                   </td></tr>
                 )}
@@ -180,6 +311,7 @@ function Stats({ s }: { s: Json }) {
         <Stat label="手續費" value={fmtInt(m.fee)} sub={m.fee_adjust ? `另有 App 校正 ${fmtInt(m.fee_adjust)} 元` : undefined} />
         <Stat label="證交稅" value={fmtInt(m.tax)} />
         <Stat label="交易天數" value={m.active_days} />
+        {m.deriv_trades > 0 && <Stat label="期貨／選擇權已實現" value={fmtInt(m.deriv_realized)} valueClass={tone(m.deriv_realized)} sub={`${m.deriv_trades} 筆・選擇權已扣費用，期貨手續費另從期貨戶扣`} />}
       </div>
       <ul className="mb-6 space-y-1 text-sm">
         {m.checks.map((c: Json) => (
@@ -298,12 +430,12 @@ export default function Trades() {
       <PageTitle>交易紀錄與統計</PageTitle>
       {msg && <div className={`mb-4 rounded-md border px-3 py-2 text-sm ${msg.ok ? 'border-down/40 bg-down/5 text-down' : 'border-up/40 bg-up/5 text-up'}`}>{msg.text}</div>}
 
-      <Section title="手動新增交易" aside="買進、賣出都可記錄；整股填張數，零股填股數">
-        <TradeForm key={formKey} holdings={data.holdings} busy={busy}
+      <Section title="新增紀錄" aside="股票、ETF、期貨、選擇權、資金調撥、手續費校正；過去日期也能補記">
+        <TradeForm key={formKey} holdings={data.holdings} derivs={data.derivs} busy={busy}
           onSubmit={async (t) => { if (await run(() => post('/api/trades', { version: data.version, trade: t }))) setFormKey((k) => k + 1) }} />
         <p className="mt-2 text-xs text-muted">
           寫入前會重算整個帳戶（賣超過持有會被擋下）；雲端版會提交到 GitHub，所有頁面的持股、現金、建議都會跟著更新。
-          期貨／選擇權與資金調撥請跟 AI 助理說，或用持股頁的 XQ 匯入。
+          記錯了可以在下方「全部交易」按「修改」更正，或刪除後重記。
         </p>
       </Section>
 

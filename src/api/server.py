@@ -150,12 +150,14 @@ def portfolio():
 
 # ---------------------------------------------------------------- 交易紀錄：手動新增／修改／刪除與統計
 class TradeIn(BaseModel):
+    kind: str = "STOCK"  # STOCK／ETF／FUT／OPT／TRANSFER（資金調撥）／CASH（手續費校正）
     date: str
-    code: str
-    side: str
-    shares: float
+    code: str = ""
+    side: str = ""
+    shares: float = 1
     price: float
     margin: bool = False
+    contract: str = ""
     note: str = ""
 
 

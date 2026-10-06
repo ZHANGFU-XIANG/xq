@@ -62,6 +62,9 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
             continue
         if pfm.asset_of(t) in ("FUT", "OPT"):
             other["deriv"] += 1
+            dd = days.setdefault(t.get("date", ""), {"date": t.get("date", ""), "count": 0, "buy_amount": 0.0, "sell_amount": 0.0,
+                                                    "realized": 0.0, "fee_tax": 0.0})
+            dd["count"] += 1  # 期權只計筆數；金額與損益看「期貨／選擇權已實現」
             continue
         shares, price, date = int(float(t["shares"])), float(t["price"]), t.get("date", "")
         fee, tax = fee_tax(code, side, shares, price)

@@ -148,31 +148,54 @@ def trade_ledger() -> dict:
     out = []
     for i, t in enumerate(rows):
         code, side = t["code"].strip(), t["side"].strip().upper()
-        kind = pfm.asset_of(t) if code.upper() not in ("FEE", "TRANSFER") else ("CASH" if code.upper() == "FEE" else "TRANSFER")
+        kind = _kind_of(t)
         item = {"id": i, **{k: t.get(k) or "" for k in pfm.TRADE_FIELDS}, "kind": kind, "side_label": SIDE_LABEL.get(side, side)}
         if kind in ("STOCK", "ETF"):
             shares, price = int(float(t["shares"])), float(t["price"])
             fee, tax = trade_review.fee_tax(code, side, shares, price)
             item.update(name=stock_meta(code).get("name", ""), amount=round(shares * price), fee=fee, tax=tax,
                         board="整股" if shares % 1000 == 0 else "零股" if shares < 1000 else "整股＋零股")
+        elif kind in ("FUT", "OPT"):
+            qty, price = int(float(t["shares"])), float(t["price"])
+            item.update(name=pfm.deriv_spec(code)["name"], fee=pfm.deriv_cost(code, qty, price), tax=0.0,
+                        amount=round(price * pfm.deriv_spec(code)["multiplier"] * qty))  # 期貨＝契約價值、選擇權＝權利金
         out.append(item)
     stats = trade_review.review(rows, _prices(list({t["code"].strip() for t in rows if pfm.asset_of(t) in ("STOCK", "ETF")
                                                    and t["code"].strip().upper() not in ("FEE", "TRANSFER")})))
+    # 期貨／選擇權已實現損益＝帳戶總已實現 − 股票部分（期權逐口平倉損益由 portfolio 重播計算）
+    stats["summary"]["deriv_realized"] = round(pf.realized_pnl - stats["summary"]["realized"])
     return {"version": pfm.trades_version(rows), "rows": out[::-1],  # 最新在前
             "holdings": [{"code": c, "name": stock_meta(c).get("name", ""), "shares": p.shares} for c, p in pf.positions.items()],
-            "stats": stats}
+            "derivs": [{"contract": c, "root": d.root, "kind": d.kind, "qty": d.qty, "avg_price": round(d.avg_price, 2)}
+                       for c, d in pf.derivs.items()],
+            "cash": round(pf.cash), "futures_cash": round(pf.futures_cash), "stats": stats}
+
+
+ASSET_KINDS = ("STOCK", "ETF", "FUT", "OPT", "TRANSFER", "CASH")
+
+
+def _kind_of(row: dict) -> str:
+    code = str(row.get("code", "")).strip().upper()
+    return {"FEE": "CASH", "TRANSFER": "TRANSFER"}.get(code) or pfm.asset_of(row)
 
 
 def _clean_trade(t: dict, base: dict | None = None) -> dict:
-    """驗證並整理一筆手動輸入的成交；base 為修改前的那一列（保留期貨合約等欄位）。"""
+    """驗證並整理一筆手動輸入的紀錄；base 為修改前的那一列。
+
+    t["kind"]：STOCK／ETF（股數、成交價）、FUT（code=TX/MTX/TMF、contract=TMF202610、口數、點數）、
+    OPT（code=TXO、contract=TXO202610P46000、口數、權利金點數，只做買方）、
+    TRANSFER（side=TO_FUTURES/TO_SECURITIES、price=金額）、CASH（手續費校正，price=金額，可為負）。
+    """
     import datetime as dt
     import re
 
+    from src.agents.compliance import is_warrant
+
     base = base or {}
     row = {k: base.get(k, "") or "" for k in pfm.TRADE_FIELDS}
-    code = str(t.get("code", row["code"])).strip().upper()
-    side = str(t.get("side", row["side"])).strip().upper()
-    special = code in ("FEE", "TRANSFER")
+    kind = str(t.get("kind") or (_kind_of(row) if base else "STOCK")).strip().upper()
+    if kind not in ASSET_KINDS:
+        raise ValueError(f"未知類別 {kind}")
     try:
         d = dt.date.fromisoformat(str(t.get("date", row["date"])).strip())
     except ValueError as e:
@@ -180,30 +203,72 @@ def _clean_trade(t: dict, base: dict | None = None) -> dict:
     if d > now_tw().date():
         raise ValueError("日期不能是未來")
     try:
-        shares = float(t.get("shares", row["shares"]))
+        shares = float(t.get("shares") or row["shares"] or 1)
         price = float(t.get("price", row["price"]))
     except (TypeError, ValueError) as e:
-        raise ValueError("股數與價格要是數字") from e
-    if shares <= 0 or shares != int(shares):
-        raise ValueError("股數要是正整數（1 張 = 1000 股）")
-    if price <= 0 and not special:
-        raise ValueError("價格要大於 0")
-    if not special:
+        raise ValueError("數量與價格要是數字") from e
+    code = str(t.get("code", row["code"])).strip().upper()
+    side = str(t.get("side", row["side"])).strip().upper()
+    contract = str(t.get("contract", row["contract"]) or "").strip().upper()
+    margin = str(t.get("margin", row["margin"])).strip().lower() in ("1", "true", "y")
+
+    if kind == "TRANSFER":
+        if side not in ("TO_FUTURES", "TO_SECURITIES"):
+            raise ValueError("資金調撥方向只能是「證券戶 → 期貨戶」或「期貨戶 → 證券戶」")
+        if price <= 0:
+            raise ValueError("調撥金額要大於 0")
+        code, shares, contract, margin, asset = "TRANSFER", 1, "", False, ""
+    elif kind == "CASH":
+        if price == 0:
+            raise ValueError("校正金額不能是 0（正數＝多付的手續費，負數＝退回）")
+        code, side, shares, contract, margin, asset = "FEE", "ADJ", 1, "", False, "CASH"
+    else:
         if side not in ("BUY", "SELL"):
             raise ValueError("買賣方向只能是買進或賣出")
-        if pfm.asset_of({**row, "code": code}) in ("STOCK", "ETF"):
+        if shares <= 0 or shares != int(shares):
+            raise ValueError("數量要是正整數（股票 1 張 = 1000 股；期貨、選擇權為口數）")
+        if price <= 0:
+            raise ValueError("價格要大於 0")
+        asset = kind
+        if kind in ("STOCK", "ETF"):
             if not re.fullmatch(r"\d{4,6}[A-Z]?", code):
                 raise ValueError(f"股票代號格式不對：{code}")
+            if is_warrant(code):
+                raise ValueError("權證不可交易（競賽規則）")
             from src.agents.universe import stock_info
 
             info = stock_info()
             if info and code not in info:  # 股票清單載入失敗時不擋
-                raise ValueError(f"查無股票代號 {code}（請確認是上市櫃股票或 ETF）")
+                raise ValueError(f"查無代號 {code}（請確認是上市櫃股票或 ETF）")
+            asset = "ETF" if pfm.is_etf(code) else "STOCK"  # 依代號判斷，避免選錯類別讓證交稅算錯
+            contract = ""
+        elif kind == "FUT":
+            if code not in ("TX", "MTX", "TMF"):
+                raise ValueError("期貨商品只能是 TX 大台、MTX 小台、TMF 微台")
+            if not re.fullmatch(code + r"20\d{2}(0[1-9]|1[0-2])", contract):
+                raise ValueError(f"期貨合約格式要是 {code}202610（商品＋年月）")
+            margin = False
+        else:  # OPT
+            code = "TXO"
+            if not re.fullmatch(r"TXO20\d{2}(0[1-9]|1[0-2])[CP]\d{3,6}", contract):
+                raise ValueError("選擇權合約格式要是 TXO202610P46000（年月＋C 買權／P 賣權＋履約價）")
+            margin = False
     row.update(date=d.isoformat(), code=code, side=side, shares=str(int(shares)),
-               price=f"{price:.6f}".rstrip("0").rstrip("."),
-               margin="1" if str(t.get("margin", row["margin"])).strip().lower() in ("1", "true", "y") else "0",
+               price=f"{price:.6f}".rstrip("0").rstrip("."), margin="1" if margin else "0", asset=asset, contract=contract,
                note=" ".join(str(t.get("note", row["note"]) or "").replace(",", "，").split())[:80])
     return row
+
+
+def _desc(r: dict) -> str:
+    kind = _kind_of(r)
+    side = SIDE_LABEL.get(r["side"].upper(), r["side"])
+    if kind == "TRANSFER":
+        return f"{r['date']} {side} {float(r['price']):,.0f} 元"
+    if kind == "CASH":
+        return f"{r['date']} 手續費校正 {float(r['price']):,.0f} 元"
+    if kind in ("FUT", "OPT"):
+        return f"{r['date']} {side} {r['contract']} {r['shares']} 口 @ {r['price']}"
+    return f"{r['date']} {side} {r['code']} {r['shares']} 股 @ {r['price']}"
 
 
 def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | None = None) -> dict:
@@ -216,16 +281,16 @@ def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | No
     if op == "add":
         new = _clean_trade(trade or {})
         rows = rows + [new]
-        what = f"新增 {new['date']} {SIDE_LABEL.get(new['side'], new['side'])} {new['code']} {new['shares']} 股 @ {new['price']}"
+        what = f"新增 {_desc(new)}"
     elif op == "update":
         old = rows[tid]
         new = _clean_trade(trade or {}, old)
         rows = rows[:tid] + [new] + rows[tid + 1:]
-        what = f"修改 {old['date']} {old['code']} {old['side']} {old['shares']}@{old['price']} → {new['date']} {new['code']} {new['side']} {new['shares']}@{new['price']}"
+        what = f"修改 {_desc(old)} → {_desc(new)}"
     elif op == "delete":
         old = rows[tid]
         rows = rows[:tid] + rows[tid + 1:]
-        what = f"刪除 {old['date']} {SIDE_LABEL.get(old['side'].upper(), old['side'])} {old['code']} {old['shares']} 股 @ {old['price']}"
+        what = f"刪除 {_desc(old)}"
     else:
         raise ValueError(f"未知操作 {op}")
     rows = sorted(rows, key=lambda r: r["date"])  # 依日期重播（同一天維持原順序），先進先出才正確
