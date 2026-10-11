@@ -11,9 +11,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 from src.agents import on_demand
 from src.agents.verifier import NUM_RE, fact_numbers, verify
@@ -23,7 +25,11 @@ from src.llm.client import get_client, mark_exhausted, model_ok
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
-MAX_STEPS = 6
+# 工具呼叫不設次數上限（使用者要求）；只防「一直重複查同樣東西」：連續 REPEAT_LIMIT 步全是已查過的查詢 → 不再給工具，要求直接回答
+REPEAT_LIMIT = 2
+REPEAT_NOTE = "（這項查詢本輪已經執行過，結果與先前相同，請直接根據已取得的資料回答）"
+WRITE_TOOLS = {"record_trade", "record_transfer", "run_analysis", "import_xq_holdings", "make_weekly_report"}
+_TL = threading.local()  # 本輪對話的工具快取：換模型重來或核對重寫時，同樣的查詢直接沿用，不重算
 _USED: dict = {"model": None}  # 本輪實際回答的模型（顯示在回答下方）
 PENDING: dict[str, dict] = {}
 
@@ -43,6 +49,9 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 寫作格式：
 - 不使用粗體、井字號標題、表情符號、分隔線、HTML 標籤，也不要用「當然」「好的」「以下是」「希望對你有幫助」「總結來說」「值得注意的是」這類客套或制式用語。
 - 第一句直接給結論；接著用「1. 2. 3.」列出依據（每點附出處）；最後一行以「建議：」開頭寫具體動作。比較多檔時可以用簡單表格。
+- 買賣結論一律用這幾個詞開頭，不要模稜兩可：「可以買」「等回檔再買（到多少價）」「先不要買」「續抱」「減碼」「全部出清」。
+  不要寫「可以考慮」「視情況」「建議觀察」這種沒有結論的話；工具判斷是觀望就寫「先不要買」並說原因。
+  續抱一定要講續抱的理由（例如沒跌破停損、模型預期報酬仍為正）與「什麼情況要改賣」（停損價、停利價）。
 - 註明資料日期。不要輸出 JSON、英文欄位名稱或工具名稱（例如 get_futures_view、record_transfer）；需要使用者做的事用一般說法，例如「跟我說要從證券戶轉多少到期貨戶」。
 
 工具使用規則：
@@ -54,6 +63,9 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5. 「如果買/賣…會怎樣」用 simulate_trades 試算，說明成本、持股率與競賽規則影響。
 5c. 使用者貼上看起來像 XQ 庫存表格的內容時，呼叫 import_xq_holdings（text 原樣傳入），說明差異並提醒按確認同步。
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
+5j. 問「現在能買什麼／哪些不能買／要不要換股／今天怎麼做／持股要不要抱」這類總覽問題時，先呼叫 get_decision_board，
+    只要寫 2～4 句總結：第一句講現在最該做的一件事（例如先賣哪檔、可以買哪檔），再點出要注意的風險，句末加出處。
+    逐檔的結論、張數、限價、理由與停損條件，系統會自動附在你的回答後面，不要再逐檔列出。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
 6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
 5i. 要做週報、週報 PPT、本週交易報告時呼叫 make_weekly_report，回答時說明週次、期間、成交筆數，並提醒用下方的下載按鈕下載。
@@ -79,6 +91,7 @@ SOURCE_DESC = {
     "get_model_health": "本系統模型回測與實際命中紀錄",
     "simulate_trades": "本系統試算（競賽手續費 0.1425%、證交稅）",
     "get_potential_picks": "本系統每日排名",
+    "get_decision_board": "本系統買賣決策總表（盤中即時價、一個月模型、每日排名）",
     "get_holding_watch": "本系統持股動向（證交所即時報價、一個月模型）",
     "get_value_picks": "本系統平價潛力股排名（一個月模型、注意處置股公告）",
     "get_recovery_plan": "本系統虧損補回計畫（一個月模型、期貨回測、ETF 預估淨值）",
@@ -167,7 +180,7 @@ def _show_cites(text: str) -> str:
 
 
 MODEL_TOOLS = {"analyze_stock", "get_daily_report", "get_potential_picks", "get_model_health", "stock_profile",
-               "get_holding_advice", "get_macro"}
+               "get_holding_advice", "get_macro", "get_decision_board"}
 
 
 def _flag_uncited(text: str) -> tuple[str, int]:
@@ -178,8 +191,13 @@ def _flag_uncited(text: str) -> tuple[str, int]:
         body = re.sub(r"^\s*(\d+[.、]|[-*])\s*", "", ln)
         is_point = body != ln.lstrip() or re.match(r"^\s*(\d+[.、]|[-*])\s", ln)
         if is_point and body and "〔S" not in ln and not body.startswith(("推論", "無法確認", "建議")):
-            ln = ln.rstrip() + "〔未附出處〕"
-            n += 1
+            if not re.search(r"\d", body) and re.search(r"建議|可能|若|如果|否則|則|應該|宜|風險|最好", body):
+                # 沒有數字、語氣是判斷或建議的句子（例如「未減碼可能面臨成交困難，建議執行」）是模型的推論，
+                # 標明「推論：」即可，不算無法證實；沒有數字但在陳述事實的句子仍要出處
+                ln = ln[:len(ln) - len(body)] + "推論：" + body
+            else:
+                ln = ln.rstrip() + "〔未附出處〕"
+                n += 1
         out.append(ln)
     return "\n".join(out), n
 
@@ -259,6 +277,8 @@ TOOLS = [
     {"name": "get_regime", "description": "大盤攻守燈號與撤資預警：綠燈積極進攻／灰燈中性／黃燈預警暫停追高／紅燈轉弱提早撤資，含轉守與轉攻的具體點位、預警訊號與回測依據",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_trade_stats", "description": "交易紀錄統計與檢討：每次賣出的已實現損益與持有天數、勝率、平均獲利／虧損、獲利因子、每檔買賣次數與已實現＋未實現損益、手續費與證交稅、每日交易、競賽筆數與標的門檻",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_decision_board", "description": "買賣決策總表：哪些可以買（張數、限價、資金從哪來）、哪些等回檔再買、哪些先不要買與原因、每檔持股續抱／減碼／出清的理由與改變結論的條件（盤中即時價每 1 分鐘重算）",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
      "parameters": {"type": "object", "properties": {}}},
@@ -465,6 +485,8 @@ def call_tool(name: str, args: dict) -> dict:
             from src.data import providers
 
             return providers.status()
+        if name == "get_decision_board":
+            return apidata.decision_board()
         if name == "get_potential_picks":
             return apidata.potential()
         if name == "get_holding_watch":
@@ -532,6 +554,53 @@ def cancel(aid: str) -> dict:
 
 
 # ---------------------------------------------------------------- LLM 迴圈
+def _key(name: str, args: dict) -> str:
+    return name + json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _cached_call(name: str, args: dict, cache: dict | None) -> dict:
+    if cache is None or name in WRITE_TOOLS:  # 寫入類每次都要建立自己的待確認動作
+        return call_tool(name, args)
+    k = _key(name, args)
+    if k not in cache:
+        cache[k] = call_tool(name, args)
+    return cache[k]
+
+
+def _exec_step(calls: list[tuple[str, dict]], emit, outputs: list, start: int, seen: dict) -> tuple[list[dict], bool]:
+    """執行模型這一步要求的所有工具：彼此獨立的查詢平行執行（加快回答）；
+    本次嘗試已查過的相同查詢直接沿用原本的結果與出處編號。回傳（每個呼叫的結果, 是否全部都是重複查詢）。"""
+    keys = [_key(n, a) for n, a in calls]
+    all_repeat = all(k in seen for k in keys)
+    todo: dict[str, tuple[str, dict]] = {}
+    for k, (n, a) in zip(keys, calls):
+        if k not in seen and k not in todo:
+            todo[k] = (n, a)
+            emit({"type": "tool", "name": n, "args": a})
+    if todo:
+        cache = getattr(_TL, "cache", None)
+        with ThreadPoolExecutor(max_workers=min(6, len(todo))) as ex:
+            futs = {k: ex.submit(_cached_call, n, a, cache) for k, (n, a) in todo.items()}
+        for k, (n, a) in todo.items():
+            out = _tag(futs[k].result(), start + len(outputs) + 1, n)
+            outputs.append({"tool": n, "args": a, "result": out})
+            seen[k] = out
+            emit({"type": "tool_result", "name": n, "ok": "error" not in out,
+                  "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
+    return [seen[k] for k in keys], all_repeat
+
+
+def _gemini_thinking(model: str):
+    """關閉／降低思考：工具呼叫只需要挑工具與整理結果，長思考只會拖慢回答。"""
+    from google.genai import types
+
+    if model.startswith("gemini-2.5"):
+        return types.ThinkingConfig(thinking_budget=0)
+    if model.startswith("gemini-3"):
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+    return None
+
+
 def _gemini_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     from google import genai
     from google.genai import types
@@ -539,35 +608,36 @@ def _gemini_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     decls = [types.FunctionDeclaration(name=t["name"], description=t["description"], parameters=t["parameters"])
              for t in TOOLS]
-    cfg = types.GenerateContentConfig(
-        temperature=0, system_instruction=_system(),
-        tools=[types.Tool(function_declarations=decls)],
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
-    contents = [types.Content(role="user" if m["role"] == "user" else "model", parts=[types.Part(text=m["content"])])
-                for m in messages]
+    sys_text = _system()
     outputs = []
     last_err = None
     for model in [m for m in settings()["llm"]["gemini_models"] if model_ok(m)]:
+        contents = [types.Content(role="user" if m["role"] == "user" else "model", parts=[types.Part(text=m["content"])])
+                    for m in messages]
+        seen: dict = {}
+        repeats = 0
         try:
-            for _ in range(MAX_STEPS):
+            while True:
+                force = repeats >= REPEAT_LIMIT
+                cfg = types.GenerateContentConfig(
+                    temperature=0, system_instruction=sys_text, thinking_config=_gemini_thinking(model),
+                    tools=[types.Tool(function_declarations=decls)],
+                    tool_config=types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode="NONE")) if force else None,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
                 resp = client.models.generate_content(model=model, contents=contents, config=cfg)
                 cand = resp.candidates[0].content
                 calls = [p.function_call for p in (cand.parts or []) if p.function_call]
                 if not calls:
                     _USED["model"] = f"Google {model}（閉源備援）"
                     return resp.text or "", outputs
+                if force:
+                    raise RuntimeError("模型一直重複呼叫相同工具")
                 contents.append(cand)
-                parts = []
-                for fc in calls:
-                    args = dict(fc.args or {})
-                    emit({"type": "tool", "name": fc.name, "args": args})
-                    out = _tag(call_tool(fc.name, args), start + len(outputs) + 1, fc.name)
-                    outputs.append({"tool": fc.name, "args": args, "result": out})
-                    emit({"type": "tool_result", "name": fc.name, "ok": "error" not in out,
-                          "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
-                    parts.append(types.Part.from_function_response(name=fc.name, response={"result": out}))
-                contents.append(types.Content(role="user", parts=parts))
-            return "工具呼叫次數過多，請把問題拆小一點再問。", outputs
+                outs, rep = _exec_step([(fc.name, dict(fc.args or {})) for fc in calls], emit, outputs, start, seen)
+                repeats = repeats + 1 if rep else 0
+                contents.append(types.Content(role="user", parts=[
+                    types.Part.from_function_response(name=fc.name, response={"result": out, **({"note": REPEAT_NOTE} if rep else {})})
+                    for fc, out in zip(calls, outs)]))
         except Exception as e:  # noqa: BLE001
             last_err = e
             mark_exhausted(model, str(e))
@@ -595,6 +665,7 @@ def _compact(out, budget: int = GROQ_TOOL_CHARS) -> str:
 
 
 NV_TOOL_CHARS = 12000  # NVIDIA 開源模型的上下文較大，工具結果可以給多一點
+NV_TIMEOUT = 75  # 單次請求逾時；逾時就換下一個模型，不要卡 2 分鐘
 
 
 def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
@@ -611,8 +682,13 @@ def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
         msgs = [sys_msg] + messages[-12:]
         outputs: list = []
         try:
-            for _ in range(MAX_STEPS):
-                msg = oc.chat(base, key, model, msgs, tools=tools, temperature=0)
+            seen: dict = {}
+            repeats = 0
+            while True:
+                force = repeats >= REPEAT_LIMIT
+                # thinking=False：推理模型不先長篇思考，直接挑工具／回答（回應時間大幅縮短）
+                msg = oc.chat(base, key, model, msgs, tools=None if force else tools, temperature=0, thinking=False,
+                              timeout=NV_TIMEOUT)
                 calls = msg["tool_calls"]
                 if not calls:
                     text = re.sub(r"<think>.*?</think>", "", msg["content"], flags=re.S).strip()
@@ -620,17 +696,15 @@ def _nvidia_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]
                         raise RuntimeError("模型沒有回答內容")
                     _USED["model"] = f"NVIDIA {model}（開源）"
                     return text, outputs
+                if force:
+                    raise RuntimeError("模型一直重複呼叫相同工具")
                 msgs.append({"role": "assistant", "content": msg["content"] or "", "tool_calls": calls})
-                for tc in calls:
-                    name = tc["function"]["name"]
-                    args = json.loads(tc["function"].get("arguments") or "{}")
-                    emit({"type": "tool", "name": name, "args": args})
-                    out = _tag(call_tool(name, args), start + len(outputs) + 1, name)
-                    outputs.append({"tool": name, "args": args, "result": out})
-                    emit({"type": "tool_result", "name": name, "ok": "error" not in out,
-                          "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
-                    msgs.append({"role": "tool", "tool_call_id": tc.get("id", name), "content": _compact(out, NV_TOOL_CHARS)})
-            return "工具呼叫次數過多，請把問題拆小一點再問。", outputs
+                parsed = [(tc["function"]["name"], json.loads(tc["function"].get("arguments") or "{}")) for tc in calls]
+                outs, rep = _exec_step(parsed, emit, outputs, start, seen)
+                repeats = repeats + 1 if rep else 0
+                for tc, (name, _), out in zip(calls, parsed, outs):
+                    msgs.append({"role": "tool", "tool_call_id": tc.get("id", name),
+                                 "content": _compact(out, NV_TOOL_CHARS) + (REPEAT_NOTE if rep else "")})
         except Exception as e:  # noqa: BLE001
             last_err = e
             log.warning("NVIDIA %s 失敗：%s", model, str(e)[:200])
@@ -651,11 +725,16 @@ def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
     msgs = [{"role": "system", "content": _system()}] + recent
     outputs = []
     models = [m for m in settings()["llm"]["groq_models"] if model_ok(m)] or settings()["llm"]["groq_models"][:1]
-    for _ in range(MAX_STEPS):
+    seen: dict = {}
+    repeats = 0
+    while True:
+        force = repeats >= REPEAT_LIMIT
         resp, err = None, None
         for model in list(models):  # 額度用完（429）就換下一個模型
             try:
-                resp = client.chat.completions.create(model=model, messages=msgs, tools=tools, temperature=0)
+                extra = {"reasoning_effort": "low"} if "gpt-oss" in model else {}  # 降低推理量，回答較快
+                resp = client.chat.completions.create(model=model, messages=msgs, temperature=0,
+                                                      **({} if force else {"tools": tools}), **extra)
                 break
             except Exception as e:  # noqa: BLE001
                 err = e
@@ -670,18 +749,34 @@ def _groq_loop(messages: list[dict], emit, start: int = 0) -> tuple[str, list]:
         if not msg.tool_calls:
             _USED["model"] = f"Groq {model}（開源）"
             return msg.content or "", outputs
+        if force:
+            raise RuntimeError("模型一直重複呼叫相同工具")
         msgs.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
             {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
             for tc in msg.tool_calls]})
-        for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments or "{}")
-            emit({"type": "tool", "name": tc.function.name, "args": args})
-            out = _tag(call_tool(tc.function.name, args), start + len(outputs) + 1, tc.function.name)
-            outputs.append({"tool": tc.function.name, "args": args, "result": out})
-            emit({"type": "tool_result", "name": tc.function.name, "ok": "error" not in out,
-                  "action": out.get("pending_action") and {"id": out["pending_action"], "summary": out["summary"]}})
-            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": _compact(out)})
-    return "工具呼叫次數過多，請把問題拆小一點再問。", outputs
+        parsed = [(tc.function.name, json.loads(tc.function.arguments or "{}")) for tc in msg.tool_calls]
+        outs, rep = _exec_step(parsed, emit, outputs, start, seen)
+        repeats = repeats + 1 if rep else 0
+        for tc, out in zip(msg.tool_calls, outs):
+            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": _compact(out) + (REPEAT_NOTE if rep else "")})
+
+
+BOARD_GROUPS = (("hold", "手上持股"), ("buy", "可以買"), ("wait", "等回檔再買"), ("avoid", "先不要買"))
+
+
+def _board_detail(outputs: list) -> str:
+    """決策總表的逐檔明細由程式直接附上（每檔：結論、張數、限價、理由、什麼情況要賣），不靠模型改寫，數字一定與工具一致。"""
+    o = next((o for o in reversed(outputs) if o["tool"] == "get_decision_board" and isinstance(o["result"], dict)
+              and "buy" in o["result"]), None)
+    if not o:
+        return ""
+    r, sid = o["result"], o["result"]["source_id"]
+    parts = []
+    for k, title in BOARD_GROUPS:
+        items = r.get(k) or []
+        if items:
+            parts.append(f"{title}（{len(items)} 檔）\n" + "\n".join(f"{i}. {x['line']}〔{sid}〕" for i, x in enumerate(items, 1)))
+    return "\n\n" + "\n\n".join(parts) if parts else ""
 
 
 def _mark_unverified(text: str, facts) -> tuple[str, list[str]]:
@@ -710,6 +805,14 @@ def run(messages: list[dict], emit, loop=None) -> dict:
     user_text = messages[-1]["content"]
     by_name = {"nvidia": _nvidia_loop, "groq": _groq_loop, "gemini": _gemini_loop}
     loops = [loop] if loop else [by_name[p] for p in client.providers() if p in by_name]
+    _TL.cache = {}
+    try:
+        return _run(messages, emit, loop, loops, user_text)
+    finally:
+        _TL.cache = None
+
+
+def _run(messages: list[dict], emit, loop, loops: list, user_text: str) -> dict:
     text, outputs, err = "", [], None
     for fn in loops:
         try:
@@ -725,8 +828,11 @@ def run(messages: list[dict], emit, loop=None) -> dict:
     ok, bad = verify(_hide_cites(text), facts)
     if not ok and outputs and not loop:
         # 重寫一次：附上未出處數字，要求改用工具結果
+        # 附上本輪已查到的工具結果（含出處編號），模型直接改寫即可，不必整輪重查（重寫快很多）
+        prior = "\n".join(_compact(o["result"], 3000) for o in outputs)[:12000]
         retry = messages + [{"role": "assistant", "content": text},
-                            {"role": "user", "content": f"你的回答中 {bad} 這些數字在工具結果中找不到，請重新查詢並只用工具結果的數字重寫，每個論點標註出處；"
+                            {"role": "user", "content": f"你的回答中 {bad} 這些數字在工具結果中找不到。以下是本輪已查到的工具結果：\n{prior}\n"
+                                                        "請只用這些結果裡的數字重寫，沿用原本的出處編號；真的缺資料才再查詢，"
                                                         "查不到的就寫「無法確認」（不要再呼叫寫入類工具）。"}]
         try:
             text2, more = (loops[0])(retry, lambda e: None, start=len(outputs))
@@ -740,6 +846,7 @@ def run(messages: list[dict], emit, loop=None) -> dict:
             pass
     text = _style(text)
     text, uncited = _flag_uncited(text) if outputs else (text, 0)
+    text += _board_detail(outputs)
     used_model = any(o["tool"] in MODEL_TOOLS for o in outputs)
     if used_model and re.search(r"預測|機率|預期|預估|命中率", text) and "不是保證" not in text:
         text += "\n\n說明：文中的預測、機率與預期報酬是模型依歷史資料估計的結果，不是保證。"

@@ -279,3 +279,64 @@ def test_live_intraday_serves_saved_while_recomputing(monkeypatch, tmp_path):
     assert started.wait(2)
     _t.sleep(0.5)
     assert data.live_intraday()["time"] == "now"  # 背景算完後換成新的
+
+
+def test_exec_step_dedupes_and_keeps_source_ids(monkeypatch):
+    """同一步的多個查詢平行執行；同一輪重複的查詢沿用原本的結果與出處編號，不重算。"""
+    calls = []
+    monkeypatch.setattr(chat_agent, "call_tool", lambda n, a: calls.append((n, a)) or {"v": len(calls)})
+    chat_agent._TL.cache = {}
+    try:
+        outputs, seen = [], {}
+        outs, rep = chat_agent._exec_step([("stock_profile", {"code": "2330"}), ("get_regime", {})], lambda e: None, outputs, 0, seen)
+        assert not rep and [o["source_id"] for o in outs] == ["S1", "S2"]
+        outs, rep = chat_agent._exec_step([("stock_profile", {"code": "2330"})], lambda e: None, outputs, 0, seen)
+        assert rep and outs[0]["source_id"] == "S1" and len(outputs) == 2 and len(calls) == 2
+    finally:
+        chat_agent._TL.cache = None
+
+
+def test_nvidia_loop_has_no_step_cap_but_stops_repeating(monkeypatch):
+    """工具次數不設上限（10 個不同查詢都照跑）；一直重複同樣查詢時改成不給工具、要求直接回答。"""
+    from src.llm import openai_compat as oc
+
+    monkeypatch.setenv("NVIDIA_API_KEY", "x")
+    monkeypatch.setattr(chat_agent, "settings", lambda: {"llm": {"nvidia_models": ["m"]}})
+    monkeypatch.setattr(chat_agent, "model_ok", lambda m: True)
+    monkeypatch.setattr(chat_agent, "_system", lambda: "sys")
+    monkeypatch.setattr(chat_agent, "call_tool", lambda n, a: {"ok": a.get("code")})
+    seq = [str(i) for i in range(10)] + ["9", "9"]
+    no_tools = []
+
+    def fake_chat(base, key, model, msgs, tools=None, **kw):
+        if tools is None:
+            no_tools.append(True)
+            return {"content": "答案", "tool_calls": []}
+        code = seq.pop(0) if seq else "9"
+        return {"content": "", "tool_calls": [{"id": code, "function": {"name": "stock_profile", "arguments": f'{{"code": "{code}"}}'}}]}
+
+    monkeypatch.setattr(oc, "chat", fake_chat)
+    text, outputs = chat_agent._nvidia_loop([{"role": "user", "content": "q"}], lambda e: None)
+    assert text == "答案" and len(outputs) == 10 and no_tools
+
+
+def test_board_detail_lines_are_appended():
+    out = {"tool": "get_decision_board", "args": {}, "result": {"source_id": "S1", "buy": [{"line": "A（1）可以買：限價 10 買 1 張"}],
+                                                                   "wait": [], "avoid": [], "hold": [{"line": "B（2）續抱：理由"}]}}
+    s = chat_agent._board_detail([out])
+    assert "手上持股（1 檔）\n1. B（2）續抱：理由〔S1〕" in s and "可以買（1 檔）" in s and "等回檔" not in s
+
+
+def test_decision_word():
+    from src.agents.on_demand import _decision
+
+    assert _decision("建議買進（穩健籃）", False) == "可以買"
+    assert _decision("過熱不追：RSI 90", False) == "等回檔再買"
+    assert _decision("觀望：兩籃分數都未達", False) == "先不要買"
+    assert _decision("停損換股：跌破", True) == "全部出清"
+    assert _decision("續抱：分數仍高", True) == "續抱"
+
+
+def test_uncited_judgement_becomes_inference():
+    t, n = chat_agent._flag_uncited("結論。\n1. 未依此減碼則可能面臨成交困難，建議執行減碼\n2. 其他來源也沒有公布")
+    assert n == 1 and "1. 推論：未依此減碼" in t and "2. 其他來源也沒有公布〔未附出處〕" in t

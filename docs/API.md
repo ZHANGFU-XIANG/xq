@@ -33,6 +33,7 @@ FastAPI；React 前端與 API 在同一個網址。
 | GET | `/api/intraday?refresh=` | 盤中建議（盤中每 10 分鐘重算；沒有持股時為建倉建議），含股票／ETF／期貨 |
 | GET | `/api/holding-advice?refresh=` | 每檔庫存的加碼／續抱／減碼／出清建議 |
 | GET | `/api/alerts?refresh=` | 警示（股票／ETF／期貨／市場與規則），5 分鐘快取 |
+| GET | `/api/decisions` | 買賣決策總表：可以買／等回檔再買／先不要買／持股續抱・減碼・出清，每檔一句理由與改變結論的條件（盤中每 10 分鐘以即時價重算） |
 | GET | `/api/potential` | 潛在標的：模型看好但今天沒列入下單的股票與 ETF，附「為什麼還沒買」與觸發條件 |
 | GET | `/api/weekly-reports` | 競賽各週與已產生的週報 |
 | POST | `/api/weekly-report` | `{week}` → 產生週報 PPT，回傳下載路徑 |

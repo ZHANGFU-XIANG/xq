@@ -25,7 +25,11 @@ def merge_alert_sells(orders: list[dict], alert_items: list[dict], pf: Portfolio
         code, qty = a["code"], int(a["sell_shares"])
         held = pf.positions[code].shares
         existing = next((o for o in out if o["code"] == code and o["action"] == "SELL"), None)
+        alert_why = "風險警示：" + "；".join(a["reasons"])
         if existing and existing["shares"] >= qty:
+            # 原本的賣單已經賣得比警示多：數量照原賣單，但理由要把警示也寫上（警示頁、持股建議、個股頁說法一致）
+            if alert_why not in existing["why_sell"]:
+                existing["why_sell"] += f"；同時{alert_why}"
             continue
         price = a.get("price") or prices.get(code) or pf.positions[code].avg_cost
         lots, odd = sizer.split_lots(qty, True)
@@ -34,7 +38,7 @@ def merge_alert_sells(orders: list[dict], alert_items: list[dict], pf: Portfolio
             "shares": qty, "lots": lots, "odd": odd,
             "limit_price": a.get("limit_price") or sizer.round_tick(price * 0.99, is_etf(code)),
             "ref_price": price, "amount": round(qty * price), "est_cost": trade_cost(code, "SELL", qty, price),
-            "why_sell": "風險警示：" + "；".join(a["reasons"]),
+            "why_sell": alert_why + (f"；另外{existing['why_sell']}" if existing else ""),
             "why_qty": a.get("why_qty") or f"依警示規則賣出 {qty / held * 100:.0f}%",
             "pnl_pct": round((price / pf.positions[code].avg_cost - 1) * 100, 2) if pf.positions[code].avg_cost else 0,
             "holding_after": held - qty, "from_alert": True,

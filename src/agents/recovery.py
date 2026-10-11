@@ -80,6 +80,14 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
             why = (f"{best_alt['code']} {best_alt['name']} 扣除換股成本後的預期報酬比續抱高 {gain * 100:.2f}%"
                    f"（門檻 {st['swap_margin'] * 100:.1f}%），且{pname}不低於原標的 → 換股補回虧損較快；"
                    f"回收資金依綜合分數配置到買進候選，各檔仍受單一標的與產業上限約束")
+        elif not locked and pnl_pct > 0 and a and best_alt and (best_alt["alpha"]["exp_ret"] - switch - hold_exp) > st["swap_margin"] \
+                and best_alt["alpha"][pk] >= hold_p:
+            # 獲利換股（2026-10-11 使用者要求）：已經賺錢、但同一籃有明顯更好的標的 → 全部賣出入袋，轉買更好的；門檻與虧損換股相同
+            decision = "獲利換股"
+            gain = best_alt["alpha"]["exp_ret"] - switch - hold_exp
+            why = (f"已獲利 {unreal:+,.0f} 元（{pnl_pct * 100:+.2f}%）先入袋；這檔一個月預期只剩 {hold_exp * 100:+.2f}%，"
+                   f"轉買 {best_alt['code']} {best_alt['name']}（預期 {best_alt['alpha']['exp_ret'] * 100:+.2f}%）扣除換股成本後多 {gain * 100:.2f}%"
+                   f"（門檻 {st['swap_margin'] * 100:.1f}%），且{pname}不低於原標的")
         elif not locked and (s.get("def_score", 0) if basket == "defense" else s.get("score", 0)) <= st["sell_score_threshold"]:
             decision = "減碼"
             why = "分數已低於賣出門檻，先減碼一半降低風險，資金轉往同一籃的高分標的"
@@ -91,6 +99,9 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
         elif locked:
             why = (f"買進第 {held} 個交易日，未滿 {st['min_hold_days']} 個交易日不換股、不因分數小幅轉弱賣出"
                    f"（模型排名每天都會小幅變動，來回換股要付約 {switch * 100:.2f}% 成本）；跌破停損 {stop or '—'} 才出場")
+            if pnl_pct > 0 and a and best_alt and (best_alt["alpha"]["exp_ret"] - switch - hold_exp) > st["swap_margin"]:
+                why += (f"。提醒：已獲利 {pnl_pct * 100:+.2f}%，{best_alt['code']} {best_alt['name']} 預期報酬較高，"
+                        f"滿 {st['min_hold_days']} 個交易日後若仍如此會建議獲利換股")
         else:
             why = ("模型預期仍為正，未觸及停損，換股的預期效益不足以支付換股成本" if (a and hold_exp > 0)
                    else "未觸及停損，但模型預期偏弱，密切觀察；若跌破停損即出場")
@@ -98,8 +109,8 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
         items.append({"code": code, "name": s.get("name", code), "basket": basket,
                       "unrealized": round(unreal), "pnl_pct": round(pnl_pct * 100, 2),
                       "decision": decision, "why": why, "lines": lines, "exp_ret": hold_exp, "p_newhigh": hold_p,
-                      "alt": {"code": best_alt["code"], "name": best_alt["name"]} if best_alt and decision in ("換股", "停損換股") else None})
-        if decision in ("換股", "停損換股", "減碼"):
+                      "alt": {"code": best_alt["code"], "name": best_alt["name"]} if best_alt and decision in ("換股", "停損換股", "獲利換股") else None})
+        if decision in ("換股", "停損換股", "獲利換股", "減碼"):
             actions[code] = {"decision": decision, "why": why,
                              "alt": f"{best_alt['code']} {best_alt['name']}" if best_alt else None}
 

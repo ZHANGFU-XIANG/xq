@@ -532,6 +532,23 @@ _ALERTS_LOCK = __import__("threading").Lock()
 
 
 def live_alerts(refresh: bool = False) -> dict:
+    """即時警示＋每則持股警示附上「持股建議的最終結論」（同一套判斷），警示頁與持股建議、個股頁說法一致。"""
+    out = _live_alerts(refresh)
+    items = {h["code"]: h for h in ((_INTRA.get("v") or {}).get("holding_items") or [])}
+    if not items:
+        return out
+    alerts = []
+    for a in out.get("alerts") or []:
+        h = items.get(a.get("code")) if a.get("scope") == "持股" else None
+        if h:
+            a = {**a, "final": {"verdict": h["verdict"], "text": f"{h['verdict']}：{h['qty_text']}"
+                                + (f"，限價 {h['limit_price']}" if h.get("limit_price") else ""),
+                                "reasons": h.get("reasons") or []}}
+        alerts.append(a)
+    return {**out, "alerts": alerts}
+
+
+def _live_alerts(refresh: bool = False) -> dict:
     """即時警示（5 分鐘快取）：持股與今日建議以盤中即時價判斷，全市場漲跌停用最近收盤。"""
     import time
 
@@ -595,7 +612,7 @@ def _compute_intraday(slot: str, key: tuple) -> dict:
         return out
 
 
-LIVE_REFRESH_MIN = 10  # 網站盤中每 10 分鐘以即時價重算（雲端排程與 Email 仍為每 40 分鐘一輪）
+LIVE_REFRESH_MIN = 1  # 網站盤中每 1 分鐘以即時價重算（2026-10-11 使用者要求；一次約 5～30 秒）；雲端排程與 Email 仍為每 40 分鐘一輪
 
 
 def _live_slot() -> str:
@@ -609,7 +626,7 @@ def _live_slot() -> str:
 
 
 def live_intraday(refresh: bool = False) -> dict:
-    """盤中建議：網站盤中每 10 分鐘以即時價重算（雲端排程每 40 分鐘一輪並寄信）；持股變動或手動重算時立即更新。
+    """盤中建議：網站盤中每 1 分鐘以即時價重算（雲端排程每 40 分鐘一輪並寄信）；持股變動或手動重算時立即更新。
     還沒有這個時段的結果時，先回傳上一份（記憶體或雲端存檔）並標示 stale，背景重算完自動替換，不讓使用者等。"""
     import threading
 
@@ -966,6 +983,125 @@ def potential(limit: int = 8) -> dict:
         logging.getLogger(__name__).warning("ETF 潛在標的失敗：%s", e)
     return {"date": r["date"], "target_date": r.get("target_date"), "offense": off[:limit], "defense": dfn[:limit], "etf": etf_list,
             "note": "潛在標的不是今天的下單建議；要買之前請先用個股分析或問 AI 助理取得當下的張數與限價"}
+
+
+def _fmt_ret(x) -> str:
+    return f"{x * 100:+.1f}%" if x is not None else "—"
+
+
+def decision_board() -> dict:
+    """買賣決策總表（使用者要求「直接告訴我哪些能買、哪些不能買、為什麼續抱」）：
+    每檔只給一個結論（可以買／等回檔再買／先不要買／續抱／減碼／全部出清），附一句話理由、依據與「什麼情況會改變結論」。
+    全部取自盤中建議（每 1 分鐘以即時價重算）與每日排名，不另做判斷。"""
+    intra = live_intraday()
+    held = set(pfm.build_portfolio().positions)
+    if {h["code"] for h in intra.get("holding_items") or []} != held:
+        # 舊存檔的持股和現在對不起來（例如成交後還沒重算）：等這次重算完，避免把已持有的股票列成「可以買」
+        pf = pfm.build_portfolio()
+        intra = _compute_intraday(_live_slot(), (tuple(sorted((c, p.shares) for c, p in pf.positions.items())), round(pf.cash)))
+    buy, wait, avoid, hold = [], [], [], []
+    seen: set[str] = set()
+
+    # 1) 持股：續抱的理由、減碼／出清的原因
+    rec_why = {i["code"]: i.get("why") or "" for i in ((intra.get("recovery") or {}).get("items") or [])}
+    for h in intra.get("holding_items") or []:
+        m = h.get("model") or {}
+        tip = rec_why.get(h["code"], "").partition("提醒：")[2]  # 未滿最短持有天數、但已出現獲利換股機會
+        if h["verdict"] == "續抱" and tip:
+            hold.append({"code": h["code"], "name": h["name"], "verdict": "續抱", "headline": f"續抱，但留意獲利換股：{tip}",
+                         "reasons": (h.get("reasons") or [])[:2], "change_if": (h.get("conditions") or [])[:2],
+                         "price": h.get("price"), "pnl_pct": h.get("pnl_pct"), "shares": h.get("shares"), "swap_tip": True})
+            seen.add(h["code"])
+            continue
+        if h["verdict"] == "續抱":
+            exp = m.get("exp_ret")
+            head = ("續抱：沒有觸發停損或賣出條件" + (f"，模型一個月預期 {_fmt_ret(exp)}" if exp is not None else "")
+                    + ("，仍有上漲空間" if (exp or 0) >= 0.03 else "，預期小漲，抱著等停利" if (exp or 0) > 0
+                       else "，但模型預期轉弱，盯緊停損"))
+        elif h["verdict"] == "加碼":
+            head = f"加碼：{h['qty_text']}"
+        else:
+            head = f"{h['verdict']}：{h['qty_text']}" + (f"，限價 {h['limit_price']}" if h.get("limit_price") else "")
+        hold.append({"code": h["code"], "name": h["name"], "verdict": h["verdict"], "headline": head,
+                     "reasons": (h.get("reasons") or [])[:3], "change_if": (h.get("conditions") or [])[:2],
+                     "price": h.get("price"), "pnl_pct": h.get("pnl_pct"), "shares": h.get("shares")})
+        seen.add(h["code"])
+
+    # 2) 沒有持股時的建倉買單（依盤中即時狀態）
+    seen |= held  # 已持有的股票只出現在「持股」區，不會又列成可以買
+    for o in intra.get("orders") or []:
+        if o.get("action") != "BUY" or o["code"] in seen:
+            continue
+        row = {"code": o["code"], "name": o["name"], "basket": o.get("basket"), "price": o.get("price"),
+               "limit_price": o.get("limit_price"), "stop": o.get("stop"), "reasons": [o["why"]] if o.get("why") else [],
+               "change_if": [f"收盤跌破停損 {o['stop']} 就出場"] if o.get("stop") else []}
+        if o["status"] in ("可以下單", "可預掛單"):
+            buy.append({**row, "verdict": "可以買", "headline": f"可以買：{o['advice']}"})
+        elif o["status"] in ("接近限價", "不追價", "無報價"):
+            wait.append({**row, "verdict": "等回檔再買",
+                         "headline": f"等回檔再買：回到 {o['limit_price']} 以下再買（{o['advice']}）"})
+        else:
+            avoid.append({**row, "verdict": "先不要買", "headline": f"先不要買：{o['advice']}"})
+        seen.add(o["code"])
+
+    # 3) 已有持股時的近期推薦：價位到了且資金來源合理才算「可以買」
+    for r in intra.get("recommendations") or []:
+        if r["code"] in seen:
+            continue
+        f = r.get("funding") or {}
+        lots = f"{r['shares'] // 1000} 張" + (f"又 {r['shares'] % 1000} 股" if r["shares"] % 1000 else "") if r["shares"] >= 1000 else f"{r['shares']} 股"
+        row = {"code": r["code"], "name": r["name"], "basket": r.get("basket"), "price": r.get("price"),
+               "limit_price": r.get("limit_price"), "stop": r.get("stop"), "exp_ret": r.get("exp_ret"),
+               "reasons": (r.get("why") or [])[:2] + [f"風險：{x}" for x in (r.get("risks") or [])[:1]],
+               "change_if": [f"收盤跌破停損 {r['stop']} 就出場"] if r.get("stop") else []}
+        in_price = r.get("gap_pct") is not None and r["gap_pct"] <= 0
+        cash_ok = f.get("covered") and not f.get("sells")
+        if not in_price:
+            wait.append({**row, "verdict": "等回檔再買",
+                         "headline": f"等回檔再買：{r['entry_note']}，回到 {r['limit_price']} 以下再買 {lots}"})
+        elif cash_ok:
+            buy.append({**row, "verdict": "可以買", "headline": f"可以買：限價 {r['limit_price']} 買 {lots}，現金足夠"})
+        elif f.get("worth_all"):
+            sells = "、".join(f"賣{s['name']} " + s["note"].split("，")[0].removeprefix("賣 ") for s in f["sells"])
+            buy.append({**row, "verdict": "可以買", "headline": f"可以買（要先換股）：先{sells}，再限價 {r['limit_price']} 買 {lots}",
+                        "reasons": row["reasons"] + [s["note"] for s in f["sells"]][:2]})
+        else:
+            why = next((s["note"] for s in f.get("sells", []) if not s["worth"]), "現金不夠")
+            avoid.append({**row, "verdict": "先不要買", "headline": "先不要買：現金不夠，賣持股來換不划算",
+                          "reasons": row["reasons"] + [why]})
+        seen.add(r["code"])
+
+    # 4) 今天不追（盤中大漲、漲停、跌停）與過熱／溢價的候補
+    for s in intra.get("skipped") or []:
+        if s["code"] not in seen:
+            avoid.append({"code": s["code"], "name": s["name"], "verdict": "先不要買", "headline": f"先不要買：{s['reason']}",
+                          "reasons": [s["reason"]], "change_if": ["隔天盤前重新評估"]})
+            seen.add(s["code"])
+    try:
+        pot = potential()
+    except Exception:  # noqa: BLE001
+        pot = {}
+    for x in (pot.get("offense") or []) + (pot.get("etf") or []):
+        if x["code"] in seen or x["kind"] not in ("過熱等回檔", "溢價不追"):
+            continue
+        avoid.append({"code": x["code"], "name": x["name"], "verdict": "先不要買", "headline": f"先不要買：{x['kind']}",
+                      "reasons": [x["why_not_yet"]], "change_if": [x["trigger"]]})
+        seen.add(x["code"])
+
+    order = {"全部出清": 0, "減碼": 1, "加碼": 2, "續抱": 3}
+    hold.sort(key=lambda h: order.get(h["verdict"], 9))
+    for x in buy + wait + avoid + hold:  # 每檔一行完整說明（程式組好，AI 助理照抄，不自己改寫數字）
+        x["line"] = (f"{x['name']}（{x['code']}）{x['headline']}"
+                     + (f"。理由：{x['reasons'][0]}" if x.get("reasons") else "")
+                     + (f"。{x['change_if'][0]}" if x.get("change_if") else ""))
+    sell_n = sum(1 for h in hold if h["verdict"] in ("全部出清", "減碼"))
+    summary = [f"可以買 {len(buy)} 檔" + (f"（{'、'.join(b['name'] for b in buy[:4])}）" if buy else ""),
+               f"等回檔 {len(wait)} 檔", f"先不要買 {len(avoid)} 檔"]
+    if hold:
+        summary.append(f"持股續抱 {sum(1 for h in hold if h['verdict'] == '續抱')} 檔" + (f"、要賣 {sell_n} 檔" if sell_n else ""))
+    return {"time": intra.get("time"), "stale": bool(intra.get("stale")), "summary": "；".join(summary),
+            "buy": buy, "wait": wait, "avoid": avoid[:12], "hold": hold,
+            "note": "結論依盤中即時價每 1 分鐘重算；機率與預期報酬是模型估計，不是保證"}
 
 
 def recovery_plan() -> dict:

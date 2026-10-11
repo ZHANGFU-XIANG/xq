@@ -126,10 +126,10 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
             why = f"{bcfg['name']}第 {stage + 1} 段停利：報酬 {pnl * 100:+.2f}% ≥ {lvl * 100:.0f}%"
             why_qty = (f"持有 {pos.shares:,} 股 × {frac * 100:.0f}% = {raw:,.0f} 股，取整為 {fmt_shares(sell)}；"
                        f"先實現部分獲利、保留其餘部位參與後續漲幅，停損上移至成本價保本")
-        elif recovery_actions.get(code, {}).get("decision") in ("換股", "停損換股"):
+        elif recovery_actions.get(code, {}).get("decision") in ("換股", "停損換股", "獲利換股"):
             ra = recovery_actions[code]
             sell = pos.shares
-            why = f"虧損補回計畫 → {ra['decision']}：{ra['why']}"
+            why = f"{'換股計畫' if ra['decision'] == '獲利換股' else '虧損補回計畫'} → {ra['decision']}：{ra['why']}"
             why_qty = (f"全數賣出 {fmt_shares(sell)}，回收資金約 {sell * price:,.0f} 元，依分數重新配置到同一籃的買進候選"
                        + (f"（最佳替換標的 {ra['alt']}，實際買進股數受單一標的與產業上限約束，見買進明細）" if ra.get("alt") else "")
                        + "；部分換股會讓兩檔都表現平庸，因此一次換完")

@@ -34,8 +34,18 @@ function AlertCard({ a }: { a: Json }) {
       <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[0.95rem] leading-relaxed">
         {a.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
       </ul>
-      <p className="mt-2 font-medium">建議：{a.action}</p>
-      {a.why_qty && <p className="text-sm text-ink-2">{a.why_qty}</p>}
+      {a.final ? (
+        <>
+          {/* 持股的最終結論和「持股建議」同一套判斷（警示、停利、換股一起考慮），避免兩邊說法不同 */}
+          <p className="mt-2 font-medium">最終結論（與持股建議相同）：{a.final.text}</p>
+          {a.final.reasons.length > 0 && <p className="text-sm text-ink-2">理由：{a.final.reasons.join('；')}</p>}
+        </>
+      ) : (
+        <>
+          <p className="mt-2 font-medium">建議：{a.action}</p>
+          {a.why_qty && <p className="text-sm text-ink-2">{a.why_qty}</p>}
+        </>
+      )}
       {a.news?.length > 0 && (
         <div className="mt-1.5 flex flex-col gap-0.5 text-sm">
           {a.news.map((n: Json, i: number) => (

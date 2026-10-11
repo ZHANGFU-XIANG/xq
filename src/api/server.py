@@ -349,6 +349,11 @@ def data_sources():
     return providers.status()
 
 
+@app.get("/api/decisions", dependencies=[api])
+def decisions_():
+    return data.decision_board()
+
+
 @app.get("/api/potential", dependencies=[api])
 def potential_():
     return data.potential()

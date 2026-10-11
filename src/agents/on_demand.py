@@ -266,8 +266,39 @@ def analyze(code: str) -> dict:
         else:
             out["verdict"] = f"觀望：兩籃分數都未達買進門檻（進攻 {s['score']:+.2f}／穩健 {s['def_score']:+.2f}）"
         out["buy_plan"] = order
+    sold_all = held and out.get("sell_order") and out["sell_order"]["shares"] >= pf.positions[code].shares
+    out["decision"] = "全部出清" if sold_all else _decision(out["verdict"], held)
+    if held:
+        # 持股的結論一律用「持股建議」那一份（即時價＋風險警示＋停利＋換股一起判斷），個股頁、警示、持股建議說法一致
+        try:
+            h = next((i for i in portfolio_plan()["items"] if i["code"] == code), None)
+        except Exception:  # noqa: BLE001
+            h = None
+        if h:
+            out["decision"] = h["verdict"]
+            out["verdict"] = (f"{h['verdict']}：{h['qty_text']}" + (f"，限價 {h['limit_price']}" if h.get("limit_price") else "")
+                              + (f"。理由：{'；'.join(h['reasons'])}" if h.get("reasons") else ""))
+            out["holding_advice"] = {k: h.get(k) for k in ("verdict", "qty", "qty_text", "limit_price", "reasons", "conditions")}
+    if out["decision"] == "可以買" and not (out.get("buy_plan") or {}).get("shares"):
+        # 條件符合但算出 0 股（資金或籃子額度已滿）：直接說現在買不了、要怎樣才能買，不要寫「可以買」卻 0 張
+        out["decision"] = "先不要買"
+        out["verdict"] += "；但目前資金或籃子額度已滿，算出可買 0 股——要先賣出預期報酬較低的持股騰出額度才能買"
     out["news"] = search_news(f"{stock_meta(code)['name']} {code}", 8)
-    return out
+    return {"decision": out.pop("decision"), **out}  # 放最前面，壓縮工具結果時不會被截掉
+
+
+def _decision(verdict: str, held: bool) -> str:
+    """把完整結論濃縮成一個直接的詞（使用者要求直接說能不能買／要不要抱）。"""
+    v = verdict or ""
+    if held:
+        if "出清" in v or v.startswith(("停損", "換股")):
+            return "全部出清"
+        return "減碼" if v.startswith(("賣出", "減碼")) else "續抱"
+    if v.startswith("建議買進"):
+        return "可以買"
+    if v.startswith("過熱不追") or v.startswith("溢價不追"):
+        return "等回檔再買"
+    return "先不要買"
 
 
 def simulate(trades: list[dict]) -> dict:
@@ -454,7 +485,7 @@ def portfolio_plan(refresh: bool = False) -> dict:
             pass
     iv = apidata._INTRA.get("v")
     if not refresh and iv and not iv.get("stale") and apidata._INTRA.get("key") == key and iv.get("holding_items") is not None:
-        # 盤中建議剛用即時價算完整份計畫（每 10 分鐘），持股建議直接沿用，不再重算一次（全市場重算約 1 分鐘）
+        # 盤中建議剛用即時價算完整份計畫（每 1 分鐘），持股建議直接沿用，不再重算一次（全市場重算約 1 分鐘）
         items = iv["holding_items"]
         out = {"time": iv["time"], "realtime": alerts.is_trading_hours(), "items": items, "nav": iv["nav"],
                "holding_ratio": iv["holding_ratio"],

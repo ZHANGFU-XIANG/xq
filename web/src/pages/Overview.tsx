@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import DecisionBoard from '../components/DecisionBoard'
 import HoldingAdvice from '../components/HoldingAdvice'
 import HoldingWatch from '../components/HoldingWatch'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
@@ -166,6 +167,7 @@ export default function Overview() {
       <IndexTicker />
       <UrgentBanner />
       <RegimeBanner compact />
+      <DecisionBoard />
       <HoldingWatch />
       <Balance report={r} />
 
