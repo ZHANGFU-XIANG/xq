@@ -94,6 +94,13 @@ export default function Intraday({ asset }: { asset: Asset }) {
           {!d.building && recs.length > 0 && (
             <div className="mt-4">
               <h3 className="mb-1 font-medium">近期推薦<span className="ml-2 text-sm font-normal text-muted">已有庫存，以下僅供參考，不是下單指令</span></h3>
+              {d.cash_now && (
+                <p className="mb-1 text-sm text-ink-2">
+                  可用資金約 {Math.round(d.cash_now.available).toLocaleString()} 元（證券戶 {Math.round(d.cash_now.securities).toLocaleString()}、
+                  期貨戶可轉出 {Math.round(d.cash_now.futures_transferable).toLocaleString()}、建議賣出可回收 {Math.round(d.cash_now.sell_proceeds).toLocaleString()}）；
+                  不夠時下方會列出要先賣哪檔、幾張
+                </p>
+              )}
               <ul className="divide-y divide-line/60">
                 {recs.map((r) => (
                   <li key={r.code} className="py-2 text-[0.95rem]">
@@ -104,6 +111,14 @@ export default function Intraday({ asset }: { asset: Asset }) {
                       <LivePrice q={quotes[r.code]} />
                     </div>
                     <div className="mt-0.5 text-sm text-ink-2">{r.why.join('；')}｜{r.entry_note}</div>
+                    {r.funding && (
+                      <div className="mt-0.5 text-sm">
+                        <span className="text-muted">資金：需要約 {Math.round(r.funding.need).toLocaleString()} 元，現金可支應 {Math.round(r.funding.from_cash).toLocaleString()} 元</span>
+                        {r.funding.sells.map((x: Json) => (
+                          <div key={x.code} className={x.worth ? 'text-ink' : 'text-muted'}>先賣 {x.code} {x.name}：{x.note}</div>
+                        ))}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

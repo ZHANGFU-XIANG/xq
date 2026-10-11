@@ -186,7 +186,7 @@ def run(report: dict | None) -> dict:
         "derivatives": slim_deriv(lp.get("derivatives") or {}), "recovery": lp.get("recovery"),
         "funding": lp.get("funding"),
         "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
-        "recommendations": lp.get("recommendations", []),
+        "recommendations": lp.get("recommendations", []), "cash_now": lp.get("cash_now"),
         "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,
         "rule_notes": rule_notes,
         "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
@@ -264,7 +264,8 @@ def email_body(out: dict) -> str:
     if recs:
         lines += ["", "近期推薦（參考，非下單指令）："] + [
             f"- {r['code']} {r['name']}（{r.get('basket_name') or ''}）參考限價 {r['limit_price']}、停損 {r.get('stop')}："
-            + "；".join(r["why"][:2]) + f"｜{r['entry_note']}" for r in recs]
+            + "；".join(r["why"][:2]) + f"｜{r['entry_note']}"
+            + "".join(f"\n    資金：先{x['note']}" for x in (r.get("funding") or {}).get("sells", [])) for r in recs]
     if out["ratio_note"] and not any(a.startswith("【持股率】") for a in out["actions"]):
         lines += ["", out["ratio_note"]]
     notes = [a for a in out.get("rule_notes", []) if a["level"] != "嚴重"]

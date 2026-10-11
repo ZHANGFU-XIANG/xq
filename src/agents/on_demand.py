@@ -355,19 +355,74 @@ def live_plan(realtime: bool = True) -> dict:
     buy_orders = buys["orders"]
     recommendations = []
     if holding:
-        recommendations = [_recommend(o, rt, prices) for o in buy_orders if o["code"] not in pf.positions]
+        # 近期推薦不受現金限制（只是點子）：用「假設有足夠現金」的帳戶算建議數量，再另外算要賣哪些持股才湊得到錢
+        import copy
+
+        pf_v = copy.deepcopy(pf)
+        pf_v.cash = max(pf.cash, nav * 0.5)
+        idea = sizer.plan_buys(ranked, pf_v, prices, nav, sells, sc["feats"], alloc, bo, deriv["reserve"])
+        recommendations = [_recommend(o, rt, prices, ctx["alpha"]["predictions"]) for o in idea["orders"] if o["code"] not in pf.positions]
         buy_orders = []
     orders = holding_advice.merge_alert_sells(sells + buy_orders, hold_alerts, pf, prices, bo)
     items = holding_advice.build(pf, prices, scores, ctx["alpha"]["predictions"], meta, orders, hold_alerts, bo, nav)
+    cash_now = {"securities": round(pf.cash), "futures_transferable": round(buys["transfer_from_futures"]),
+                "sell_proceeds": round(sum(o["amount"] - o["est_cost"] for o in orders if o["action"] == "SELL"))}
+    cash_now["available"] = sum(cash_now.values())
+    if recommendations:
+        _fund(recommendations, items, cash_now["available"])
     return {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "realtime": bool(rt) and alerts.is_trading_hours(),
-            "orders": orders, "items": items, "recommendations": recommendations, "holding": holding,
+            "orders": orders, "items": items, "recommendations": recommendations, "holding": holding, "cash_now": cash_now,
             "skipped": skipped, "hold_alerts": hold_alerts, "rt": rt,
             "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4), "allocation": alloc,
             "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"]},
             "derivatives": deriv, "recovery": rec}
 
 
-def _recommend(o: dict, rt: dict, prices: dict) -> dict:
+ROUND_TRIP = 0.001425 * 2 + 0.003  # 賣出手續費＋證交稅＋買進手續費（換股成本約 0.585%）
+
+
+def _fund(recs: list[dict], items: list[dict], available: float) -> None:
+    """依推薦順序配置現金；不夠時列出「要先賣哪檔、幾張」才湊得到錢（使用者要求：現金不一定夠，買前要知道賣什麼）。
+    賣出來源：結論為「續抱」的持股，一個月預期報酬由低到高；以整張為單位（不足一張的小部位整批賣）。
+    每筆換股另外判斷值不值得：推薦標的預期報酬需高出被賣持股 + 換股成本 + swap_margin，否則標示不建議。"""
+    st = params.strategy()
+    pool = sorted([i for i in items if i["verdict"] == "續抱"], key=lambda i: ((i.get("model") or {}).get("exp_ret") or 0.0))
+    left = {i["code"]: i["shares"] for i in pool}
+    for r in recs:
+        need = (r.get("amount") or 0) + max(20, (r.get("amount") or 0) * 0.001425)
+        use = min(available, need)
+        available -= use
+        short = need - use
+        r["funding"] = {"need": round(need), "from_cash": round(use), "shortfall": round(short), "sells": []}
+        exp_new = r.get("exp_ret")
+        for i in pool:
+            if short <= 0:
+                break
+            if left[i["code"]] <= 0:
+                continue
+            px = i["price"]
+            net = px * (1 - 0.001425 - 0.003)
+            sh = -(-short // net)  # 無條件進位
+            sh = left[i["code"]] if left[i["code"]] < 1000 or sh >= left[i["code"]] else min(left[i["code"]], -(-sh // 1000) * 1000)
+            sh = int(sh)
+            exp_old = (i.get("model") or {}).get("exp_ret")
+            gap = (exp_new - exp_old - ROUND_TRIP) if exp_new is not None and exp_old is not None else None
+            worth = gap is not None and gap >= st["swap_margin"]
+            r["funding"]["sells"].append({
+                "code": i["code"], "name": i["name"], "shares": sh, "price": px, "proceeds": round(sh * net),
+                "exp_ret_sold": exp_old, "gap": round(gap, 4) if gap is not None else None, "worth": worth,
+                "note": (f"賣 {sh // 1000} 張" + (f"又 {sh % 1000} 股" if sh % 1000 else "") if sh >= 1000 else f"賣 {sh} 股（零股）")
+                        + f"，約可拿回 {sh * net:,.0f} 元；"
+                        + (f"推薦標的一個月預期報酬 {exp_new * 100:+.1f}% vs 這檔 {exp_old * 100:+.1f}%，扣換股成本 0.59% 後多 {gap * 100:+.1f}%"
+                           if gap is not None else "缺少預期報酬，無法比較")
+                        + ("，值得換" if worth else f"，未達換股門檻 {st['swap_margin'] * 100:.0f}%，不建議為了這檔賣股")})
+            left[i["code"]] -= sh
+            short -= sh * net
+        r["funding"]["covered"] = short <= 0
+        r["funding"]["worth_all"] = bool(r["funding"]["sells"]) and all(x["worth"] for x in r["funding"]["sells"])
+
+
+def _recommend(o: dict, rt: dict, prices: dict, alpha_preds: dict | None = None) -> dict:
     """新部位買單 → 近期推薦（已有持股時用）：理由、參考限價、建議數量與現價距離，不列為下單動作。"""
     q = rt.get(o["code"]) or {}
     price = q.get("price") or prices.get(o["code"])
@@ -376,6 +431,7 @@ def _recommend(o: dict, rt: dict, prices: dict) -> dict:
             "asset": o.get("asset"), "sector": o.get("sector"), "score": o.get("score"),
             "price": price, "chg_pct": q.get("chg_pct"), "limit_price": o["limit_price"], "gap_pct": gap,
             "stop": o.get("stop"), "shares": o["shares"], "amount": o.get("amount"), "weight_pct": o.get("weight_pct"),
+            "exp_ret": ((alpha_preds or {}).get(o["code"]) or {}).get("exp_ret"),
             "why": [w for w in (o.get("why_stock") or [])[:3] if w], "risks": (o.get("risks") or [])[:2],
             "entry_note": ("現價已在參考限價內，可考慮進場" if gap is not None and gap <= 0
                            else f"現價高於參考限價 {gap:.1f}%，等回檔" if gap is not None else "暫無即時報價")}

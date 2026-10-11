@@ -1,1 +1,79 @@
-{}
+{
+  "5880": {
+    "stop": 25.28,
+    "tp_stage": 0,
+    "high": 26.45,
+    "shares": 24000,
+    "basket": null
+  },
+  "2889": {
+    "stop": 15.43,
+    "tp_stage": 0,
+    "high": 16.5,
+    "shares": 40416,
+    "basket": null
+  },
+  "2845": {
+    "stop": 12.6,
+    "tp_stage": 0,
+    "high": 12.95,
+    "shares": 36071,
+    "basket": null
+  },
+  "2915": {
+    "stop": 55.39,
+    "tp_stage": 0,
+    "high": 58.9,
+    "shares": 14345,
+    "basket": null
+  },
+  "3189": {
+    "stop": 999.0,
+    "tp_stage": 0,
+    "high": 1075.0,
+    "shares": 1639,
+    "basket": "offense"
+  },
+  "3591": {
+    "stop": 25.11,
+    "tp_stage": 0,
+    "high": 29.1,
+    "shares": 20528,
+    "basket": null
+  },
+  "1560": {
+    "stop": 936.69,
+    "tp_stage": 0,
+    "high": 1010.0,
+    "shares": 1041,
+    "basket": null
+  },
+  "6196": {
+    "stop": 599.23,
+    "tp_stage": 0,
+    "high": 674.0,
+    "shares": 1150,
+    "basket": null
+  },
+  "6213": {
+    "stop": 639.23,
+    "tp_stage": 0,
+    "high": 806.0,
+    "shares": 1571,
+    "basket": null
+  },
+  "2103": {
+    "stop": 27.7,
+    "tp_stage": 0,
+    "high": 29.2,
+    "shares": 3000,
+    "basket": null
+  },
+  "2360": {
+    "stop": 2069.91,
+    "tp_stage": 0,
+    "high": 2330.0,
+    "shares": 8,
+    "basket": null
+  }
+}

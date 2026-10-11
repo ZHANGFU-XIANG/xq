@@ -371,3 +371,28 @@ def test_vanished_holdings_alert(ledger, monkeypatch, tmp_path):
     sold = BASE + [_t("2026-10-12", "2330", "SELL", 1500, 1000), _t("2026-10-12", "2884", "SELL", 2000, 30)]
     pfm.write_trades(sold)
     assert alerts.holdings_vanished(pfm.build_portfolio(sold), dt.date(2026, 10, 12)) is None  # 真的賣掉了，不算誤刪
+
+
+def test_futures_transferable_excludes_held_margin(monkeypatch):
+    """期貨戶可轉出 = 權益數（含未實現）− 已持有部位原始保證金 − 保留金；10/11 前只算期貨現金 − 30 萬，高估約 160 萬。"""
+    from src.agents import futures_data, sizer
+
+    rows = [{"date": "2026-10-06", "code": "TX", "side": "BUY", "shares": "2", "price": "49875", "margin": "0", "note": "",
+             "asset": "FUT", "contract": "TX202610"}]
+    pf = pfm.build_portfolio(rows)
+    monkeypatch.setattr(futures_data, "marks", lambda pf: {"TX202610": 49357.0})
+    monkeypatch.setattr(futures_data, "margins", lambda: {"TX": {"initial": 701_000, "maintenance": 538_000}})
+    assert round(sizer.futures_transferable(pf, 300_000)) == 2_000_000 - 560 - 207_200 - 1_402_000 - 300_000
+
+
+def test_funding_plan_lists_lots_to_sell():
+    from src.agents import on_demand
+
+    items = [{"code": "2889", "name": "國票金", "verdict": "續抱", "shares": 40416, "price": 16.5, "model": {"exp_ret": 0.01}},
+             {"code": "3189", "name": "景碩", "verdict": "續抱", "shares": 1639, "price": 1075.0, "model": {"exp_ret": 0.125}}]
+    recs = [{"code": "00692", "amount": 297000, "exp_ret": 0.0683}]
+    on_demand._fund(recs, items, 100_000)
+    f = recs[0]["funding"]
+    assert f["from_cash"] == 100_000 and f["covered"]
+    s = f["sells"][0]
+    assert s["code"] == "2889" and s["shares"] % 1000 == 0 and s["proceeds"] >= f["need"] - 100_000 and s["worth"]

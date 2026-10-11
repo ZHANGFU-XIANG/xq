@@ -33,6 +33,22 @@ def round_tick(price: float, etf: bool = False, up: bool = False) -> float:
     return round(n * t, 2)
 
 
+def futures_transferable(pf: Portfolio, reserve: float) -> float:
+    """Cash that can actually move from the futures account to securities = futures equity (incl. unrealized P&L)
+    − initial margin on held contracts − reserve (buffer for adverse moves / new orders).
+    Before 10/11 this only took futures cash − 300,000, ignoring the 1.4M margin on the 2 TX lots held and the −207,200 unrealized loss,
+    so the system planned buys with about 1.7M that was not actually transferable."""
+    if not pf.derivs:
+        return max(0.0, pf.futures_cash - reserve)
+    from src.agents import futures_data
+
+    try:
+        marks, margins = futures_data.marks(pf), futures_data.margins()
+    except Exception:  # noqa: BLE001  quotes unavailable: count margin at fallback values, unrealized at 0
+        marks, margins = {}, futures_data.FALLBACK_MARGIN
+    return max(0.0, pf.futures_equity(marks) - pf.margin_required(margins) - reserve)
+
+
 def min_fee_amount() -> float:
     """Trade amount at which the minimum commission stops dominating: 20 ÷ 0.1425% ≈ 14,035 yuan. Below it, the effective fee rate exceeds 0.1425%."""
     c = rules()["costs"]
@@ -314,7 +330,7 @@ def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, 
         p["scaled_down"] = p["desired"] - room / p["entry"]
         p["desired"] = room / p["entry"]
         notes.append(f"{bcfg['name']}剩餘額度 {room:,.0f} 元，股數受此限制")
-    transfer = max(0.0, pf.futures_cash - st["futures_reserve"])
+    transfer = futures_transferable(pf, st["futures_reserve"])
     cash = pf.cash + transfer
     loan_left = max(0.0, st["max_margin_loan_ratio"] * nav - pf.margin_loan())
     want = p["desired"] * p["entry"]
@@ -354,7 +370,7 @@ def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells
     # 資金：現金 + 賣出回收 + 期貨戶可轉入金額 + 融資額度
     sell_proceeds = sum(o["amount"] - o["est_cost"] for o in sells)
     reserve = st["futures_reserve"] if futures_reserve is None else futures_reserve  # 期貨戶需留存（保證金×緩衝）
-    transfer = max(0.0, pf.futures_cash - reserve)
+    transfer = futures_transferable(pf, reserve)
     cash_left = pf.cash + sell_proceeds + transfer
     loan_left = max(0.0, st["max_margin_loan_ratio"] * nav - pf.margin_loan()) if st["allow_margin"] else 0.0
 
