@@ -65,8 +65,11 @@ def is_etf(code: str) -> bool:
     return code.startswith("00") or bool(stock_meta(code).get("is_etf"))
 
 
-def trade_amount(shares: int, price: float) -> int:
-    """成交價金：股數 × 價格，元以下無條件捨去（與競賽 App 相同，例如 528 股 × 28.6 = 15,100.8 → 15,100）。"""
+def trade_amount(shares: int, price: float, side: str = "BUY") -> int:
+    """成交價金（與競賽 App 相同）：買進元以下無條件捨去（528 股 × 28.6 = 15,100.8 → 15,100）；
+    賣出四捨五入（10/07 國票金零股 208 股 × 16.35 = 3,400.8 → 3,401，10/08 對帳已實現 −582）。"""
+    if str(side).upper() == "SELL":
+        return int(math.floor(shares * price + 0.5 + 1e-6))
     return int(math.floor(shares * price + 1e-6))
 
 
@@ -74,7 +77,7 @@ def fee_and_tax(code: str, side: str, shares: int, price: float) -> tuple[int, i
     """手續費：每筆成交 0.1425%、無條件進位、最低 20 元（App 驗證）。
     證交稅：賣出時 0.3%（ETF 0.1%），元以下捨去（法定計算方式；尚未有賣出紀錄可與 App 核對）。"""
     c = rules()["costs"]
-    amount = trade_amount(shares, price)
+    amount = trade_amount(shares, price, side)
     fee = max(c["min_commission"], math.ceil(amount * c["commission"] - 1e-9)) if shares else 0
     tax = math.floor(amount * (c["etf_tax"] if is_etf(code) else c["stock_tax"]) + 1e-9) if side == "SELL" else 0
     return int(fee), int(tax)
@@ -94,6 +97,7 @@ class Lot:
     cost_basis: float              # 含手續費（部分賣出後按比例遞減）
     note: str = ""
     amount: float = 0.0            # 成交價金（不含手續費，元以下捨去；部分賣出後按比例遞減）
+    odd: bool = False              # 零股成交（賣出時零股先扣零股、整股先扣整股，與競賽 App 相同）
 
     @property
     def unit_cost(self) -> float:
@@ -248,7 +252,7 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
         shares, price = int(float(t["shares"])), float(t["price"])
         margin = str(t.get("margin", "0")).strip() in ("1", "true", "True", "Y")
         cost = trade_cost(code, side, shares, price)
-        amount = trade_amount(shares, price)
+        amount = trade_amount(shares, price, side)
         pos = pf.positions.setdefault(code, Position(code))
         if side == "BUY":
             loan = round(amount * credit["margin_ratio"]) if margin else 0.0
@@ -256,13 +260,13 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
             pos.shares += shares
             pos.cost_basis += amount + cost
             pos.margin_loan += loan
-            pos.lots.append(Lot(t.get("date", ""), shares, price, amount + cost, t.get("note") or "", amount))
+            pos.lots.append(Lot(t.get("date", ""), shares, price, amount + cost, t.get("note") or "", amount, is_odd_fill(t)))
         elif side == "SELL":
             if shares > pos.shares:
                 raise ValueError(f"{t['date']} {code} 賣出 {shares} 股超過持有 {pos.shares} 股")
             frac = shares / pos.shares
             repay = pos.margin_loan * frac
-            basis = _consume_fifo(pos, shares)
+            basis = _consume_fifo(pos, shares, is_odd_fill(t))
             proceeds = amount - cost
             pf.cash += proceeds - repay
             pf.realized_pnl += proceeds - basis
@@ -296,21 +300,43 @@ def held_days(pos: Position, today) -> int:
     return n
 
 
-def _consume_fifo(pos: Position, shares: int) -> float:
-    """賣出時從最早買進的那一批開始扣（先進先出），回傳賣出部分的成本。"""
-    basis, left = 0.0, shares
-    while left > 0 and pos.lots:
-        lot = pos.lots[0]
+def is_odd_fill(t: dict) -> bool:
+    """這筆成交是不是零股：依備註的盤別（XQ 匯入會寫「整股／零股」）；沒有盤別時，不足 1000 股視為零股。"""
+    note = t.get("note") or ""
+    if "零股" in note:
+        return True
+    if "整股" in note:
+        return False
+    return int(float(t["shares"])) % 1000 != 0 and int(float(t["shares"])) < 1000
+
+
+def take_lots(lots: list, shares: int, odd: bool = False) -> list[tuple]:
+    """賣出時扣買進批次（會修改 lots），回傳 [(批次, 股數, 成交價金, 手續費)]。競賽 App 算法（10/08 對帳一致：已實現 −582、未實現 186,795）：
+    - 零股賣出先扣零股買進的批次、整股賣出先扣整股批次，各自先進先出；同盤別不夠扣時再扣其他批次
+    - 只賣掉某一批的一部分時，成交價金與手續費各自按股數比例計算，元以下無條件捨去
+    lots 的元素要有 shares、amount、cost_basis（成交價金＋手續費）、odd。"""
+    pieces, left = [], shares
+    for lot in [x for x in lots if x.odd == odd] + [x for x in lots if x.odd != odd]:
+        if left <= 0:
+            break
         take = min(left, lot.shares)
-        part = lot.cost_basis * take / lot.shares
-        basis += part
-        lot.cost_basis -= part
-        lot.amount -= lot.amount * take / lot.shares
+        if take == lot.shares:
+            amt, fee = lot.amount, lot.cost_basis - lot.amount
+        else:
+            amt = math.floor(lot.amount * take / lot.shares + 1e-6)
+            fee = math.floor((lot.cost_basis - lot.amount) * take / lot.shares + 1e-6)
+        pieces.append((lot, take, amt, fee))
+        lot.amount -= amt
+        lot.cost_basis -= amt + fee
         lot.shares -= take
         left -= take
-        if lot.shares == 0:
-            pos.lots.pop(0)
-    return basis
+    lots[:] = [x for x in lots if x.shares > 0]
+    return pieces
+
+
+def _consume_fifo(pos: Position, shares: int, odd: bool = False) -> float:
+    """賣出部分的成本（成交價金＋買進手續費），扣法見 take_lots。"""
+    return sum(amt + fee for _, _, amt, fee in take_lots(pos.lots, shares, odd))
 
 
 def _apply_deriv(pf: Portfolio, t: dict) -> None:

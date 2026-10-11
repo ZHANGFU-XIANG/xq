@@ -96,7 +96,7 @@ def _merge_fills(rows: list[dict]) -> list[dict]:
         m = re.search(r"委託書號\s*(\S+)", t.get("note") or "")
         key = (t["code"], t.get("contract") or "", t["side"], m.group(1) if m else f"#{i}")
         q, px = int(float(t["shares"])), float(t["price"])
-        amt = pfm.trade_amount(q, px) if pfm.asset_of(t) in ("STOCK", "ETF") else 0  # 逐筆捨去後加總（同 App）
+        amt = pfm.trade_amount(q, px, t["side"]) if pfm.asset_of(t) in ("STOCK", "ETF") else 0  # 逐筆捨去後加總（同 App）
         if key in out:
             g = out[key]
             g["_qty"] += q
@@ -225,7 +225,7 @@ def collect(any_day: dt.date) -> dict:
     for c in set(pf0.positions) | set(pf1.positions) | {t["code"] for t in trades if t["asset"] in ("STOCK", "ETF")}:
         v0 = pf0.positions[c].shares * p0.get(c, pf0.positions[c].avg_cost) if c in pf0.positions else 0
         v1 = pf1.positions[c].shares * prices1.get(c, pf1.positions[c].avg_cost) if c in pf1.positions else 0
-        flow = sum((-1 if t["side"] == "BUY" else 1) * pfm.trade_amount(int(float(t["shares"])), float(t["price"]))
+        flow = sum((-1 if t["side"] == "BUY" else 1) * pfm.trade_amount(int(float(t["shares"])), float(t["price"]), t["side"])
                    for t in all_trades if t["code"] == c and start_day.isoformat() < t["date"] <= end_day.isoformat())
         contrib[c] = round(v1 - v0 + flow)
     contrib_rows = sorted(({"code": c, "name": stock_meta(c)["name"], "pnl": v} for c, v in contrib.items() if v),

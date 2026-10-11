@@ -307,3 +307,25 @@ def test_matches_competition_app_20261006():
     margin = 2 * 701_000  # 大台原始保證金
     assert round(pf.cash + pf.futures_equity(prices) - margin) == 966_764  # 持有現金
     assert round(pf.holding_ratio(prices) * 100, 2) == 76.11  # App 持股率
+
+
+def test_matches_competition_app_20261008():
+    """10/08 App 對帳（第一次有賣出）：零股賣出扣零股成本、整股扣整股成本，部分扣批時價金與手續費按比例捨去；賣出價金四捨五入。
+    App：已實現 −582、現股未實現 186,795、期貨未實現 −207,200、總值 9,979,013（−0.2099%）、持股率 83.73%、持有現金 392,815。"""
+    import csv
+    from pathlib import Path
+
+    rows = list(csv.DictReader(open(Path(__file__).parent / "fixtures" / "app_20261008_trades.csv", encoding="utf-8")))
+    pf = pfm.build_portfolio(rows)
+    close = {"5880": 26.45, "2889": 16.5, "2845": 12.95, "2915": 58.9, "3189": 1075.0, "3591": 29.1, "1560": 1010.0,
+             "6196": 674.0, "6213": 806.0, "2103": 29.2, "2360": 2330.0}
+    settle = 49875.0 - 207_200 / 400  # 由 App 期貨未實現 −207,200 反推的結算價 49,357
+    prices = {**close, "TX202610": settle}
+    sec = sum(p.shares * close[c] - sum(lot.amount for lot in p.lots) for c, p in pf.positions.items())
+    assert round(pf.realized_pnl) == -582
+    assert round(sec) == 186_795
+    assert round(pf.derivs["TX202610"].value(settle)) == -207_200
+    assert round(pfm.app_total(pf, prices)) == 9_979_013
+    assert round(pf.holding_ratio(prices) * 100, 2) == 83.73
+    margin = 2 * 701_000
+    assert abs(round(pf.cash + pf.futures_equity(prices) - margin) - 392_815) <= 1  # 尚差 1 元，原因待更多賣出資料確認

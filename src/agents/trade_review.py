@@ -44,7 +44,7 @@ def _name(code: str) -> str:
 
 def review(trades: list[dict], prices: dict[str, float]) -> dict:
     """trades：trades.csv 原始列；prices：目前價格（算未實現損益用）。"""
-    lots: dict[str, list[dict]] = defaultdict(list)  # 每檔未賣出的買進批次 {date, shares, price, unit_cost}
+    lots: dict[str, list] = defaultdict(list)  # 每檔未賣出的買進批次（pfm.Lot，扣法與持股計算相同）
     per: dict[str, dict] = {}
     days: dict[str, dict] = {}
     closed: list[dict] = []
@@ -80,28 +80,20 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
             amt = pfm.trade_amount(shares, price)
             s["buy_amount"] += amt
             d["buy_amount"] += amt
-            lots[code].append({"date": date, "shares": shares, "price": price, "amount": amt, "unit_cost": (amt + fee) / shares})
+            lots[code].append(pfm.Lot(date, shares, price, amt + fee, t.get("note") or "", amt, pfm.is_odd_fill(t)))
             continue
         s["sells"] += 1
         s["sell_shares"] += shares
-        amt = pfm.trade_amount(shares, price)
+        amt = pfm.trade_amount(shares, price, "SELL")
         s["sell_amount"] += amt
         d["sell_amount"] += amt
         net_unit = (amt - fee - tax) / shares  # 每股實收（扣手續費與證交稅）
-        left, pnl, cost, gross, day_sh = shares, 0.0, 0.0, 0.0, 0
-        first = lots[code][0]["date"] if lots[code] else date
-        while left > 0 and lots[code]:  # 先進先出：一次賣出可能跨好幾個買進批次
-            lot = lots[code][0]
-            take = min(left, lot["shares"])
-            pnl += take * (net_unit - lot["unit_cost"])
-            cost += take * lot["unit_cost"]
-            gross += lot["amount"] * take / lot["shares"]
-            day_sh += take * (_tdays(lot["date"], date) or 0)
-            lot["amount"] -= lot["amount"] * take / lot["shares"]
-            lot["shares"] -= take
-            left -= take
-            if lot["shares"] == 0:
-                lots[code].pop(0)
+        pieces = pfm.take_lots(lots[code], shares, pfm.is_odd_fill(t))  # 零股扣零股、整股扣整股，各自先進先出（同 App）
+        first = pieces[0][0].date if pieces else date
+        cost = sum(a + f for _, _, a, f in pieces)
+        gross = sum(a for _, _, a, _ in pieces)
+        pnl = (amt - fee - tax) - cost
+        day_sh = sum(k * (_tdays(lot.date, date) or 0) for lot, k, _, _ in pieces)
         closed.append({"code": code, "name": s["name"], "buy_date": first, "sell_date": date, "shares": shares,
                        "buy_price": round(gross / shares, 3), "sell_price": price, "pnl": round(pnl),
                        "ret_pct": round((shares * net_unit / cost - 1) * 100, 2) if cost else None,
@@ -111,8 +103,8 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
 
     # 每檔：目前持有與未實現（同競賽 App：市值 − 成交價金，不含手續費）
     for code, s in per.items():
-        held = sum(lt["shares"] for lt in lots[code])
-        gross = sum(lt["amount"] for lt in lots[code])
+        held = sum(lt.shares for lt in lots[code])
+        gross = sum(lt.amount for lt in lots[code])
         px = prices.get(code)
         s["held_shares"] = held
         s["price"] = px
