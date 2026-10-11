@@ -4,8 +4,8 @@ import { tone } from '../lib/format'
 
 export function PageTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <h1 className="title text-2xl md:text-[1.75rem] leading-tight">{children}</h1>
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <h1 className="title text-xl leading-tight md:text-2xl">{children}</h1>
       {aside}
     </div>
   )
@@ -13,14 +13,14 @@ export function PageTitle({ children, aside }: { children: ReactNode; aside?: Re
 
 export function Section({ title, aside, children, className = '' }: { title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`mb-8 ${className}`}>
+    <section className={`mb-6 overflow-hidden rounded-xl border border-line bg-paper shadow-sm ${className}`}>
       {title && (
-        <div className="mb-3 flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
-          <h2 className="text-[1.05rem] font-bold">{title}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line px-4 py-2.5">
+          <h2 className="flex items-center gap-2 text-[1rem] font-bold"><span className="h-4 w-1 rounded-full bg-link" aria-hidden />{title}</h2>
           {aside && <div className="text-sm text-muted">{aside}</div>}
         </div>
       )}
-      {children}
+      <div className="p-4">{children}</div>
     </section>
   )
 }
@@ -89,10 +89,25 @@ export function Bullets({ items }: { items?: string[] }) {
 
 export function Stat({ label, value, sub, valueClass = '' }: { label: string; value: ReactNode; sub?: ReactNode; valueClass?: string }) {
   return (
-    <div className="min-w-0">
-      <div className="text-sm text-muted">{label}</div>
-      <div className={`num text-xl font-bold md:text-2xl ${valueClass}`}>{value}</div>
-      {sub && <div className="text-xs text-muted">{sub}</div>}
+    <div className="min-w-0 rounded-xl border border-line bg-paper px-4 py-3 shadow-sm">
+      <div className="truncate text-xs font-medium text-muted">{label}</div>
+      <div className={`num mt-0.5 text-xl font-bold leading-tight md:text-[1.6rem] ${valueClass}`}>{value}</div>
+      {sub && <div className="mt-0.5 text-xs leading-snug text-muted">{sub}</div>}
+    </div>
+  )
+}
+
+/** 分頁切換（像看盤網站的「持股／可買／觀察」頁籤），附每頁筆數。 */
+export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string; count?: number; tone?: string }[]; value: T; onChange: (k: T) => void }) {
+  return (
+    <div className="flex gap-1 overflow-x-auto border-b border-line px-2 [scrollbar-width:none]" role="tablist">
+      {tabs.map((t) => (
+        <button key={t.key} role="tab" aria-selected={value === t.key} onClick={() => onChange(t.key)}
+          className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${value === t.key ? 'border-link text-ink' : 'border-transparent text-muted hover:text-ink'}`}>
+          {t.label}
+          {t.count != null && <span className={`num rounded-full px-1.5 text-xs ${value === t.key ? 'bg-link text-white' : `bg-mist ${t.tone ?? 'text-ink-2'}`}`}>{t.count}</span>}
+        </button>
+      ))}
     </div>
   )
 }

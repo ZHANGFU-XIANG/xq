@@ -70,7 +70,7 @@
 
 body { margin: 0; background: var(--color-mist); min-height: 100vh; }
 .num { font-variant-numeric: tabular-nums; }
-.title { font-family: var(--font-serif); font-weight: 700; letter-spacing: 0.02em; }
+.title { font-family: var(--font-sans); font-weight: 700; letter-spacing: 0.01em; }
 @layer base {
   a { color: var(--color-link); }
   :focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; border-radius: 4px; }

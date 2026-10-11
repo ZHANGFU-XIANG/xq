@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import DecisionBoard from '../components/DecisionBoard'
-import HoldingAdvice from '../components/HoldingAdvice'
 import HoldingWatch from '../components/HoldingWatch'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import Intraday, { useIntraday } from '../components/Intraday'
 import Potential from '../components/Potential'
 import RegimeBanner from '../components/RegimeBanner'
 import ValuePicks from '../components/ValuePicks'
-import { IndexTicker, IntlNote, LivePrice } from '../components/LiveBits'
+import { IntlNote, LivePrice } from '../components/LiveBits'
 import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtPct, fmtRatio, fmtWan, qty, tone } from '../lib/format'
@@ -25,42 +25,45 @@ function Balance({ report }: { report: Json }) {
   const reasons: string[] = (report.allocation.reasons ?? []).filter((r: string) => !r.startsWith('今日配置'))
   const etfReasons: string[] = alloc.etf_reasons ?? []
   const parts = [
-    { key: 'offense', label: '攻', pct: off, color: 'offense', text: 'text-offense', bg: 'bg-offense', note: '進攻籃：追強勢、一個月內創新高' },
-    { key: 'defense', label: '守', pct: def, color: 'defense', text: 'text-defense', bg: 'bg-defense', note: '穩健籃：收正報酬機率高、回檔小' },
-    ...(hasEtf ? [{ key: 'etf', label: 'ETF', pct: etf, color: 'etf', text: 'text-etf', bg: 'bg-etf', note: 'ETF 籃：分散、稅 0.1%' }] : []),
+    { key: 'offense', label: '進攻', pct: off, text: 'text-offense', bg: 'bg-offense', note: '追強勢、一個月內創新高' },
+    { key: 'defense', label: '穩健', pct: def, text: 'text-defense', bg: 'bg-defense', note: '收正機率高、回檔小' },
+    ...(hasEtf ? [{ key: 'etf', label: 'ETF', pct: etf, text: 'text-etf', bg: 'bg-etf', note: '分散、稅 0.1%' }] : []),
   ]
+  const [more, setMore] = useState(false)
+  const all = [...reasons, ...etfReasons]
   return (
-    <section className="mb-8" aria-label="今日配置">
-      <div className="mb-2 flex items-end justify-between">
-        <div className="title text-[2rem] leading-none md:text-[2.8rem]">
-          {parts.map((p, i) => (
-            <span key={p.key}>
-              {i > 0 && <span className="mx-3 text-line">／</span>}
-              <span className={p.text}>{p.label} {p.pct}</span>
-            </span>
-          ))}
-        </div>
-        <div className="hidden text-right text-sm text-muted md:block">
-          加權 RSI {alloc.taiex.rsi14}　20 日 {fmtPct(alloc.taiex.r20_pct, 1)}　距季線 {fmtPct(alloc.taiex.dist_ma60_pct, 1)}
-        </div>
-      </div>
-      <div className="flex h-4 gap-1 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.pct}%`).join('，')}>
+    <Section title="今日攻守配置" aside={<span className="text-xs">股票＋ETF；期貨另計</span>}>
+      <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.pct}%`).join('，')}>
         {parts.map((p) => <div key={p.key} className={p.bg} style={{ width: `${p.pct}%` }} />)}
       </div>
-      <div className="mt-1 flex flex-wrap justify-between gap-x-4 text-sm">
-        {parts.map((p) => <span key={p.key} className={p.text}>{p.note}</span>)}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {parts.map((p) => (
+          <div key={p.key}>
+            <div className={`num text-xl font-bold ${p.text}`}>{p.pct}%</div>
+            <div className="text-xs font-medium">{p.label}</div>
+            <div className="text-[0.7rem] leading-tight text-muted">{p.note}</div>
+          </div>
+        ))}
       </div>
-      <p className="mt-1 text-xs text-muted">比例為股票＋ETF 目標持股的分配；期貨另計（持股率先不算期貨），見下方「期貨與選擇權」。</p>
-      <ol className="mt-3 space-y-1 border-l-2 border-line pl-4 text-[0.95rem] text-ink-2">
-        {[...reasons, ...etfReasons].map((r, i) => <li key={i}>{r}</li>)}
-      </ol>
-    </section>
+      {alloc.taiex && (
+        <p className="mt-3 text-xs text-muted">加權 RSI {alloc.taiex.rsi14}・20 日 {fmtPct(alloc.taiex.r20_pct, 1)}・距季線 {fmtPct(alloc.taiex.dist_ma60_pct, 1)}</p>
+      )}
+      {all.length > 0 && (
+        <>
+          <ol className="mt-2 space-y-1 border-l-2 border-line pl-3 text-sm text-ink-2">
+            {(more ? all : all.slice(0, 2)).map((r, i) => <li key={i}>{r}</li>)}
+          </ol>
+          {all.length > 2 && <button className="mt-1 text-xs text-link" onClick={() => setMore(!more)}>{more ? '收起' : `看全部 ${all.length} 點理由`}</button>}
+        </>
+      )}
+    </Section>
   )
 }
 
 function UrgentBanner() {
   const { data } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000) })
-  const items: Json[] = (data?.alerts ?? []).filter((a: Json) => a.level === '嚴重' || a.level === '警告')
+  // 剛啟動時先拿到的是盤前報告當時的警示（可能已過時），等即時版算好再顯示，避免跳出過期的警示
+  const items: Json[] = data?.from_report ? [] : (data?.alerts ?? []).filter((a: Json) => a.level === '嚴重' || a.level === '警告')
   if (!items.length) return null
   return (
     <section className="mb-6 rounded-lg border border-up/40 bg-up/5 px-4 py-3" aria-label="緊急警示">
@@ -70,7 +73,7 @@ function UrgentBanner() {
       </div>
       <ul className="space-y-1 text-[0.95rem]">
         {items.slice(0, 4).map((a, i) => (
-          <li key={i}><span className={a.level === '嚴重' ? 'font-bold text-up' : 'font-bold text-warn'}>{a.level}</span>　{a.title}：{a.action}</li>
+          <li key={i}><span className={a.level === '嚴重' ? 'font-bold text-up' : 'font-bold text-warn'}>{a.level}</span>　{a.title}：{a.final?.text ?? a.action}</li>
         ))}
       </ul>
     </section>
@@ -163,32 +166,37 @@ export default function Overview() {
   const fails = compliance.filter((c: Json) => c.status !== '通過')
   return (
     <>
-      <PageTitle aside={<span className="text-sm text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
-      <IndexTicker />
+      <PageTitle aside={<span className="text-xs text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
       <UrgentBanner />
-      <RegimeBanner compact />
-      <DecisionBoard />
-      <HoldingWatch />
-      <Balance report={r} />
 
-      <div className="mb-8 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="投資組合總值（同 App）" value={fmtWan(pf.nav)}
-          sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}・${live.as_of}` : '盤前報告快照'} />
+          sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}` : '盤前報告快照'} />
         <Stat label="投資報酬率（同 App）" value={fmtPct(pf.return_pct, 4)} valueClass={tone(pf.return_pct)}
           sub={live?.return_net_pct != null ? `扣手續費後 ${fmtPct(live.return_net_pct, 3)}` : '盤前報告快照'} />
-        <Stat label="持股率（同 App）" value={fmtRatio(pf.holding_ratio, 2)} sub="期貨不算持股；規則下限 70%" />
+        <Stat label="持股率（同 App）" value={fmtRatio(pf.holding_ratio, 2)} valueClass={pf.holding_ratio < 0.7 ? 'text-up' : ''} sub="規則下限 70%・期貨不算" />
         <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
-          sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔・買賣各算一筆`} />
-        <Stat label="執行建議後" value={fmtRatio(r.projected_ratio)} sub={`盤前計畫 ${r.generated_at}`} />
+          sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔`} />
+        <Stat label="執行建議後持股率" value={fmtRatio(r.projected_ratio)} sub={`盤前計畫 ${r.generated_at}`} />
         <Stat label="大盤開盤預測" value={fmtPct(tx?.gap_pct)} valueClass={tone(tx?.gap_pct)}
-          sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}，開盤後${tx.after_open}` : undefined} />
+          sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}・${tx.after_open}` : undefined} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2">
+          <DecisionBoard />
+        </div>
+        <div className="min-w-0">
+          <RegimeBanner compact />
+          <HoldingWatch />
+          <Balance report={r} />
+        </div>
       </div>
 
       <AssetTabs tab={tab} onChange={setTab} counts={countByAsset(intra)} />
       <Intraday asset={tab} />
       {tab !== 'FUT' && (
         <>
-          <HoldingAdvice compact asset={tab as 'STOCK' | 'ETF'} />
           <MorningPlan r={r} asset={tab} />
           <Potential asset={tab as 'STOCK' | 'ETF'} />
           {tab === 'STOCK' && <ValuePicks />}

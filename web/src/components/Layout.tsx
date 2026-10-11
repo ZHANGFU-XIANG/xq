@@ -5,6 +5,20 @@ import { get, post, setToken } from '../lib/api'
 import { HealthDot } from './Health'
 import ChatPanel, { useChat } from './Chat'
 import { liveEvery } from '../lib/live'
+import { MarketBar } from './LiveBits'
+
+// 側欄圖示（線條 SVG 路徑，24×24）
+const ICON: Record<string, string> = {
+  '/': 'M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10',
+  '/daily': 'M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z',
+  '/alerts': 'M12 3a6 6 0 00-6 6v4l-2 3h16l-2-3V9a6 6 0 00-6-6zM10 19a2 2 0 004 0',
+  '/stock': 'M4 19V5M4 19h16M8 15l3-4 3 2 5-6',
+  '/futures': 'M4 17l5-5 4 4 7-8M15 8h5v5',
+  '/news': 'M5 4h11v16H5a1 1 0 01-1-1V5a1 1 0 011-1zM16 8h3a1 1 0 011 1v9a2 2 0 01-4 0M8 8h5M8 12h5M8 16h3',
+  '/portfolio': 'M4 7h16v12H4zM9 7V5h6v2M4 12h16',
+  '/model': 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
+  '/chat': 'M5 5h14v10H9l-4 4V5z',
+}
 
 const NAV = [
   { to: '/', label: '總覽', end: true },
@@ -17,6 +31,14 @@ const NAV = [
   { to: '/model', label: '模型' },
   { to: '/chat', label: 'AI 助理' },
 ]
+
+function NavIcon({ to }: { to: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={ICON[to]} />
+    </svg>
+  )
+}
 
 function StockSearch({ onDone }: { onDone?: () => void }) {
   const [q, setQ] = useState('')
@@ -91,7 +113,7 @@ export default function Layout() {
   const chat = useChat()
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status'), refetchInterval: 60_000 })
   const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000), enabled: !!status?.warm })
-  const urgent = alerts ? (alerts.counts?.['嚴重'] ?? 0) + (alerts.counts?.['警告'] ?? 0) : 0
+  const urgent = alerts && !alerts.from_report ? (alerts.counts?.['嚴重'] ?? 0) + (alerts.counts?.['警告'] ?? 0) : 0
   const [menu, setMenu] = useState(false)
   const onChatPage = useLocation().pathname === '/chat'
   const drawer = chat.open && !onChatPage
@@ -111,7 +133,8 @@ export default function Layout() {
           <nav className="mt-3 flex flex-col gap-0.5" aria-label="主選單">
             {NAV.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMenu(false)}
-                className={({ isActive }) => `rounded-md px-3 py-2 text-[0.95rem] no-underline ${isActive ? 'bg-white/15 font-medium text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}>
+                className={({ isActive }) => `flex items-center gap-2.5 rounded-md px-3 py-2 text-[0.95rem] no-underline ${isActive ? 'bg-white/15 font-medium text-white shadow-[inset_3px_0_0_#7FA2FF]' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}>
+                <NavIcon to={n.to} />
                 {n.label}
                 {n.to === '/alerts' && urgent > 0 && <span className="ml-2 rounded-full bg-up px-1.5 text-xs font-bold text-white">{urgent}</span>}
               </NavLink>
@@ -129,8 +152,9 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className={`min-w-0 flex-1 px-4 py-6 md:ml-56 md:px-8 ${drawer ? 'lg:mr-[26rem]' : ''}`}>
-        <div className="mx-auto max-w-6xl">
+      <main className={`min-w-0 flex-1 md:ml-56 ${drawer ? 'lg:mr-[26rem]' : ''}`}>
+        <MarketBar />
+        <div className="mx-auto max-w-7xl px-4 py-5 md:px-6">
           <Outlet />
         </div>
       </main>

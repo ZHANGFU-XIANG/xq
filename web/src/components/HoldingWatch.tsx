@@ -7,6 +7,7 @@ import { liveEvery } from '../lib/live'
 
 const STYLE: Record<string, string> = {
   盡快賣出: 'border-up bg-up/5 text-up',
+  減碼: 'border-warn bg-warn/5 text-warn',
   注意: 'border-warn bg-warn/5 text-warn',
   低檔可望反彈: 'border-down bg-down/5 text-down',
 }
@@ -41,7 +42,7 @@ export default function HoldingWatch() {
   return (
     <Section title="持股動向" aside={<span className="text-sm text-muted">{data.trading ? '盤中每 20 秒更新' : '非交易時段'}・{data.time}</span>}>
       <p className="mb-2 text-sm text-ink-2">
-        <span className="text-up">盡快賣出 {c['盡快賣出'] ?? 0}</span>　<span className="text-warn">注意 {c['注意'] ?? 0}</span>
+        <span className="text-up">盡快賣出 {c['盡快賣出'] ?? 0}</span>　{(c['減碼'] ?? 0) > 0 && <><span className="text-warn">減碼 {c['減碼']}</span>　</>}<span className="text-warn">注意 {c['注意'] ?? 0}</span>
         <span className="text-down">低檔可望反彈 {c['低檔可望反彈'] ?? 0}</span>　<span className="text-muted">正常 {c['正常'] ?? 0}</span>
         {canNotify() && perm !== 'granted' && perm !== 'denied' && (
           <button className="ml-3 rounded-md border border-line px-2 py-0.5 text-xs" onClick={() => Notification.requestPermission().then(setPerm)}>

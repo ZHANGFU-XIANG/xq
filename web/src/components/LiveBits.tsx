@@ -25,6 +25,32 @@ export function IndexTicker() {
   )
 }
 
+/** 每頁頂端的行情列（像看盤網站）：加權、櫃買即時指數與盤中／收盤狀態，桌機版固定在畫面上方。 */
+export function MarketBar() {
+  const { data } = useQuotes([])
+  const idx: Json = data?.indices ?? {}
+  const first = Object.values(idx)[0] as Json | undefined
+  return (
+    <div className="border-b border-line bg-paper/95 backdrop-blur md:sticky md:top-0 md:z-10" aria-live="polite">
+      <div className="mx-auto flex max-w-7xl items-center gap-x-6 gap-y-1 overflow-x-auto px-4 py-2 [scrollbar-width:none] md:px-6">
+        {Object.entries(idx).map(([k, v]: [string, Json]) => (
+          <div key={k} className="flex shrink-0 items-baseline gap-2">
+            <span className="text-xs text-muted">{v.name}</span>
+            <span className={`num text-[1.05rem] font-bold ${tone(v.change)}`}>{v.price.toLocaleString('zh-TW', { minimumFractionDigits: 2 })}</span>
+            <span className={`num text-sm ${tone(v.change)}`}>{v.change > 0 ? '+' : ''}{v.change.toFixed(2)}</span>
+            <span className="text-sm"><Change value={v.chg_pct} /></span>
+          </div>
+        ))}
+        {!Object.keys(idx).length && <span className="text-xs text-muted">載入行情中</span>}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted">
+          <span className={`h-2 w-2 rounded-full ${data?.trading ? 'animate-pulse bg-up' : 'bg-muted'}`} aria-hidden />
+          {data?.trading ? '盤中即時' : '已收盤'}{first?.time ? `・${first.time}` : ''}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 /** 單一股票的即時價格與漲跌。 */
 export function LivePrice({ q }: { q?: Json }) {
   if (!q?.price) return <span className="text-muted">—</span>

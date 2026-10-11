@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import logging
 import re
 import time
@@ -248,6 +249,13 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
             pool.append({"id": idx, "code": code, "name": name, **n})
             idx += 1
     out: dict[str, list[dict]] = {}
+    # 同一批新聞標題只判讀一次：LLM 每次判讀可能不同，若每 10 分鐘重判，同一則新聞會時而算負面、時而不算，
+    # 造成警示、持股建議、個股頁在不同時間點說法不一致（2026-10-11 合庫金的公司債新聞就是這樣）
+    tkey = "judge_" + hashlib.md5("|".join(sorted(f"{n['code']}{n['title']}" for n in pool)).encode()).hexdigest()
+    judged = _CACHE.get(tkey)
+    if judged:
+        _CACHE[key] = (time.time(), judged[1])
+        return judged[1]
     client = get_client()
     if pool and client.available():
         lines = [f"[{n['id']}]（{n['code']} {n['name']}／{n['source']} {n['time']}）{n['title']}" for n in pool]
@@ -255,9 +263,10 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
             res = client.structured(
                 "以下是各股票近 7 日新聞標題。請找出『對股價不利的事件或基本面消息』，每則判斷都要引用新聞編號。\n"
                 "算：營收／獲利衰退或下修、財報更正、虧損、違約、弊案、訴訟、處分、大股東申讓或減資、大客戶流失、產品問題、"
-                "工廠災害停工、現金增資或發行可轉債（股權稀釋）、"
+                "工廠災害停工、現金增資或發行可轉換公司債（股權稀釋）、"
                 "法人調降評等或目標價、被列注意／處置。\n"
-                "不算：單純描述股價下跌或技術面走勢、每日法人買賣超統計、與該公司無關的同名新聞或廣告、利多新聞。"
+                "不算：發行普通公司債、無擔保普通公司債、金融債、次順位債（不稀釋股權，是例行籌資）、董事會／股東會／除息等例行公告、"
+                "單純描述股價下跌或技術面走勢、每日法人買賣超統計、與該公司無關的同名新聞或廣告、利多新聞。"
                 "若某檔沒有符合的新聞就不要列出。\n\n" + "\n".join(lines), RiskResult,
                 system="你是嚴謹的風險控管分析師，只根據提供的新聞標題判斷，不可臆測或加入新聞以外的資訊。")
             by_id = {n["id"]: n for n in pool}
@@ -267,6 +276,8 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
                     continue
                 if not verify(it.issue, [by_id[i] for i in ids])[0]:
                     continue
+                if all(_ROUTINE.search(by_id[i]["title"]) and not _DILUTE.search(by_id[i]["title"]) for i in ids):
+                    continue  # 程式再擋一次：引用的新聞全是普通公司債／金融債等例行籌資，不算負面
                 srcs = {by_id[i]["source"] for i in ids}
                 out.setdefault(it.code, []).append({
                     "severity": it.severity, "issue": it.issue, "multi_source": len(ids) >= 2 or len(srcs) >= 2,
@@ -274,7 +285,13 @@ def news_risk(stocks: dict[str, str]) -> dict[str, list[dict]]:
         except LLMError as e:
             log.warning("負面新聞判斷失敗：%s", e)
     _CACHE[key] = (time.time(), out)
+    if client.available():  # 判讀失敗（沒有結果）時不固定，下一輪再判
+        _CACHE[tkey] = (time.time(), out)
     return out
+
+
+_ROUTINE = re.compile(r"普通公司債|金融債|次順位|無擔保.{0,6}公司債|綠色債|永續發展債")
+_DILUTE = re.compile(r"可轉|轉換公司債|現金增資|現增|私募")
 
 
 # ---------------------------------------------------------------- 規則：建議賣出股數

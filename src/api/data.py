@@ -534,11 +534,20 @@ _ALERTS_LOCK = __import__("threading").Lock()
 def live_alerts(refresh: bool = False) -> dict:
     """即時警示＋每則持股警示附上「持股建議的最終結論」（同一套判斷），警示頁與持股建議、個股頁說法一致。"""
     out = _live_alerts(refresh)
-    items = {h["code"]: h for h in ((_INTRA.get("v") or {}).get("holding_items") or [])}
+    iv = _INTRA.get("v") or {}
+    items = {h["code"]: h for h in (iv.get("holding_items") or [])}
     if not items:
         return out
+    src = out.get("alerts") or []
+    if iv.get("holding_alerts") is not None:
+        # 持股警示改用盤中建議同一批算出來的（持股建議也是用這批合併賣單），兩邊不會因為計算時間不同而說法不一
+        rank = {"嚴重": 0, "警告": 1, "提醒": 2}
+        src = sorted(iv["holding_alerts"] + [a for a in src if a.get("scope") != "持股"], key=lambda a: rank.get(a.get("level"), 9))
+        out = {**out, "counts": {lv: sum(1 for a in src if a.get("level") == lv) for lv in rank}}
     alerts = []
-    for a in out.get("alerts") or []:
+    for a in src:
+        if isinstance(a.get("price"), float):
+            a = {**a, "price": round(a["price"], 2)}  # 盤中那批的價格是浮點數（例如 12.949999809），顯示前取到小數 2 位
         h = items.get(a.get("code")) if a.get("scope") == "持股" else None
         if h:
             a = {**a, "final": {"verdict": h["verdict"], "text": f"{h['verdict']}：{h['qty_text']}"
@@ -566,7 +575,7 @@ def _live_alerts(refresh: bool = False) -> dict:
             _ALERTS.update(t=time.time(), v=out)
             return out
 
-    prev = _ALERTS["v"] or ((r.get("alerts") or None) and {**r["alerts"], "realtime": {}})
+    prev = _ALERTS["v"] or ((r.get("alerts") or None) and {**r["alerts"], "realtime": {}, "from_report": r.get("date")})
     if refresh or prev is None:
         return compute()
     if not _ALERTS_LOCK.locked():  # 先回上一份（或報告內的警示），背景更新
@@ -747,7 +756,9 @@ def holding_watch() -> dict:
     preds = ctx["alpha"]["predictions"]
     base = ctx["alpha"].get("up_base_rate") or 0.5
     hi_p = max(0.6, base + 0.08)
-    plan = {i["code"]: i for i in ((on_demand._PLAN.get("v") or {}).get("items") or [])}  # 持股建議（5 分鐘快取，不在這裡重算）
+    # 持股建議：優先用盤中建議那一批（每分鐘重算，和警示、總表同一份），沒有才用持股建議快取；不在這裡重算
+    plan = {i["code"]: i for i in ((_INTRA.get("v") or {}).get("holding_items")
+                                   or (on_demand._PLAN.get("v") or {}).get("items") or [])}
     try:
         rg = live_regime()
     except Exception:  # noqa: BLE001
@@ -800,13 +811,15 @@ def holding_watch() -> dict:
                 watch.append(f"距停損 {stop:g} 不到 3%")
             if watch and rg and rg["level"] == "黃燈" and basket == "offense":
                 watch.append(f"大盤黃燈：若加權收盤跌破 {rg['lines']['weak_enter']:,} 點轉紅燈，這檔優先撤出")
-        status = "盡快賣出" if sell else "低檔可望反彈" if rebound else "注意" if watch else "正常"
+        # 只因持股建議「減碼」而列入時，狀態就寫「減碼」（與持股建議、警示用詞一致），不要寫成「盡快賣出」
+        only_trim = len(sell) == 1 and adv.get("verdict") == "減碼" and sell[0].startswith("持股建議")
+        status = "減碼" if only_trim else "盡快賣出" if sell else "低檔可望反彈" if rebound else "注意" if watch else "正常"
         items.append({"code": c, "name": stock_meta(c)["name"], "status": status, "reasons": sell or rebound or watch,
                       "price": price, "chg_pct": chg, "pnl_pct": round((price / pos.avg_cost - 1) * 100, 2) if pos.avg_cost else 0,
                       "stop": stop, "rsi14": round(rsi, 1) if rsi is not None else None,
                       "p_up": p_up, "exp_ret": exp_ret, "verdict": adv.get("verdict")})
     items += _deriv_watch(pf)
-    order = {"盡快賣出": 0, "注意": 1, "低檔可望反彈": 2, "正常": 3}
+    order = {"盡快賣出": 0, "減碼": 1, "注意": 2, "低檔可望反彈": 3, "正常": 4}
     items.sort(key=lambda x: (order[x["status"]], x["chg_pct"] or 0))
     out = {"time": now_tw().strftime("%H:%M:%S"), "trading": alerts.is_trading_hours(), "base_rate": base, "items": items,
            "counts": {k: sum(1 for i in items if i["status"] == k) for k in order},
