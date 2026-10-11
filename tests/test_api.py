@@ -232,7 +232,10 @@ def test_answer_style_and_citations():
     assert "12" not in hidden and chat_agent._show_cites(hidden) == "排名 33〔S12〕"
 
 
-def test_citation_numbers_not_flagged_and_sources_listed():
+def test_citation_numbers_not_flagged_and_sources_listed(monkeypatch):
+    # 不依賴真的 API 金鑰（GitHub Actions 部署前測試沒有 .env）：迴圈已用假的取代，只要讓「已設定 LLM」檢查通過
+    monkeypatch.setattr(chat_agent, "get_client", lambda: type("C", (), {"available": lambda self: True})())
+
     def fake(messages, emit, start=0):
         out = chat_agent._tag({"price": 48.85}, start + 1, "stock_profile")
         return "兆豐金收盤 48.85 元〔S1〕。", [{"tool": "stock_profile", "args": {"code": "2886"}, "result": out}]
