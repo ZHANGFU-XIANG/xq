@@ -124,11 +124,11 @@ def test_tuner_flags_overnight_failures(isolated):
 def test_tuner_weight_shift_bounded(isolated):
     rng = np.random.default_rng(0)
     alpha = []
-    for _ in range(40):
+    for i in range(40):
         good = rng.normal()
         alpha.append({"components": {"alpha": good, "newhigh": rng.normal(), "institutional": rng.normal(),
                                      "revenue": rng.normal(), "overnight": -good, "sentiment": rng.normal()},
-                      "real_excess": good * 0.05})
+                      "real_excess": good * 0.05, "target_date": f"2025-{1 + i // 4:02d}-{1 + (i % 4) * 7:02d}"})  # 10 個月、不重疊期間足夠
     ch = tuner.tune_weights({"alpha": alpha})
     assert ch and ch["after"]["alpha"] > ch["before"]["alpha"] and ch["after"]["overnight"] < ch["before"]["overnight"]
     assert all(0.0 < v <= 0.5 for v in ch["after"].values())
@@ -208,3 +208,43 @@ def test_weekly_report_collect_and_build(monkeypatch, tmp_path):
     from pptx import Presentation
 
     assert out.exists() and len(Presentation(str(out)).slides) >= 8
+
+
+def test_tuner_independent_periods_block_overlapping_samples():
+    """60 筆連續日期的重疊樣本只算約 3 個不重疊期間，不足 allocation_min_periods → 不調攻守比例。"""
+    import datetime as dt
+
+    from src.agents import tuner
+
+    start = dt.date(2026, 7, 1)
+    alpha = []
+    for i in range(60):
+        d = (start + dt.timedelta(days=i)).isoformat()
+        alpha += [{"target_date": d, "basket": "offense", "real_ret": 0.08}, {"target_date": d, "basket": "defense", "real_ret": 0.02}]
+    periods = tuner.independent_periods(alpha, horizon=20)
+    assert 2 <= len(periods) <= 3
+    assert tuner.tune_allocation({"alpha": alpha}) is None
+
+
+def test_tuner_needs_significance_and_consistent_halves():
+    import datetime as dt
+
+    from src.agents import tuner
+
+    def make(diffs):
+        out = []
+        for i, df in enumerate(diffs):
+            d = (dt.date(2025, 1, 1) + dt.timedelta(days=30 * i)).isoformat()
+            out += [{"target_date": d, "basket": "offense", "real_ret": 0.02 + df}, {"target_date": d, "basket": "defense", "real_ret": 0.02}]
+        return out
+    assert tuner.tune_allocation({"alpha": make([0.05, -0.04, 0.06, -0.05, 0.04, -0.03, 0.05, -0.02])}) is None  # 不顯著
+    ch = tuner.tune_allocation({"alpha": make([0.05, 0.04, 0.06, 0.05, 0.045, 0.055, 0.05, 0.04])})
+    assert ch and ch["after"] == ch["before"] + 0.05 and "不重疊期間" in ch["reason"]
+
+
+def test_trim_small_odd_lot():
+    from src.agents import sizer
+
+    assert sizer.trim_odd(2, 300, 26.0)[:2] == (2, 0)          # 300 股 × 26 = 7,800 < 14,035 → 不買零股
+    assert sizer.trim_odd(2, 300, 100.0)[:2] == (2, 300)       # 30,000 元的零股保留
+    assert sizer.trim_odd(0, 8, 2330.0)[:2] == (0, 8)          # 沒有整張時零股是唯一買法，保留

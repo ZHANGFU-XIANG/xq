@@ -416,6 +416,23 @@ def market_alerts(lim: dict, us_snapshot: list[dict], taiex_chg: float | None) -
     return out
 
 
+def holdings_vanished(pf, today: dt.date) -> dict | None:
+    """Compare against the last recorded closing holdings (nav_history positions): if at least half of the stocks disappeared
+    without matching sell records, the trade log was probably deleted by mistake (10/07: one bulk delete wiped every stock)."""
+    from src.state import portfolio as pfm
+
+    prev = [h for h in pfm.load_history() if h.get("positions") and h["date"] < today.isoformat()]
+    if not prev:
+        return None
+    last = prev[-1]
+    sold = {t["code"] for t in pfm.load_trades() if t["side"].upper() == "SELL" and t["date"] > last["date"]}
+    gone = [c for c in last["positions"] if c not in pf.positions and c not in sold]
+    if len(gone) * 2 < len(last["positions"]):
+        return None
+    return {"date": last["date"], "before": len(last["positions"]), "now": len(pf.positions),
+            "codes": [f"{c} {stock_meta(c)['name']}" for c in gone]}
+
+
 def rule_alerts(pf, orders: list[dict], today: dt.date) -> list[dict]:
     """競賽基本要求：總交易筆數 ≥10（買賣各算一筆，未達不列入排名）、交易過的標的 ≥5（每日收盤追蹤，未達每次扣 0.2%）。"""
     from src.agents.compliance import remaining_trading_days
@@ -427,6 +444,11 @@ def rule_alerts(pf, orders: list[dict], today: dt.date) -> list[dict]:
     remain = remaining_trading_days(today)
     planned = len(orders)
     out = []
+    lost = holdings_vanished(pf, today)
+    if lost:
+        out.append({"scope": "規則", "level": "嚴重", "title": f"交易紀錄可能被誤刪：{lost['date']} 收盤持有 {lost['before']} 檔，現在只剩 {lost['now']} 檔",
+                    "reasons": [f"消失的持股沒有對應的賣出紀錄：{'、'.join(lost['codes'][:8])}"],
+                    "action": "到「持股與交易」頁的「歷史版本」復原交易紀錄；若真的賣出了，請補記賣出成交"})
     n, need = pf.trade_count, req["min_trades"] - pf.trade_count
     if need > 0:
         level = "嚴重" if remain <= 5 else ("警告" if remain <= 15 or planned < need else "提醒")

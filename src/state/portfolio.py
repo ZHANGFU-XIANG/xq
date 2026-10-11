@@ -392,11 +392,14 @@ def load_history() -> list[dict]:
     return json.loads(HISTORY_JSON.read_text(encoding="utf-8")) if HISTORY_JSON.exists() else []
 
 
-def record_history(date: str, nav: float, holding_ratio: float) -> list[dict]:
+def record_history(date: str, nav: float, holding_ratio: float, positions: dict[str, int] | None = None) -> list[dict]:
+    """positions: that day's closing stock holdings {code: shares}, used to detect mistakenly deleted trade records."""
     hist = [h for h in load_history() if h["date"] != date]
     initial = rules()["capital"]["initial"]
-    hist.append({"date": date, "nav": round(nav), "holding_ratio": round(holding_ratio, 4),
-                 "return_pct": round((nav / initial - 1) * 100, 3)})
+    row = {"date": date, "nav": round(nav), "holding_ratio": round(holding_ratio, 4), "return_pct": round((nav / initial - 1) * 100, 3)}
+    if positions is not None:
+        row["positions"] = {c: int(s) for c, s in sorted(positions.items())}
+    hist.append(row)
     hist.sort(key=lambda h: h["date"])
     HISTORY_JSON.write_text(json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8")
     return hist

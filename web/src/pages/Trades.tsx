@@ -16,9 +16,9 @@ const qtyText = (shares: number) => {
 
 /** 前端預估（與後端相同公式：手續費 0.1425%、最低 20 元；證交稅股票 0.3%、ETF 0.1%，只有賣出收） */
 function estimate(code: string, side: string, shares: number, price: number) {
-  const amount = shares * price
-  const fee = shares ? Math.max(20, Math.round(amount * 0.001425)) : 0
-  const tax = side === 'SELL' ? Math.round(amount * (code.startsWith('00') ? 0.001 : 0.003)) : 0
+  const amount = side === 'SELL' ? Math.round(shares * price) : Math.floor(shares * price + 1e-6)  // 同 App：買進捨去、賣出四捨五入
+  const fee = shares ? Math.max(20, Math.ceil(amount * 0.001425 - 1e-9)) : 0  // 每筆無條件進位
+  const tax = side === 'SELL' ? Math.floor(amount * (code.startsWith('00') ? 0.001 : 0.003) + 1e-9) : 0  // 證交稅元以下捨去
   return { amount, fee, tax }
 }
 
@@ -238,6 +238,37 @@ function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
   )
 }
 
+/** 交易紀錄的歷史版本（GitHub commit），可以整份復原；復原本身也是新版本，可以再還原回來。 */
+function TradeHistory({ version, run, busy }: { version: string; run: (fn: () => Promise<Json>) => Promise<boolean>; busy: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [pick, setPick] = useState<string | null>(null)
+  const { data, isLoading, error } = useQuery<Json>({ queryKey: ['trades-history', version], queryFn: () => get('/api/trades/history'), enabled: open })
+  if (!open) return <button className="rounded-md border border-line px-3 py-1.5 text-sm" onClick={() => setOpen(true)}>顯示歷史版本</button>
+  if (isLoading) return <Loading />
+  if (error) return <ErrorNote error={error} />
+  return (
+    <ul className="divide-y divide-line/60 text-sm">
+      {(data?.versions ?? []).map((v: Json, i: number) => (
+        <li key={v.sha} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+          <span className="num text-muted">{new Date(v.date).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}</span>
+          <span className="min-w-0 flex-1 truncate" title={v.message}>{v.message}</span>
+          <span className="num text-ink-2">{v.rows ?? '—'} 筆・持股 {v.holdings ?? '—'} 檔</span>
+          {v.oversized?.length > 0 && <span className="text-up" title={v.oversized.join('、')}>數量異常</span>}
+          {i === 0 ? <span className="text-muted">目前版本</span> : pick === v.sha ? (
+            <>
+              <button disabled={busy} className="rounded bg-ink px-2 py-0.5 text-paper disabled:opacity-50"
+                onClick={async () => { if (await run(() => post('/api/trades/restore', { version, sha: v.sha }))) setPick(null) }}>確定復原</button>
+              <button className="text-muted" onClick={() => setPick(null)}>取消</button>
+            </>
+          ) : (
+            <button disabled={v.oversized?.length > 0 || !v.rows} className="text-link disabled:text-muted" onClick={() => setPick(v.sha)}>復原成這個版本</button>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 const inSeg = (seg: Seg, kind: string) => seg === 'all' || (seg === 'sec' ? kind === 'STOCK' || kind === 'ETF' : kind === 'FUT' || kind === 'OPT')
 
 function Ledger({ data, run, busy, seg }: { data: Json; run: (fn: () => Promise<Json>) => Promise<boolean>; busy: boolean; seg: Seg }) {
@@ -245,17 +276,23 @@ function Ledger({ data, run, busy, seg }: { data: Json; run: (fn: () => Promise<
   const [confirmDel, setConfirmDel] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState(false)
+  const [typed, setTyped] = useState('')
   const shown: Json[] = data.rows.filter((r: Json) => inSeg(seg, r.kind))
   if (!shown.length) return <Empty>{data.rows.length ? `沒有${SEG_LABEL[seg]}的紀錄。` : '還沒有任何交易紀錄。'}</Empty>
   const ids: number[] = shown.map((r: Json) => r.id)
   const live = new Set([...selected].filter((i) => ids.includes(i)))  // 重新整理後只保留仍存在的
   const allOn = live.size === ids.length
+  const isStock = (r: Json) => r.kind === 'STOCK' || r.kind === 'ETF'
+  const stockTotal = data.rows.filter(isStock).length
+  const stockPicked = data.rows.filter((r: Json) => live.has(r.id) && isStock(r)).length
+  const needType = stockTotal >= 4 && stockPicked * 2 >= stockTotal  // 與後端相同：刪掉一半以上股票紀錄要輸入確認
   const toggle = (id: number) => { setConfirmBulk(false); setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n }) }
   async function bulkDelete() {
-    if (await run(() => post('/api/trades/bulk-delete', { version: data.version, ids: [...live] }))) {
+    if (await run(() => post('/api/trades/bulk-delete', { version: data.version, ids: [...live], confirm: typed.trim() || undefined }))) {
       setSelected(new Set())
       setConfirmBulk(false)
     }
+    setTyped('')
   }
   return (
     <div className="overflow-x-auto">
@@ -269,9 +306,12 @@ function Ledger({ data, run, busy, seg }: { data: Json; run: (fn: () => Promise<
         )}
         {confirmBulk && (
           <>
-            <span className="text-up">確定刪除 {live.size} 筆？刪除後持股、現金、損益會重新計算</span>
-            <button disabled={busy} className="rounded-md bg-up px-3 py-1 text-white disabled:opacity-50" onClick={bulkDelete}>{busy ? '刪除中…' : '確定刪除'}</button>
-            <button className="text-muted" onClick={() => setConfirmBulk(false)}>取消</button>
+            <span className="text-up">確定刪除 {live.size} 筆（其中股票 {stockPicked}／{stockTotal} 筆）？刪除後持股、現金、損益會重新計算</span>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="輸入「確認刪除」" aria-label="輸入確認刪除"
+              className={`w-32 rounded border bg-paper px-2 py-0.5 text-ink ${needType ? 'border-up' : 'border-line'}`} />
+            <button disabled={busy || (needType && typed.trim() !== '確認刪除')} className="rounded-md bg-up px-3 py-1 text-white disabled:opacity-50" onClick={bulkDelete}>{busy ? '刪除中…' : '確定刪除'}</button>
+            <span className="w-full text-xs text-muted">會刪掉一半以上股票紀錄或清掉持股時，必須輸入「確認刪除」；刪錯可以在下方「歷史版本」復原</span>
+            <button className="text-muted" onClick={() => { setConfirmBulk(false); setTyped('') }}>取消</button>
           </>
         )}
       </div>
@@ -404,6 +444,10 @@ function SecStats({ s }: { s: Json }) {
         <Stat label="買進金額" value={fmtInt(m.buy_amount)} />
         <Stat label="賣出金額" value={fmtInt(m.sell_amount)} />
         <Stat label="手續費" value={fmtInt(m.fee)} sub={m.fee_adjust ? `另有 App 校正 ${fmtInt(m.fee_adjust)} 元` : undefined} />
+        {m.min_fee_extra > 0 && (
+          <Stat label="最低手續費多付" value={fmtInt(m.min_fee_extra)}
+            sub={`小額或零股分次成交每筆至少 20 元：${(m.min_fee_extra_top ?? []).join('、')}`} />
+        )}
         <Stat label="證交稅" value={fmtInt(m.tax)} />
         <Stat label="交易天數" value={m.active_days} />
       </div>
@@ -528,6 +572,10 @@ export default function TradeWorkspace({ view, seg }: { view: 'trades' | 'stats'
       {msg && <div className={`mb-4 rounded-md border px-3 py-2 text-sm ${msg.ok ? 'border-down/40 bg-down/5 text-down' : 'border-up/40 bg-up/5 text-up'}`}>{msg.text}</div>}
       <Section title="全部交易" aside={`${SEG_LABEL[seg]}・最新在前・可修改、刪除或多選刪除`}>
         <Ledger data={data} run={run} busy={busy} seg={seg} />
+      </Section>
+
+      <Section title="歷史版本" aside="每次寫入交易紀錄都會保存一個版本；刪錯或匯入錯誤時可以整份復原">
+        <TradeHistory version={data.version} run={run} busy={busy} />
       </Section>
 
       <Section title="新增紀錄" aside="股票、ETF、期貨、選擇權、資金調撥、手續費校正；過去日期也能補記">

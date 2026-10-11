@@ -115,4 +115,6 @@ cd web; npm run build; npm run lint                              # 型別檢查�
 | FinMind 額度用完 | 自動冷卻 1 小時並改用官方來源；可在 `.env` 的 `FINMIND_TOKENS` 加 token 後執行 `setup_cloud.py` |
 | 網站很慢或打不開 | Space 可能正在重啟或休眠後喚醒，等 1～2 分鐘；keepalive 每 6 小時會喚醒一次 |
 | 持倉與平台不一致 | 在「持股」頁從 XQ 貼上庫存，系統會列出差異並建立補記（需確認） |
+| 交易紀錄被誤刪或匯入錯誤 | 到「持股與交易」頁最下方「歷史版本」→「顯示歷史版本」，找到出錯前的版本按「復原成這個版本」（復原也是一個新版本，可以再復原回來；標示「數量異常」的版本不能復原）。系統每日收盤會記錄持股清單，持股大幅消失且沒有賣出紀錄時會發「交易紀錄可能被誤刪」嚴重警示 |
+| 每日走勢（nav_history）因交易紀錄錯誤而算錯 | 修正交易紀錄後執行 `python -c "import datetime as dt; from src.agents import backfill; backfill.rebuild_nav_history(dt.date(2026,10,5), dt.date.today())"`，依每日收盤價與結算價重算（10/05、10/06、10/08 已驗證與 App 一致） |
 | 調整 Agent 改壞參數 | `python -m src.main tune --rollback`，或 Actions 手動 tune＋rollback；刪除 `config/learned_params.yaml` 則全部回到預設 |

@@ -33,6 +33,21 @@ def round_tick(price: float, etf: bool = False, up: bool = False) -> float:
     return round(n * t, 2)
 
 
+def min_fee_amount() -> float:
+    """Trade amount at which the minimum commission stops dominating: 20 ÷ 0.1425% ≈ 14,035 yuan. Below it, the effective fee rate exceeds 0.1425%."""
+    c = rules()["costs"]
+    return c["min_commission"] / c["commission"]
+
+
+def trim_odd(lots: int, odd: int, price: float) -> tuple[int, int, str | None]:
+    """When buying whole lots plus a small odd lot: if the odd part is below min_fee_amount, drop it (its fee rate would be too high,
+    e.g. 致茂 8 shares filled in 5 fills paid 100 yuan in fees, about 0.54%). With no whole lots, keep the odd lot as the only way to buy."""
+    if lots and odd and odd * price < min_fee_amount():
+        return lots, 0, (f"零股 {odd} 股只有 {odd * price:,.0f} 元，低於 {min_fee_amount():,.0f} 元會被最低手續費 20 元拉高費率"
+                         f"（約 {20 / (odd * price) * 100:.2f}%），所以不買零股")
+    return lots, odd, None
+
+
 def split_lots(shares: int, allow_odd: bool) -> tuple[int, int]:
     lots, odd = divmod(max(0, int(shares)), LOT)
     return lots, (odd if allow_odd else 0)
@@ -310,11 +325,14 @@ def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, 
         margin = mroom > cash
         want = min(want, mroom) if margin else cash
     lots, odd = split_lots(int(max(0.0, want) / p["entry"]), st["allow_odd_lot"])
+    lots, odd, odd_note = trim_odd(lots, odd, p["entry"])
     shares = lots * LOT + odd
     if shares <= 0:
         return {"shares": 0, "notes": notes + ["目前可用資金或籃子額度不足，無法買進"], "basket": basket}
     amount = shares * p["entry"]
     order = _buy_order(p, shares, lots, odd, amount, trade_cost(s["code"], "BUY", shares, p["entry"]), margin, nav, alloc)
+    if odd_note:
+        order["why_qty"].append(odd_note)
     order["notes"] = notes
     return order
 
@@ -391,6 +409,7 @@ def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells
                     want = cash_left
             shares = int(max(0.0, want) / p["entry"])
             lots, odd = split_lots(shares, allow_odd)
+            lots, odd, odd_note = trim_odd(lots, odd, p["entry"])
             shares = lots * LOT + odd
             if shares <= 0 or shares * p["entry"] < st["min_order_pct"] * nav:  # 太小的單只增加成本與交易筆數
                 continue
@@ -404,6 +423,8 @@ def plan_buys(ranked: list[dict], pf: Portfolio, prices: dict, nav: float, sells
                 cash_left -= amount + cost
             spent += amount
             orders.append(_buy_order(p, shares, lots, odd, amount, cost, use_margin, nav, alloc))
+            if odd_note:
+                orders[-1]["why_qty"].append(odd_note)
         summary[basket] = {"target": round(target_val), "held": round(held_val), "new": round(spent),
                            "after_pct": round((held_val + spent) / nav * 100, 2) if nav else 0}
 

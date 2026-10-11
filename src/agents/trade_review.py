@@ -66,11 +66,13 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
         shares, price, date = int(float(t["shares"])), float(t["price"]), t.get("date", "")
         fee, tax = fee_tax(code, side, shares, price)
         s = per.setdefault(code, {"code": code, "name": _name(code), "buys": 0, "sells": 0, "buy_shares": 0, "sell_shares": 0,
-                                  "buy_amount": 0.0, "sell_amount": 0.0, "fee": 0.0, "tax": 0.0, "realized": 0.0,
+                                  "buy_amount": 0.0, "sell_amount": 0.0, "fee": 0.0, "tax": 0.0, "realized": 0.0, "min_fee_extra": 0.0,
                                   "first_date": date, "last_date": date})
         d = days.setdefault(date, {"date": date, "count": 0, "buy_amount": 0.0, "sell_amount": 0.0, "realized": 0.0, "fee_tax": 0.0})
         s["fee"] += fee
         s["tax"] += tax
+        # 最低手續費多付的部分：小額成交（多半是零股分次成交）每筆至少 20 元，超過 0.1425% 的部分
+        s["min_fee_extra"] += max(0.0, fee - pfm.trade_amount(shares, price, side) * rules()["costs"]["commission"])
         s["last_date"] = max(s["last_date"], date)
         d["count"] += 1
         d["fee_tax"] += fee + tax
@@ -111,7 +113,7 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
         s["_unreal"] = held * px - gross if held and px else 0.0  # 未四捨五入，總計時先加總再四捨五入（同 App）
         s["unrealized"] = round(s["_unreal"])
         s["total_pnl"] = round(s["realized"] + s["unrealized"])
-        for k in ("buy_amount", "sell_amount", "fee", "tax", "realized"):
+        for k in ("buy_amount", "sell_amount", "fee", "tax", "realized", "min_fee_extra"):
             s[k] = round(s[k])
         s["avg_buy"] = round(s["buy_amount"] / s["buy_shares"], 3) if s["buy_shares"] else None
         s["avg_sell"] = round(s["sell_amount"] / s["sell_shares"], 3) if s["sell_shares"] else None
@@ -131,6 +133,9 @@ def review(trades: list[dict], prices: dict[str, float]) -> dict:
         "symbols": len(per), "buy_count": sum(s["buys"] for s in per.values()), "sell_count": sum(s["sells"] for s in per.values()),
         "buy_amount": round(sum(s["buy_amount"] for s in per.values())), "sell_amount": round(sum(s["sell_amount"] for s in per.values())),
         "fee": round(fee_total), "tax": round(tax_total), "fee_adjust": round(other["fee_adj"]),
+        "min_fee_extra": round(sum(s["min_fee_extra"] for s in per.values())),
+        "min_fee_extra_top": [f"{s['code']} {s['name']} {s['min_fee_extra']:,} 元" for s in
+                              sorted(per.values(), key=lambda s: -s["min_fee_extra"]) if s["min_fee_extra"] >= 20][:5],
         "realized": round(realized), "unrealized": round(unreal), "total_pnl": round(realized + unreal),
         "closed_count": len(closed), "win_count": len(wins), "loss_count": len(losses),
         "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else None,

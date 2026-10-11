@@ -124,17 +124,9 @@ def write(facts: dict) -> dict:
 
 
 def postmortem(facts: dict) -> str:
-    """調整 Agent 的失誤檢討（同樣經數字核對）。"""
+    """調整 Agent 的失誤檢討：只用程式產生的範本文字。
+    10/09 LLM 寫出「進攻籃報酬低於預期」卻又提高進攻比例的矛盾說明；數字核對抓不到因果錯誤，所以調參說明不經 LLM。"""
     base = "；".join(i["detail"] for i in facts["issues"]) or "無重大失誤"
     changes = "；".join(f"{c['param']}：{c.get('reason', '')}（回測指標 {c.get('metric_before', '—')} → {c.get('metric_after', '—')}）"
                         for c in facts["changes"]) or "未修改參數"
-    fallback = f"偵測結果：{base}。修正：{changes}。"
-    client = get_client()
-    if not client.available():
-        return fallback
-    try:
-        out = client.structured("事實資料(JSON)：\n" + json.dumps(facts, ensure_ascii=False, default=str)
-                                + "\n\n請說明預測失誤的可能原因、做了哪些參數修正、為何這樣修正。", PostMortem, system=SYSTEM)
-    except LLMError:
-        return fallback
-    return out.summary if verify(out.summary, facts)[0] else fallback
+    return f"偵測結果：{base}。修正：{changes}。"

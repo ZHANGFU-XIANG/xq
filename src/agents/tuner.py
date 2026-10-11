@@ -248,15 +248,56 @@ def tune_risk(issues: list[dict]) -> list[dict]:
     return changes
 
 
+def _spaced(dates: list[str], horizon: int | None = None) -> list[str]:
+    """From the dates, keep those at least one horizon apart (≈ horizon × 7/5 calendar days), i.e. non-overlapping one-month periods."""
+    horizon = horizon or params.alpha()["horizon"]
+    out, last = [], None
+    for d in sorted(set(dates)):
+        day = dt.date.fromisoformat(d)
+        if last is None or (day - last).days >= horizon * 7 / 5:
+            out.append(d)
+            last = day
+    return out
+
+
+def independent_periods(alpha: list[dict], horizon: int | None = None) -> list[dict]:
+    """Collapse matured one-month predictions into non-overlapping periods: average each basket's realized return per
+    target_date, then keep target dates at least one horizon (≈ horizon × 7/5 calendar days) apart.
+    Consecutive days' predictions overlap by 19 of 20 days and are nearly identical; counting them separately overstates
+    the sample size (10/09 raised base_offense using 60 overlapping samples, really only about 3 independent periods)."""
+    horizon = horizon or params.alpha()["horizon"]
+    by: dict[str, dict[str, list[float]]] = {}
+    for a in alpha:
+        by.setdefault(a["target_date"], {}).setdefault(a.get("basket", "offense"), []).append(a["real_ret"])
+    out, last = [], None
+    for d in sorted(by):
+        day = dt.date.fromisoformat(d)
+        if last is not None and (day - last).days < horizon * 7 / 5:
+            continue
+        g = by[d]
+        if g.get("offense") and g.get("defense"):
+            out.append({"date": d, "offense": float(np.mean(g["offense"])), "defense": float(np.mean(g["defense"]))})
+            last = day
+    return out
+
+
 def tune_allocation(ev: dict) -> dict | None:
-    """依兩籃到期推薦的實際表現微調基準進攻比例（每次 ±5%，限制在 min~max）。"""
+    """依兩籃到期推薦的實際表現微調基準進攻比例（每次 ±5%，限制在 min~max）。
+    防過度擬合：只用不重疊的期間（independent_periods）；期間數 ≥ allocation_min_periods、
+    差異 t 值 ≥ 2，且前後兩半期間（樣本外驗證）方向一致才調整。"""
     cfg = params.allocation()
-    need = settings()["tuner"]["alpha_min_matured"]
-    off = [a["real_ret"] for a in ev["alpha"] if a.get("basket") == "offense"][-60:]
-    dfn = [a["real_ret"] for a in ev["alpha"] if a.get("basket") == "defense"][-60:]
-    if len(off) < need or len(dfn) < need:
+    t_cfg = settings()["tuner"]
+    periods = independent_periods(ev["alpha"])
+    if len(periods) < t_cfg.get("allocation_min_periods", 6):
         return None
-    diff = float(np.mean(off) - np.mean(dfn))
+    diffs = np.array([p["offense"] - p["defense"] for p in periods])
+    diff = float(diffs.mean())
+    tstat = diff / (diffs.std(ddof=1) / np.sqrt(len(diffs))) if diffs.std(ddof=1) > 0 else 0.0
+    half = len(diffs) // 2
+    if abs(tstat) < 2 or np.sign(diffs[:half].mean()) != np.sign(diffs[half:].mean()):
+        return None
+    off = [p["offense"] for p in periods]
+    dfn = [p["defense"] for p in periods]
     before = cfg["base_offense"]
     if diff > 0.03:
         after, why = before + 0.05, f"進攻籃實際平均報酬比穩健籃高 {diff * 100:.2f}%，提高進攻比例"
@@ -267,13 +308,17 @@ def tune_allocation(ev: dict) -> dict | None:
     after = round(min(cfg["max_offense"], max(cfg["min_offense"], after)), 2)
     if after == before:
         return None
-    return {"param": "allocation.base_offense", "before": before, "after": after, "reason": why,
+    return {"param": "allocation.base_offense", "before": before, "after": after,
+            "reason": f"{why}（{len(periods)} 個不重疊期間、t 值 {tstat:.2f}，前後半期方向一致）",
             "metric_before": round(float(np.mean(dfn)), 4), "metric_after": round(float(np.mean(off)), 4)}
 
 
 def tune_weights(ev: dict) -> dict | None:
     mat = [a for a in ev["alpha"] if a.get("basket", "offense") == "offense"]
     if len(mat) < settings()["tuner"]["alpha_min_matured"]:
+        return None
+    # 重疊樣本會高估證據：到期樣本要涵蓋足夠多個不重疊的一個月期間才調權重
+    if len(_spaced([a["target_date"] for a in mat])) < settings()["tuner"].get("allocation_min_periods", 6):
         return None
     df = pd.DataFrame([{**a["components"], "y": a["real_excess"]} for a in mat[-120:]])
     ics = {c: float(df[c].corr(df["y"], method="spearman")) for c in df.columns if c != "y" and df[c].std() > 0}

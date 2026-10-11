@@ -131,6 +131,7 @@ tuner:
   overnight_min_hit: 0.45           # 方向命中率低於此值 → 失準
   big_miss_bands: 3.0               # 大盤跳空誤差 > 3 倍誤差帶 → 重大失誤
   alpha_min_matured: 20             # 至少 20 筆到期的月預測才評估
+  allocation_min_periods: 6         # 攻守比例／因子權重至少要 6 個不重疊的一個月期間才調整（競賽期間通常不會達到 → 不亂調）
   alpha_min_excess: -0.03           # 推薦標的平均超額報酬 < -3% → 失準
   max_drawdown: 0.08                # 總資產自高點回落 > 8% → 降低風險
   big_loss_nav: 0.015               # 單一標的單日虧損 > 總資產 1.5% → 重大失誤

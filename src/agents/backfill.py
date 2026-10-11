@@ -88,3 +88,39 @@ def _basket_stats(ev: dict, basket: str) -> dict:
     df = pd.DataFrame(rows)
     return {"n": len(df), "avg_ret": round(float(df["real_ret"].mean()), 4), "avg_excess": round(float(df["real_excess"].mean()), 4),
             "up_rate": round(float((df["real_ret"] > 0).mean()), 3), "newhigh_rate": round(float(df["real_newhigh"].mean()), 3)}
+
+
+def rebuild_nav_history(start: dt.date, end: dt.date) -> list[dict]:
+    """Recompute data/nav_history.json per trading day from trades.csv and that day's closes (App convention: total value, holding ratio).
+
+    Used to repair history after the trade log was wrong (10/07–10/08 stock rows were missing, which recorded a 0% holding ratio and
+    −2.07% return; that history feeds drawdown and allocation decisions). Futures are marked at that day's TAIFEX settlement price."""
+    from src.agents import futures_data
+    from src.config import is_trading_day
+    from src.state import portfolio as pfm
+
+    trades = pfm.load_trades()
+    fut = {r["time"]: r for r in futures_data.history("TX", 40)}
+    out = []
+    d = start
+    while d <= end:
+        if is_trading_day(d):
+            rows = [t for t in trades if t["date"] <= d.isoformat()]
+            pf = pfm.build_portfolio(rows)
+            prices = {}
+            for c in pf.positions:
+                px = market_data.tw_price(c)
+                px = px[px.index <= pd.Timestamp(d)]
+                if px.empty or px.index[-1].date() != d:
+                    raise ValueError(f"{c} 缺少 {d} 收盤價，無法重算")
+                prices[c] = float(px.Close.iloc[-1])
+            for c, dv in pf.derivs.items():
+                bar = fut.get(d.isoformat())
+                if not bar or bar["contract"] != c or not bar.get("settlement"):
+                    raise ValueError(f"{c} 缺少 {d} 結算價，無法重算")
+                prices[c] = bar["settlement"]
+            nav = pfm.app_total(pf, prices)
+            pfm.record_history(d.isoformat(), nav, pf.holding_ratio(prices), {c: p.shares for c, p in pf.positions.items()})
+            out.append({"date": d.isoformat(), "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4)})
+        d += dt.timedelta(days=1)
+    return out

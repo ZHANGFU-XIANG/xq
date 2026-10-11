@@ -149,3 +149,36 @@ def run_workflow(mode: str) -> str:
                                                    "inputs": {"mode": mode, "force": "true"}}, timeout=30)
     r.raise_for_status()
     return f"已觸發 GitHub Actions 執行 {mode}（約 5～10 分鐘），完成後會自動同步並寄出報告"
+
+
+def _rows_from_text(text: str) -> list[dict]:
+    """trades.csv 文字 → 列（舊版表頭缺的欄位補空字串）。"""
+    rows = [x for x in csv.DictReader(io.StringIO(text.lstrip("﻿"))) if x.get("code")]
+    return [{k: (r.get(k) or "") for k in pfm.TRADE_FIELDS} for r in rows]
+
+
+def trades_history(n: int = 15) -> list[dict]:
+    """data/trades.csv 最近 n 個 commit：[{sha, date, message}]，新到舊。雲端用 GitHub API，本機用 git log。"""
+    if cloud():
+        r = requests.get(f"https://api.github.com/repos/{os.environ['GITHUB_REPO']}/commits",
+                         params={"path": "data/trades.csv", "per_page": n}, headers=_gh_headers(), timeout=30)
+        r.raise_for_status()
+        return [{"sha": c["sha"], "date": c["commit"]["committer"]["date"], "message": c["commit"]["message"].splitlines()[0]}
+                for c in r.json()]
+    out = subprocess.run(["git", "-C", str(DATA_DIR.parent), "log", f"-{n}", "--format=%H%x09%cI%x09%s", "--", "data/trades.csv"],
+                         capture_output=True, text=True, encoding="utf-8", timeout=30, check=True).stdout
+    return [dict(zip(("sha", "date", "message"), ln.split("\t", 2))) for ln in out.splitlines() if ln.count("\t") >= 2]
+
+
+def trades_at(sha: str) -> list[dict]:
+    """某個 commit 的 data/trades.csv 內容。"""
+    if not sha or not all(ch in "0123456789abcdef" for ch in sha.lower()):
+        raise ValueError("版本代碼格式不對")
+    if cloud():
+        r = requests.get(f"https://api.github.com/repos/{os.environ['GITHUB_REPO']}/contents/data/trades.csv",
+                         params={"ref": sha}, headers=_gh_headers(), timeout=30)
+        r.raise_for_status()
+        return _rows_from_text(base64.b64decode(r.json()["content"]).decode("utf-8"))
+    text = subprocess.run(["git", "-C", str(DATA_DIR.parent), "show", f"{sha}:data/trades.csv"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=30, check=True).stdout
+    return _rows_from_text(text)

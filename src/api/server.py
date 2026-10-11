@@ -167,9 +167,9 @@ class TradeEdit(BaseModel):
     trade: TradeIn | None = None
 
 
-def _trade_op(op: str, version: str, trade: TradeIn | None = None, tid: int | None = None):
+def _trade_op(op: str, version: str, trade: TradeIn | None = None, tid: int | None = None, confirm: str | None = None):
     try:
-        return data.trade_mutate(op, version, trade.model_dump() if trade else None, tid)
+        return data.trade_mutate(op, version, trade.model_dump() if trade else None, tid, confirm=confirm)
     except sync.ConflictError as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
@@ -184,6 +184,12 @@ class TradeBulk(BaseModel):
 class TradeBulkDelete(BaseModel):
     version: str
     ids: list[int]
+    confirm: str | None = None  # 會清掉持股或刪掉一半以上股票紀錄時，必須是「確認刪除」
+
+
+class TradeRestore(BaseModel):
+    version: str
+    sha: str
 
 
 @app.post("/api/trades/bulk", dependencies=[api])
@@ -199,7 +205,7 @@ def trade_bulk_add(body: TradeBulk):
 @app.post("/api/trades/bulk-delete", dependencies=[api])
 def trade_bulk_delete(body: TradeBulkDelete):
     try:
-        return data.trade_mutate("bulk_delete", body.version, ids=body.ids)
+        return data.trade_mutate("bulk_delete", body.version, ids=body.ids, confirm=body.confirm)
     except sync.ConflictError as e:
         raise HTTPException(409, str(e)) from e
     except ValueError as e:
@@ -255,8 +261,27 @@ def trade_update(tid: int, body: TradeEdit):
 
 
 @app.delete("/api/trades/{tid}", dependencies=[api])
-def trade_delete(tid: int, version: str):
-    return _trade_op("delete", version, None, tid)
+def trade_delete(tid: int, version: str, confirm: str | None = None):
+    return _trade_op("delete", version, None, tid, confirm)
+
+
+@app.get("/api/trades/history", dependencies=[api])
+def trade_history():
+    """交易紀錄的歷史版本（誤刪時用來復原）。"""
+    try:
+        return data.trades_history()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"讀取歷史版本失敗：{str(e)[:120]}") from e
+
+
+@app.post("/api/trades/restore", dependencies=[api])
+def trade_restore(body: TradeRestore):
+    try:
+        return data.trade_restore(body.sha, body.version)
+    except sync.ConflictError as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/quotes", dependencies=[api])

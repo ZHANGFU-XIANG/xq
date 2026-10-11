@@ -329,3 +329,45 @@ def test_matches_competition_app_20261008():
     assert round(pf.holding_ratio(prices) * 100, 2) == 83.73
     margin = 2 * 701_000
     assert abs(round(pf.cash + pf.futures_equity(prices) - margin) - 392_815) <= 1  # 尚差 1 元，原因待更多賣出資料確認
+
+
+def test_mass_delete_needs_confirm(ledger):
+    """10/07 一次批次刪除清掉所有股票：會清掉持股或刪掉一半以上股票紀錄時，必須輸入「確認刪除」。"""
+    v = pfm.trades_version()
+    with pytest.raises(ValueError, match="確認刪除"):
+        data.trade_mutate("bulk_delete", v, ids=[0, 1, 2])
+    assert len(pfm.load_trades()) == 3  # 被擋下，紀錄不變
+    r = data.trade_mutate("bulk_delete", v, ids=[0, 1, 2], confirm="確認刪除")
+    assert r["ok"] and pfm.load_trades() == []
+
+
+def test_small_delete_needs_no_confirm(ledger):
+    data.trade_mutate("add", pfm.trades_version(), _t("2026-10-06", "2884", "BUY", 1000, 31))
+    rows = pfm.load_trades()
+    i = next(i for i, x in enumerate(rows) if x["price"] == "31")
+    assert data.trade_mutate("delete", pfm.trades_version(), None, i)["ok"]  # 4 筆刪 1 筆、持股還在 → 不用確認
+
+
+def test_restore_rejects_oversized_version(ledger, monkeypatch):
+    """復原歷史版本：數量多乘 1000 的版本（單筆金額超過本金）不能復原；正常版本可以。"""
+    bad = [_t("2026-10-05", "5880", "BUY", 10_000_000, 26.15)]
+    monkeypatch.setattr(sync, "trades_at", lambda sha: bad if sha == "bad0" else [{k: x.get(k, "") for k in pfm.TRADE_FIELDS} for x in BASE[:1]])
+    with pytest.raises(ValueError, match="數量異常"):
+        data.trade_restore("bad0", pfm.trades_version())
+    r = data.trade_restore("a1b2", pfm.trades_version())
+    assert r["ok"] and len(pfm.load_trades()) == 1
+
+
+def test_vanished_holdings_alert(ledger, monkeypatch, tmp_path):
+    import datetime as dt
+
+    from src.agents import alerts
+
+    monkeypatch.setattr(pfm, "HISTORY_JSON", tmp_path / "nav.json")
+    pfm.record_history("2026-10-08", 1e7, 0.8, {"2330": 1500, "2884": 2000})
+    assert alerts.holdings_vanished(pfm.build_portfolio(), dt.date(2026, 10, 12)) is None
+    lost = alerts.holdings_vanished(pfm.build_portfolio([]), dt.date(2026, 10, 12))
+    assert lost and lost["before"] == 2 and lost["now"] == 0
+    sold = BASE + [_t("2026-10-12", "2330", "SELL", 1500, 1000), _t("2026-10-12", "2884", "SELL", 2000, 30)]
+    pfm.write_trades(sold)
+    assert alerts.holdings_vanished(pfm.build_portfolio(sold), dt.date(2026, 10, 12)) is None  # 真的賣掉了，不算誤刪

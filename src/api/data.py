@@ -331,13 +331,41 @@ def _desc(r: dict) -> str:
     return f"{r['date']} {side} {r['code']} {r['shares']} 股 @ {r['price']}"
 
 
+DELETE_CONFIRM = "確認刪除"
+
+
+def _stock_positions(rows: list[dict]) -> dict[str, int]:
+    try:
+        return {c: p.shares for c, p in pfm.build_portfolio(rows).positions.items()}
+    except ValueError:
+        return {}
+
+
+def _guard_delete(before: list[dict], after: list[dict], confirm: str | None) -> None:
+    """Prevent a mass delete like 10/07: if stock holdings would drop to zero, or at least half of the stock rows are deleted,
+    the request must carry confirm="確認刪除"."""
+    if confirm == DELETE_CONFIRM:
+        return
+    is_stock = lambda r: pfm.asset_of(r) in ("STOCK", "ETF")  # noqa: E731
+    n_before = sum(map(is_stock, before))
+    n_gone = n_before - sum(map(is_stock, after))
+    pos_before, pos_after = _stock_positions(before), _stock_positions(after)
+    lost = [c for c in pos_before if c not in pos_after]
+    if (pos_before and not pos_after) or (n_before >= 4 and n_gone >= n_before / 2):
+        names = "、".join(f"{c} {stock_meta(c)['name']}" for c in lost[:8]) + (" 等" if len(lost) > 8 else "")
+        raise ValueError(f"這次會刪除 {n_gone} 筆股票紀錄（共 {n_before} 筆）"
+                         + (f"，並清掉 {len(lost)} 檔持股：{names}" if lost else "")
+                         + f"。確定要刪除，請輸入「{DELETE_CONFIRM}」；刪錯可以在「歷史版本」復原")
+
+
 def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | None = None,
-                 trades: list[dict] | None = None, ids: list[int] | None = None) -> dict:
+                 trades: list[dict] | None = None, ids: list[int] | None = None, confirm: str | None = None) -> dict:
     """op：add／update／delete／bulk_add（trades，一次 commit）／bulk_delete（ids，一次 commit）。
     驗證後整份改寫（雲端 commit 到 GitHub），回傳新版本與說明。"""
     from src.api import sync
 
     rows = pfm.load_trades()
+    before = list(rows)
     if op in ("update", "delete") and (tid is None or not 0 <= tid < len(rows)):
         raise ValueError("找不到這筆交易，請重新整理")
     if op == "bulk_add":
@@ -374,11 +402,55 @@ def trade_mutate(op: str, version: str, trade: dict | None = None, tid: int | No
     else:
         raise ValueError(f"未知操作 {op}")
     rows = sorted(rows, key=lambda r: r["date"])  # 依日期重播（同一天維持原順序），先進先出才正確
+    if op in ("delete", "bulk_delete"):
+        _guard_delete(before, rows, confirm)
     try:
         msg = sync.replace_trades(rows, f"manual trade edit: {what}", version)
     except ValueError as e:
         raise ValueError(f"無法寫入：{e}") from e
     return {"ok": True, "message": f"已{what}。{msg}", "version": pfm.trades_version(rows)}
+
+
+def _oversized(rows: list[dict]) -> list[str]:
+    """Stock rows whose single-fill amount exceeds the competition capital (e.g. lots multiplied by 1000 twice on 10/07)."""
+    cap = rules()["capital"]["initial"]
+    return [f"{r['date']} {r['code']} {int(float(r['shares'])):,} 股" for r in rows
+            if pfm.asset_of(r) in ("STOCK", "ETF") and float(r["shares"] or 0) * float(r["price"] or 0) > cap]
+
+
+_HIST_CACHE: dict[str, dict] = {}  # sha → 該版本摘要（commit 內容不會變，可以永久快取）
+
+
+def trades_history(n: int = 15) -> dict:
+    """data/trades.csv 的歷史版本（每次寫入都是一個 commit），附各版本的筆數與股票持股檔數。"""
+    from src.api import sync
+
+    out = []
+    for c in sync.trades_history(n):
+        if c["sha"] not in _HIST_CACHE:
+            try:
+                rows = sync.trades_at(c["sha"])
+                pos = _stock_positions(rows)
+                _HIST_CACHE[c["sha"]] = {"rows": len(rows), "holdings": len(pos), "oversized": _oversized(rows)[:3],
+                                         "holding_names": [f"{k} {stock_meta(k)['name']}" for k in sorted(pos)][:12]}
+            except Exception as e:  # noqa: BLE001
+                _HIST_CACHE[c["sha"]] = {"rows": None, "holdings": None, "error": str(e)[:80]}
+        out.append({**c, **_HIST_CACHE[c["sha"]]})
+    return {"versions": out, "current_version": pfm.trades_version()}
+
+
+def trade_restore(sha: str, version: str) -> dict:
+    """把交易紀錄整份復原成某個歷史版本（本身也是一個新的 commit，可以再復原回來）。"""
+    from src.api import sync
+
+    rows = sync.trades_at(sha)
+    if not rows:
+        raise ValueError("這個版本沒有交易紀錄，不能復原")
+    bad = _oversized(rows)
+    if bad:
+        raise ValueError(f"這個版本有數量異常的紀錄（{'、'.join(bad[:3])}，單筆金額超過本金），不能復原")
+    msg = sync.replace_trades(sorted(rows, key=lambda r: r["date"]), f"restore trades to {sha[:7]}", version)
+    return {"ok": True, "message": f"已復原成 {sha[:7]} 版本（{len(rows)} 筆）。{msg}", "version": pfm.trades_version(rows)}
 
 
 def macro_latest() -> dict:
