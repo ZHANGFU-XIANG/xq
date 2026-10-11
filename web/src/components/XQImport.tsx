@@ -77,7 +77,7 @@ export default function XQImport() {
     }
   }
 
-  const tabCls = (m: Mode) => `rounded-md px-3 py-1 ${mode === m ? 'bg-ink text-paper' : 'border border-line text-ink-2'}`
+  const tabCls = (m: Mode) => `rounded-md px-3 py-1 ${mode === m ? 'bg-link text-white' : 'border border-line text-ink-2'}`
   const isFills = res?.kind === 'fills'
   return (
     <div className="rounded-lg border border-line bg-paper p-4" onPaste={onPaste}>
@@ -119,7 +119,7 @@ export default function XQImport() {
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
         <button onClick={check} disabled={busy || (mode === 'shot' ? !image : !text.trim())}
-          className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-40">
+          className="rounded-md bg-link px-4 py-1.5 text-white disabled:opacity-40">
           {busy && !res ? (mode === 'shot' ? '辨識中…（約 10 秒）' : '比對中…') : mode === 'shot' ? '辨識' : '比對'}
         </button>
         <label className="inline-flex items-center gap-1.5 text-ink-2">

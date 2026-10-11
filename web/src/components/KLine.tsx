@@ -47,7 +47,8 @@ export default function KLine({ code, height = 380, url, unit = '張', futures =
       grid: { vertLines: { color: line }, horzLines: { color: line } },
       rightPriceScale: { borderColor: line },
       timeScale: { borderColor: line },
-      localization: { locale: 'zh-TW' },
+      // 價格區下方留給成交量，低價股的刻度會延伸成負數（例如 −200）；股價不會是負的，負刻度不顯示
+      localization: { locale: 'zh-TW', priceFormatter: (p: number) => (p < 0 ? '' : p.toFixed(2)) },
       autoSize: true,
     })
     const rows = data.candles.slice(-days)
@@ -108,7 +109,7 @@ export default function KLine({ code, height = 380, url, unit = '張', futures =
         <div className="inline-flex overflow-hidden rounded-md border border-line" role="group" aria-label="期間">
           {RANGES.map((r) => (
             <button key={r.days} onClick={() => setDays(r.days)}
-              className={`px-2.5 py-1 ${days === r.days ? 'bg-ink text-paper' : 'bg-paper text-ink-2 hover:bg-mist'}`}>
+              className={`px-2.5 py-1 ${days === r.days ? 'bg-link text-white' : 'bg-paper text-ink-2 hover:bg-mist'}`}>
               {r.label}
             </button>
           ))}
@@ -116,7 +117,7 @@ export default function KLine({ code, height = 380, url, unit = '張', futures =
         <div className="inline-flex overflow-hidden rounded-md border border-line" role="group" aria-label="下方圖表">
           {(futures ? (['volume'] as const) : (['volume', 'inst'] as const)).map((k) => (
             <button key={k} onClick={() => setLower(k)}
-              className={`px-2.5 py-1 ${lower === k ? 'bg-ink text-paper' : 'bg-paper text-ink-2 hover:bg-mist'}`}>
+              className={`px-2.5 py-1 ${lower === k ? 'bg-link text-white' : 'bg-paper text-ink-2 hover:bg-mist'}`}>
               {k === 'volume' ? '成交量' : '法人買賣超'}
             </button>
           ))}

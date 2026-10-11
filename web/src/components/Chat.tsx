@@ -21,7 +21,7 @@ const TOOL_NAMES: Record<string, string> = {
   get_model_health: '讀取模型表現', get_alerts: '讀取警示', get_holding_advice: '計算持股建議', get_potential_picks: '讀取潛在標的', company_profile: '查詢公開資訊觀測站', import_xq_holdings: '比對 XQ 庫存', simulate_trades: '模擬試算', record_trade: '準備記錄成交', run_analysis: '準備重跑分析',
 }
 
-const EXAMPLES = ['今天建議買哪些？為什麼？', '有哪些潛在標的值得留意？', '為什麼沒有推薦聯發科？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我手上的股票該加碼還是賣掉？', '我剛買了 2892 第一金 10 張 38.5 元']
+const EXAMPLES = ['現在哪些能買、哪些不能買？持股要不要抱？', '今天建議買哪些？為什麼？', '有哪些潛在標的值得留意？', '為什麼沒有推薦聯發科？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我手上的股票該加碼還是賣掉？', '我剛買了 2892 第一金 10 張 38.5 元']
 
 type Conv = { id: string; title: string; updated: number; msgs: Msg[] }
 type Ctx = {
@@ -252,9 +252,9 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         {!msgs.length && (
           <div className="text-sm text-ink-2">
             <p className="mb-3">問任何一檔股票、今天的建議、持股或競賽規則。回答裡的數字都來自系統計算，並會逐一核對。</p>
-            <div className="flex flex-col gap-2">
+            <div className={`grid gap-2 ${compact ? '' : 'sm:grid-cols-2'}`}>
               {EXAMPLES.map((q) => (
-                <button key={q} onClick={() => send(q)} className="rounded-md border border-line bg-paper px-3 py-2 text-left hover:border-link">
+                <button key={q} onClick={() => send(q)} className="rounded-lg border border-line bg-paper px-3 py-2.5 text-left shadow-sm hover:border-link hover:text-link">
                   {q}
                 </button>
               ))}
@@ -263,7 +263,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
         )}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
-            <div key={i} className="mb-3 ml-8 rounded-lg bg-ink px-3 py-2 text-paper">{m.content}</div>
+            <div key={i} className="mb-3 ml-8 rounded-lg bg-link px-3 py-2 text-white">{m.content}</div>
           ) : (
             <div key={i} className="mb-4 mr-2">
               {!!m.progress?.length && (
@@ -349,7 +349,7 @@ export default function ChatPanel({ compact = false }: { compact?: boolean }) {
           placeholder="例如：南亞還能抱嗎？"
           className="min-h-0 flex-1 resize-none rounded-md border border-line bg-paper px-3 py-2 text-[0.95rem] text-ink outline-none focus:border-link"
         />
-        <button type="submit" disabled={busy || !input.trim()} className="self-stretch rounded-md bg-ink px-4 py-2 text-paper disabled:opacity-40">送出</button>
+        <button type="submit" disabled={busy || !input.trim()} className="self-stretch rounded-md bg-link px-4 py-2 text-white disabled:opacity-40">送出</button>
       </form>
     </div>
   )

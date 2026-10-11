@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import Derivatives from '../components/Derivatives'
 import KLine from '../components/KLine'
-import { Empty, ErrorNote, Loading, PageTitle, Panel, Section, Stat } from '../components/ui'
+import { Empty, ErrorNote, Loading, PageTitle, Panel, Section } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, tone } from '../lib/format'
 
@@ -64,7 +64,7 @@ export default function Futures() {
   const front = d?.months?.[0]
   return (
     <>
-      <PageTitle aside={<button onClick={() => chat.ask(code === 'TXO' ? '現在需要買賣權避險嗎？' : `${d?.name ?? code} 現在可以做嗎？`)} className="rounded-md bg-ink px-4 py-2 text-sm text-paper">問 AI</button>}>
+      <PageTitle aside={<button onClick={() => chat.ask(code === 'TXO' ? '現在需要買賣權避險嗎？' : `${d?.name ?? code} 現在可以做嗎？`)} className="rounded-md bg-link px-4 py-2 text-sm font-medium text-white hover:opacity-90">問 AI</button>}>
         期貨與選擇權
       </PageTitle>
       <nav className="mb-6 flex flex-wrap gap-2" aria-label="商品">
@@ -79,7 +79,7 @@ export default function Futures() {
       {error && <ErrorNote error={error} />}
       {d && (
         <>
-          <div className="mb-6 flex flex-wrap items-baseline gap-x-8 gap-y-3">
+          <section className="mb-6 flex flex-wrap items-end gap-x-10 gap-y-3 rounded-xl border border-line bg-paper px-5 py-4 shadow-sm" aria-label="報價">
             <div>
               <div className="text-sm text-muted">{d.name}{front ? `・${front.contract}` : ''}</div>
               {code === 'TXO'
@@ -88,15 +88,23 @@ export default function Futures() {
                     {front?.chg_pct != null && <span className="ml-2 text-lg">{front.chg_pct > 0 ? '+' : ''}{front.chg_pct}%</span>}</div>}
             </div>
             {code !== 'TXO' && (
-              <>
-                <Stat label="加權現貨" value={d.spot ? fmtInt(d.spot) : '—'} sub={front?.basis != null ? `基差 ${front.basis > 0 ? '+' : ''}${front.basis}` : undefined} />
-                <Stat label="1 口契約價值" value={d.notional ? `${fmtInt(d.notional)} 元` : '—'} sub={`每點 ${d.multiplier} 元`} />
-                <Stat label="原始／維持保證金" value={d.margin?.initial ? `${fmtInt(d.margin.initial)}` : '—'} sub={d.margin?.maintenance ? `維持 ${fmtInt(d.margin.maintenance)}・槓桿 ${d.leverage} 倍` : undefined} />
-                <Stat label="結算日" value={front?.settlement ?? '—'} sub={front ? `剩 ${front.days_left} 天（第三個星期三）` : undefined} />
-              </>
+              <dl className="flex flex-wrap gap-x-8 gap-y-3">
+                {([
+                  ['加權現貨', d.spot ? fmtInt(d.spot) : '—', front?.basis != null ? `基差 ${front.basis > 0 ? '+' : ''}${front.basis}` : ''],
+                  ['1 口契約價值', d.notional ? `${fmtInt(d.notional)} 元` : '—', `每點 ${d.multiplier} 元`],
+                  ['原始保證金', d.margin?.initial ? fmtInt(d.margin.initial) : '—', d.margin?.maintenance ? `維持 ${fmtInt(d.margin.maintenance)}・槓桿 ${d.leverage} 倍` : ''],
+                  ['結算日', front?.settlement ?? '—', front ? `剩 ${front.days_left} 天（第三個星期三）` : ''],
+                ] as [string, string, string][]).map(([k, v, sub]) => (
+                  <div key={k}>
+                    <dt className="text-xs text-muted">{k}</dt>
+                    <dd className="num text-lg font-bold">{v}</dd>
+                    {sub && <dd className="text-xs text-muted">{sub}</dd>}
+                  </div>
+                ))}
+              </dl>
             )}
-          </div>
-          <Panel className="mb-6"><KLine code={code} url={`/api/futures/${code}/kline?days=260`} height={400} unit="口" futures /></Panel>
+          </section>
+          <Panel className="mb-6 shadow-sm"><KLine code={code} url={`/api/futures/${code}/kline?days=260`} height={400} unit="口" futures /></Panel>
           <p className="-mt-4 mb-6 text-xs text-muted">K 線：期交所每日行情，近月合約連續（每天取成交量最大的月合約）{code === 'TXO' ? '；選擇權以台指期近月代表標的走勢' : ''}。報價：{d.source ?? '期交所'}，盤中每 10 秒更新。</p>
 
           {d.system_view ? <div className="mb-8"><Derivatives d={d.system_view} /></div>

@@ -161,7 +161,7 @@ export default function Layout() {
 
       {!chat.open && !onChatPage && (
         <button onClick={() => chat.setOpen(true)}
-          className="fixed bottom-5 right-5 z-30 rounded-full bg-ink px-5 py-3 text-paper shadow-lg hover:bg-ink-2">
+          className="fixed bottom-5 right-5 z-30 rounded-full bg-link px-5 py-3 text-white shadow-lg hover:opacity-90">
           問 AI 助理
         </button>
       )}

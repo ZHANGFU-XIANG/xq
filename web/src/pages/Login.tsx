@@ -30,7 +30,7 @@ export default function Login({ onDone }: { onDone: () => void }) {
         <input id="pw" type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
           className="mb-3 w-full rounded-md border border-line bg-paper px-3 py-2 text-ink outline-none focus:border-link" />
         {err && <p className="mb-3 text-sm text-up">{err}</p>}
-        <button disabled={busy || !pw} className="w-full rounded-md bg-ink py-2 text-paper disabled:opacity-50">登入</button>
+        <button disabled={busy || !pw} className="w-full rounded-md bg-link py-2 font-medium text-white disabled:opacity-50">登入</button>
       </form>
     </div>
   )

@@ -3,14 +3,9 @@ import { Link } from 'react-router-dom'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
 import { BasketTag, Bullets } from './ui'
+import { VERDICT_STYLE } from './DecisionBoard'
 import { liveEvery } from '../lib/live'
 
-const VERDICT_STYLE: Record<string, string> = {
-  全部出清: 'bg-ink text-paper',
-  減碼: 'bg-warn text-white',
-  加碼: 'bg-link text-white',
-  續抱: 'bg-mist text-ink-2 border border-line',
-}
 
 /** 庫存中每一檔的結論：加碼／續抱／減碼／全部出清（依目前庫存與即時價計算，XQ 同步後立即更新）。 */
 export default function HoldingAdvice({ compact = false, asset }: { compact?: boolean; asset?: 'STOCK' | 'ETF' }) {
@@ -23,7 +18,7 @@ export default function HoldingAdvice({ compact = false, asset }: { compact?: bo
   const items: Json[] = d.items.filter((h: Json) => !asset || (/^00\d/.test(h.code) ? 'ETF' : 'STOCK') === asset)
   if (!items.length) return compact ? null : <p className="text-muted">{d.note}</p>
   return (
-    <section className="mb-8" aria-label="庫存怎麼處理">
+    <section className="mb-6" aria-label="庫存怎麼處理">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-1.5">
         <h2 className="text-[1.05rem] font-bold">庫存怎麼處理</h2>
         <span className="flex items-center gap-3 text-sm text-muted">

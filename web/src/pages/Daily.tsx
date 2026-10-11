@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import KLine from '../components/KLine'
-import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Panel, Section, StockLink } from '../components/ui'
+import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Panel, Section, StockLink, Tabs } from '../components/ui'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab } from '../components/AssetTabs'
 import Derivatives from '../components/Derivatives'
 import { fileUrl, get, type Json } from '../lib/api'
@@ -46,16 +46,9 @@ function OrderDetail({ o, note }: { o: Json; note?: string }) {
         {qty(o.lots, o.odd)}　限價 <b>{o.limit_price}</b>　停損 <b className="text-down">{o.stop}</b>　約 {fmtInt(o.amount)} 元（{fmtPct(o.weight_pct, 1, false)}）
         {o.margin && <span className="ml-2 rounded bg-warn/15 px-1.5 text-sm text-warn">融資</span>}
       </p>
-      {note && <p className="mb-4 font-serif text-[1.02rem] leading-relaxed text-ink-2">{note}</p>}
+      {note && <p className="mb-4 rounded-lg bg-mist/60 px-3 py-2 text-[0.95rem] leading-relaxed text-ink-2">{note}</p>}
       <KLine code={o.code} />
-      <div className="mt-6 flex flex-wrap gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-[0.95rem] ${tab === t.key ? 'border-ink font-medium' : 'border-transparent text-muted hover:text-ink'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <div className="mt-6"><Tabs value={tab} onChange={setTab} tabs={TABS} /></div>
       <div className="py-4" role="tabpanel"><Bullets items={items} /></div>
       <button onClick={() => chat.ask(`${o.code} ${o.name} 為什麼建議${o.action === 'BUY' ? '買' : '賣'}這個張數？有什麼風險？`)}
         className="text-sm text-link hover:underline">問 AI 助理這筆建議</button>
@@ -101,7 +94,12 @@ export default function Daily() {
       >
         {r.date} {r.title}
       </PageTitle>
-      <p className="mb-6 max-w-3xl leading-relaxed text-ink-2">{r.text?.allocation_analysis}</p>
+      {r.text?.allocation_analysis && (
+        <section className="mb-6 rounded-xl border border-line border-l-4 border-l-link bg-paper px-5 py-4 shadow-sm">
+          <div className="mb-1 text-xs font-medium text-muted">今日配置說明</div>
+          <p className="text-[0.95rem] leading-relaxed">{r.text.allocation_analysis}</p>
+        </section>
+      )}
       <AssetTabs tab={tab} onChange={setTab}
         counts={{ STOCK: all.filter((o) => assetOf(o) === 'STOCK').length, ETF: all.filter((o) => assetOf(o) === 'ETF').length, FUT: futN }} />
       {tab === 'FUT' ? (
@@ -110,12 +108,12 @@ export default function Daily() {
         <Empty>這份報告沒有{ASSET_LABEL[tab]}的交易建議。</Empty>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
-          <nav aria-label="建議清單" className="space-y-1.5 lg:sticky lg:top-6 lg:self-start">
+          <nav aria-label="建議清單" className="space-y-1 rounded-xl border border-line bg-paper p-2 shadow-sm lg:sticky lg:top-16 lg:self-start">
             {orders.map((o) => {
               const active = sel?.code === o.code
               return (
                 <button key={o.code} onClick={() => setSp({ asset: tab, code: o.code })}
-                  className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left ${active ? 'border-ink bg-paper' : 'border-transparent hover:bg-paper'}`}>
+                  className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left ${active ? 'border-link bg-link/10' : 'border-transparent hover:bg-mist/60'}`}>
                   <span className="min-w-0">
                     <span className="flex items-center gap-1.5">
                       {o.action === 'BUY' ? <BasketTag basket={o.basket} /> : <span className="rounded-full bg-down px-2 py-0.5 text-xs text-white">賣出</span>}
@@ -128,7 +126,7 @@ export default function Daily() {
               )
             })}
           </nav>
-          <Panel className="min-w-0">{sel && <OrderDetail o={sel} note={notes[sel.code]} />}</Panel>
+          <Panel className="min-w-0 shadow-sm">{sel && <OrderDetail o={sel} note={notes[sel.code]} />}</Panel>
         </div>
       )}
     </>

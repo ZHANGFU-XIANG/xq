@@ -33,7 +33,7 @@ export default function WeeklyReport() {
           ))}
         </select>
         <button disabled={make.isPending} onClick={() => make.mutate()}
-          className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-50">
+          className="rounded-md bg-link px-4 py-1.5 text-white disabled:opacity-50">
           {make.isPending ? '製作中（約 30～60 秒）' : '產生週報'}
         </button>
       </div>

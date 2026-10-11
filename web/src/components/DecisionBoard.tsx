@@ -7,7 +7,7 @@ import { liveEvery, useQuotes } from '../lib/live'
 import { useChat } from './Chat'
 import { Change, Tabs } from './ui'
 
-const STYLE: Record<string, string> = {
+export const VERDICT_STYLE: Record<string, string> = {
   可以買: 'bg-up text-white',
   等回檔再買: 'bg-warn/15 text-warn ring-1 ring-warn/40',
   先不要買: 'bg-mist text-muted ring-1 ring-line',
@@ -29,7 +29,7 @@ function Row({ x, q, open, onToggle }: { x: Json; q?: Json; open: boolean; onTog
     <Fragment>
       <tr onClick={onToggle} className={`cursor-pointer align-top hover:bg-mist/60 md:border-b md:border-line/70 ${open ? 'bg-mist/60' : ''}`}>
         <td className="py-2.5 pl-4 pr-2">
-          <span className={`inline-block whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-bold ${STYLE[x.verdict] ?? ''}`}>
+          <span className={`inline-block whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-bold ${VERDICT_STYLE[x.verdict] ?? ''}`}>
             {x.swap_tip ? '續抱｜留意換股' : x.verdict}
           </span>
         </td>

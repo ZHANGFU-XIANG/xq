@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import { Change, Empty, ErrorNote, Loading, PageTitle, Section, Tabs } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
 import { liveEvery } from '../lib/live'
@@ -28,6 +28,7 @@ export default function News() {
   const [src, setSrc] = useState('')
   const [cat, setCat] = useState('')
   const [q, setQ] = useState('')
+  const [shown, setShown] = useState(30)  // 一次顯示 30 則，按「看更多」再載入
   const allNews: Json[] = useMemo(() => live?.news ?? data?.news ?? [], [live, data])
   const sources = useMemo(() => [...new Set<string>(allNews.map((n: Json) => n.source.split(':')[0]))], [allNews])
   if (isLoading) return <Loading />
@@ -40,9 +41,16 @@ export default function News() {
   }
   return (
     <>
-      <PageTitle aside={<span className="text-sm text-muted">{data.date} 盤前蒐集</span>}>新聞與國際大事</PageTitle>
-      {data.market_view && <p className="title mb-8 max-w-3xl text-lg leading-relaxed">{data.market_view}</p>}
+      <PageTitle aside={<span className="text-xs text-muted">{data.date} 盤前蒐集</span>}>新聞與國際大事</PageTitle>
+      {data.market_view && (
+        <section className="mb-6 rounded-xl border border-line border-l-4 border-l-link bg-paper px-5 py-4 shadow-sm">
+          <div className="mb-1 text-xs font-medium text-muted">今日市場觀點</div>
+          <p className="text-[1.05rem] font-medium leading-relaxed">{data.market_view}</p>
+        </section>
+      )}
 
+      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="min-w-0 lg:col-span-2">
       <Section title={`最新新聞（${news.length}）`}
         aside={
           <span className="flex flex-wrap items-center gap-2">
@@ -57,33 +65,37 @@ export default function News() {
             <input id="news-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="關鍵字" className="w-28 rounded-md border border-line bg-paper px-2 py-1 text-ink" />
           </span>
         }>
-        <div className="mb-2 flex flex-wrap gap-2" role="tablist" aria-label="新聞分類">
-          {[['', '全部', allNews.length], ['股票', '股票', count('股票')], ['ETF', 'ETF', count('ETF')], ['期貨', '期貨與選擇權', count('期貨')]].map(([v, label, n]) => (
-            <button key={String(v)} role="tab" aria-selected={cat === v} onClick={() => setCat(String(v))}
-              className={`rounded-full border px-3 py-1 text-sm ${cat === v ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink'}`}>
-              {label}（{n}）
-            </button>
-          ))}
+        <div className="-mx-4 -mt-4 mb-1">
+          <Tabs value={cat} onChange={(v) => { setCat(v); setShown(30) }}
+            tabs={[{ key: '', label: '全部', count: allNews.length }, { key: '股票', label: '股票', count: count('股票') },
+              { key: 'ETF', label: 'ETF', count: count('ETF') }, { key: '期貨', label: '期貨與選擇權', count: count('期貨') }]} />
         </div>
         <ul className="divide-y divide-line/60">
-          {news.map((n) => (
-            <li key={n.id} className="flex gap-3 py-2">
-              <span className="num w-20 shrink-0 text-sm text-muted">{n.time}</span>
+          {news.slice(0, shown).map((n) => (
+            <li key={n.id} className="flex gap-3 py-2.5">
+              <span className="num w-20 shrink-0 pt-0.5 text-xs text-muted">{n.time}</span>
               <div className="min-w-0">
-                <a href={n.url} target="_blank" rel="noreferrer" className="leading-snug">{n.title}</a>
-                <div className="text-xs text-muted">{n.category && <span className="mr-2">{n.category === '期貨' ? '期貨與選擇權' : n.category}</span>}{n.source}</div>
+                <a href={n.url} target="_blank" rel="noreferrer" className="font-medium leading-snug text-ink no-underline hover:text-link">{n.title}</a>
+                <div className="mt-0.5 text-xs text-muted">{n.category && <span className="mr-2 rounded bg-mist px-1.5 py-0.5">{n.category === '期貨' ? '期貨與選擇權' : n.category}</span>}{n.source}</div>
               </div>
             </li>
           ))}
         </ul>
+        {news.length > shown && (
+          <button onClick={() => setShown(shown + 30)} className="mt-3 w-full rounded-md border border-line py-2 text-sm text-ink hover:border-link">
+            看更多（還有 {news.length - shown} 則）
+          </button>
+        )}
       </Section>
+      </div>
 
+      <div className="min-w-0">
       {(data.us_snapshot?.length > 0 || data.market_summary) && (
         <Section title="國際市場" aside={data.us_snapshot?.[0]?.date ? `${data.us_snapshot[0].date} 收盤` : undefined}>
-          {data.market_summary && <p className="mb-3 leading-relaxed">{data.market_summary}</p>}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[0.95rem] sm:grid-cols-3 md:grid-cols-4">
+          {data.market_summary && <p className="mb-3 text-sm leading-relaxed text-ink-2">{data.market_summary}</p>}
+          <div className="text-[0.95rem]">
             {data.us_snapshot.map((u: Json) => (
-              <div key={u.ticker} className="flex justify-between border-b border-line/60 py-1">
+              <div key={u.ticker} className="flex justify-between border-b border-line/60 py-1.5 last:border-0">
                 <span className="truncate pr-2">{u.name}</span>
                 <Change value={u.change_pct} />
               </div>
@@ -91,6 +103,28 @@ export default function News() {
           </div>
         </Section>
       )}
+
+      <Section title="個股事件">
+        {!data.events?.length && <Empty>沒有個股事件。</Empty>}
+        <ul className="space-y-3">
+          {data.events?.map((e: Json, i: number) => (
+            <li key={i} className="flex gap-2.5">
+              <Sentiment v={e.sentiment} />
+              <div className="min-w-0 text-sm">
+                <div className="leading-snug">
+                  {e.codes.filter((c: string) => c !== 'MARKET').map((c: string) => <Link key={c} to={`/stock/${c}`} className="num mr-1.5">{c}</Link>)}
+                  {e.event}{e.multi_source && <span className="ml-1.5 text-xs text-muted">多來源</span>}
+                </div>
+                <div className="mt-0.5 flex flex-col gap-0.5 text-xs">
+                  {e.news.slice(0, 2).map((n: Json) => <a key={n.id} href={n.url} target="_blank" rel="noreferrer" className="truncate">{n.title}</a>)}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Section>
+      </div>
+      </div>
 
       <Section title="國際大事對持股的影響" aside="影響金額依各股歷史敏感度計算">
         {!data.macro?.length && <Empty>沒有辨識出重大國際事件。</Empty>}
@@ -125,25 +159,6 @@ export default function News() {
         </div>
       </Section>
 
-      <Section title="個股事件">
-        {!data.events?.length && <Empty>沒有個股事件。</Empty>}
-        <ul className="space-y-3">
-          {data.events?.map((e: Json, i: number) => (
-            <li key={i} className="flex gap-3">
-              <Sentiment v={e.sentiment} />
-              <div className="min-w-0">
-                <div className="leading-snug">
-                  {e.codes.filter((c: string) => c !== 'MARKET').map((c: string) => <Link key={c} to={`/stock/${c}`} className="num mr-1.5">{c}</Link>)}
-                  {e.event}{e.multi_source && <span className="ml-1.5 text-xs text-muted">多來源</span>}
-                </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-4 text-sm">
-                  {e.news.slice(0, 3).map((n: Json) => <a key={n.id} href={n.url} target="_blank" rel="noreferrer">{n.title}</a>)}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Section>
 
     </>
   )

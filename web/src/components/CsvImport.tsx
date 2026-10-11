@@ -142,7 +142,7 @@ export default function CsvImport({ busy, run }: { busy: boolean; run: (fn: () =
       {res?.skipped?.length > 0 && <p className="mt-2 text-muted">略過：{res.skipped.join('、')}</p>}
       {res && !err && rows.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button onClick={apply} disabled={busy || !chosen.length || badPrice} className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-40">
+          <button onClick={apply} disabled={busy || !chosen.length || badPrice} className="rounded-md bg-link px-4 py-1.5 text-white disabled:opacity-40">
             {busy ? '寫入中…' : `匯入選取的 ${chosen.length} 筆`}
           </button>
           {!chosen.length && <span className="text-muted">{rows.every((r) => r.duplicate) ? '這份檔案的成交都已記錄過，不需要匯入。' : '請勾選要匯入的列'}</span>}

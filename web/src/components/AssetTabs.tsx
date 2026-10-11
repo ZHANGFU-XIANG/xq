@@ -32,7 +32,7 @@ export function useAssetTab(options: Asset[] = ['STOCK', 'ETF', 'FUT']): [Asset,
 // 選取中的底色與文字色成對指定：MARKET 用墨色底，文字必須用紙色（深色主題時墨色是淺色，白字會看不到）
 const STYLE: Record<Asset, string> = {
   STOCK: 'border-offense bg-offense text-white', ETF: 'border-etf bg-etf text-white', FUT: 'border-fut bg-fut text-white',
-  MARKET: 'border-ink bg-ink text-paper',
+  MARKET: 'border-link bg-link text-white',
 }
 
 export default function AssetTabs({ tab, onChange, counts = {}, options = ['STOCK', 'ETF', 'FUT'] }:

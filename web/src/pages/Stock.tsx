@@ -3,11 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import Company from '../components/Company'
 import KLine from '../components/KLine'
-import { BasketTag, Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Panel, Section, Stat } from '../components/ui'
+import { VERDICT_STYLE } from '../components/DecisionBoard'
+import { BasketTag, Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Section, Stat } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, fmtRatio, qty, tone } from '../lib/format'
 
-function Profile({ p }: { p: Json }) {
+function Profile({ p, single = false }: { p: Json; single?: boolean }) {
   const v = p.valuation || {}
   const rev = p.revenue || {}
   const inst = p.institutional_5d_lots
@@ -23,10 +24,10 @@ function Profile({ p }: { p: Json }) {
     ['融資／融券餘額', m.margin_balance != null ? `${fmtInt(m.margin_balance)}／${fmtInt(m.short_balance)} 張` : '—', m.margin_chg5 != null ? `5 日 融資 ${m.margin_chg5 > 0 ? '+' : ''}${fmtInt(m.margin_chg5)}、融券 ${m.short_chg5 > 0 ? '+' : ''}${fmtInt(m.short_chg5)}` : undefined],
   ]
   return (
-    <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+    <dl className={`grid grid-cols-1 gap-x-8 ${single ? '' : 'sm:grid-cols-2'}`}>
       {rows.map(([k, val, sub]) => (
-        <div key={k} className="flex items-baseline justify-between gap-3 border-b border-line/70 py-2">
-          <dt className="shrink-0 text-muted">{k}</dt>
+        <div key={k} className="flex items-baseline justify-between gap-3 border-b border-line/70 py-2 last:border-0">
+          <dt className="shrink-0 text-sm text-muted">{k}</dt>
           <dd className="num text-right">{val}{sub && <div className="text-xs text-muted">{sub}</div>}</dd>
         </div>
       ))}
@@ -34,45 +35,73 @@ function Profile({ p }: { p: Json }) {
   )
 }
 
+function useAnalysis(code: string) {
+  return useQuery<Json>({ queryKey: ['analysis', code], queryFn: () => get(`/api/stock/${code}/analysis`), staleTime: 300_000 })
+}
+
+/** 右側結論卡：一個詞的結論（可以買／先不要買／續抱…）＋完整說明＋持有狀況。 */
+function DecisionCard({ code }: { code: string }) {
+  const { data: a, isLoading, error } = useAnalysis(code)
+  return (
+    <Section title="操作結論" aside={a?.data_date ? `資料至 ${a.data_date}` : undefined}>
+      {isLoading ? <Loading label="即時分析中（首次約 1 分鐘）" /> : error ? <ErrorNote error={error} /> : a?.error ? <p className="text-muted">{a.error}</p> : a && (
+        <>
+          {a.decision && (
+            <span className={`mb-2 inline-block rounded-lg px-3 py-1 text-lg font-bold ${VERDICT_STYLE[a.decision] ?? ''}`}>{a.decision}</span>
+          )}
+          <p className="text-[0.95rem] leading-relaxed">{a.verdict}</p>
+          {a.warning && <p className="mt-2 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">{a.warning}</p>}
+          {a.holding && (
+            <dl className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-mist/60 p-3 text-sm">
+              <div><dt className="text-xs text-muted">持有</dt><dd className="num">{fmtInt(a.holding.shares)} 股</dd></div>
+              <div><dt className="text-xs text-muted">成本</dt><dd className="num">{a.holding.avg_cost}</dd></div>
+              <div><dt className="text-xs text-muted">未實現</dt><dd className={`num ${tone(a.holding.pnl)}`}>{fmtInt(a.holding.pnl)} 元</dd></div>
+              <div><dt className="text-xs text-muted">停損（{a.holding.basket}）</dt><dd className="num text-down">{a.holding.stop ?? '—'}</dd></div>
+            </dl>
+          )}
+          {a.holding_advice?.conditions?.length > 0 && (
+            <div className="mt-3"><h3 className="mb-1 text-xs font-medium text-muted">什麼情況要改變結論</h3><Bullets items={a.holding_advice.conditions} /></div>
+          )}
+        </>
+      )}
+    </Section>
+  )
+}
+
 function Analysis({ code }: { code: string }) {
-  const { data: a, isLoading, error } = useQuery<Json>({ queryKey: ['analysis', code], queryFn: () => get(`/api/stock/${code}/analysis`), staleTime: 300_000 })
-  if (isLoading) return <Loading label="即時分析中（首次約 1 分鐘）" />
-  if (error) return <ErrorNote error={error} />
-  if (a.error) return <Empty>{a.error}</Empty>
+  const { data: a, isLoading, error } = useAnalysis(code)
+  if (isLoading || error || !a || a.error) return null
   const plan = a.buy_plan
   const att = a.attribution
   return (
     <>
-      <Section title="操作建議" aside={`資料至 ${a.data_date}`}>
-        <p className="title mb-3 text-xl leading-snug">{a.verdict}</p>
-        {a.warning && <p className="mb-3 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">{a.warning}</p>}
-        {a.holding && (
-          <p className="num mb-3 text-ink-2">持有 {fmtInt(a.holding.shares)} 股，成本 {a.holding.avg_cost}，未實現 <span className={tone(a.holding.pnl)}>{fmtInt(a.holding.pnl)}</span> 元，停損 {a.holding.stop ?? '—'}（{a.holding.basket}）</p>
-        )}
-        {a.recovery && <Bullets items={a.recovery.lines} />}
-        {plan && plan.shares > 0 && (
-          <Panel className="mt-2">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <BasketTag basket={plan.basket} />
-              <span className="num text-lg">若買進：{qty(plan.lots, plan.odd)}　限價 <b>{plan.limit_price}</b>　停損 <b className="text-down">{plan.stop}</b></span>
-              <span className="num text-sm text-muted">約 {fmtInt(plan.amount)} 元（{fmtPct(plan.weight_pct, 1, false)}）</span>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              <div><h3 className="mb-1 font-medium">張數怎麼算</h3><Bullets items={plan.why_qty} /></div>
-              <div>
-                <h3 className="mb-1 font-medium">出場計畫</h3><Bullets items={plan.exit_plan} />
-                {(plan.why_more.length > 0 || plan.why_less.length > 0) && (
-                  <><h3 className="mb-1 mt-3 font-medium">多買／少買</h3>
-                    <Bullets items={[...plan.why_more.map((x: string) => `多買：${x}`), ...plan.why_less.map((x: string) => `少買：${x}`)]} /></>
-                )}
+      {(a.recovery || (plan && plan.shares > 0) || (plan && plan.shares === 0 && plan.notes?.length > 0)) && (
+        <Section title={a.holding ? '續抱或換股的比較' : '買進計畫'}>
+          {a.recovery && <Bullets items={a.recovery.lines} />}
+          {plan && plan.shares > 0 && (
+            <>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <BasketTag basket={plan.basket} />
+                <span className="num text-lg">若買進：{qty(plan.lots, plan.odd)}　限價 <b>{plan.limit_price}</b>　停損 <b className="text-down">{plan.stop}</b></span>
+                <span className="num text-sm text-muted">約 {fmtInt(plan.amount)} 元（{fmtPct(plan.weight_pct, 1, false)}）</span>
               </div>
-            </div>
-          </Panel>
-        )}
-        {plan && plan.shares === 0 && <Bullets items={plan.notes} />}
-      </Section>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div><h3 className="mb-1 font-medium">張數怎麼算</h3><Bullets items={plan.why_qty} /></div>
+                <div>
+                  <h3 className="mb-1 font-medium">出場計畫</h3><Bullets items={plan.exit_plan} />
+                  {(plan.why_more.length > 0 || plan.why_less.length > 0) && (
+                    <><h3 className="mb-1 mt-3 font-medium">多買／少買</h3>
+                      <Bullets items={[...plan.why_more.map((x: string) => `多買：${x}`), ...plan.why_less.map((x: string) => `少買：${x}`)]} /></>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+          {plan && plan.shares === 0 && <Bullets items={plan.notes} />}
+        </Section>
+      )}
 
-      <div className="grid gap-8 md:grid-cols-2">
+      <div className="grid gap-x-6 md:grid-cols-2">
         <Section title={<span className="text-offense">進攻籃評估</span>} aside={`分數 ${a.offense.score >= 0 ? '+' : ''}${a.offense.score.toFixed(2)}・${a.offense.signal}`}>
           <Bullets items={a.offense.reasons} />
           {a.offense.risks.length > 0 && <div className="mt-2 text-ink-2"><Bullets items={a.offense.risks.map((x: string) => `風險：${x}`)} /></div>}
@@ -83,32 +112,33 @@ function Analysis({ code }: { code: string }) {
         </Section>
       </div>
 
-      {att && (
-        <Section title={`${att.date} 為何${att.ret_pct >= 0 ? '漲' : '跌'}`} aside={<Change value={att.ret_pct} />}>
-          <p className="mb-2">{att.verdict}</p>
-          <Bullets items={att.explanations} />
-        </Section>
-      )}
-
-      {a.macro_sensitivity?.length > 0 && (
-        <Section title="國際因子敏感度" aside="因子變動 1 個標準差時的歷史平均影響">
-          <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-3">
-            {a.macro_sensitivity.map((m: Json) => (
-              <div key={m.factor} className="flex justify-between border-b border-line/60 py-1.5 text-[0.95rem]">
-                <span className={m.significant ? '' : 'text-muted'}>{m.factor}</span>
-                <span className={`num ${m.significant ? tone(m.impact_1sd_pct) : 'text-muted'}`}>{m.significant ? fmtPct(m.impact_1sd_pct) : '不顯著'}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
+      <div className="grid gap-x-6 md:grid-cols-2">
+        {att && (
+          <Section title={`${att.date} 為何${att.ret_pct >= 0 ? '漲' : '跌'}`} aside={<Change value={att.ret_pct} />}>
+            <p className="mb-2">{att.verdict}</p>
+            <Bullets items={att.explanations} />
+          </Section>
+        )}
+        {a.macro_sensitivity?.length > 0 && (
+          <Section title="國際因子敏感度" aside="因子變動 1 個標準差的歷史平均影響">
+            <div className="grid grid-cols-2 gap-x-6">
+              {a.macro_sensitivity.map((m: Json) => (
+                <div key={m.factor} className="flex justify-between border-b border-line/60 py-1.5 text-[0.95rem]">
+                  <span className={m.significant ? '' : 'text-muted'}>{m.factor}</span>
+                  <span className={`num ${m.significant ? tone(m.impact_1sd_pct) : 'text-muted'}`}>{m.significant ? fmtPct(m.impact_1sd_pct) : '不顯著'}</span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
 
       <Section title="相關新聞">
         {a.news?.length ? (
-          <ul className="space-y-2">
+          <ul className="divide-y divide-line/70">
             {a.news.map((n: Json, i: number) => (
-              <li key={i} className="leading-snug">
-                <a href={n.url} target="_blank" rel="noreferrer" className="no-underline hover:underline">{n.title}</a>
+              <li key={i} className="py-2 leading-snug first:pt-0 last:pb-0">
+                <a href={n.url} target="_blank" rel="noreferrer" className="text-ink no-underline hover:text-link">{n.title}</a>
                 <div className="text-xs text-muted">{n.source} {n.time}</div>
               </li>
             ))}
@@ -170,27 +200,42 @@ export default function Stock() {
   if (p.error) return <Empty>{p.error}</Empty>
   return (
     <>
-      <PageTitle aside={<button onClick={() => chat.ask(`${code} ${p.name} 現在可以買嗎？請給我完整建議`)} className="rounded-md bg-ink px-4 py-2 text-sm text-paper">問 AI 這檔</button>}>
-        <span className="num text-muted">{p.code}</span> {p.name}
-        <span className="ml-3 align-middle text-base font-normal text-muted">{p.sector}・{p.market === 'TPEx' ? '上櫃' : '上市'}{p.is_etf ? '・ETF' : ''}</span>
-      </PageTitle>
-      <div className="mb-6 flex flex-wrap items-baseline gap-x-6 gap-y-2">
-        <span className={`num text-4xl font-bold ${tone(p.change)}`}>{p.close}</span>
-        <span className="text-lg"><Change value={p.change_pct} /></span>
-        <span className="text-sm text-muted">{p.date} 收盤</span>
-        {p.model && (
-          <span className="flex gap-6">
-            <Stat label="一個月創新高機率" value={fmtRatio(p.model.p_newhigh)} />
-            <Stat label="一個月收正機率" value={fmtRatio(p.model.p_up)} />
-            <Stat label="預期最大回檔" value={fmtRatio(p.model.exp_dd)} />
-          </span>
-        )}
+      <section className="mb-6 rounded-xl border border-line bg-paper px-5 py-4 shadow-sm" aria-label="報價">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="title text-xl md:text-2xl"><span className="num text-muted">{p.code}</span> {p.name}</h1>
+            <div className="text-sm text-muted">{p.sector}・{p.market === 'TPEx' ? '上櫃' : '上市'}{p.is_etf ? '・ETF' : ''}</div>
+          </div>
+          <button onClick={() => chat.ask(`${code} ${p.name} 現在可以買嗎？請給我完整建議`)} className="rounded-md bg-link px-4 py-2 text-sm font-medium text-white hover:opacity-90">問 AI 這檔</button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-end gap-x-8 gap-y-3">
+          <div className="flex items-baseline gap-3">
+            <span className={`num text-4xl font-bold ${tone(p.change)}`}>{p.close}</span>
+            <span className="text-lg"><Change value={p.change_pct} /></span>
+            <span className="text-xs text-muted">{p.date} 收盤</span>
+          </div>
+          {p.model && (
+            <dl className="flex flex-wrap gap-x-8 gap-y-2">
+              {[['一個月創新高機率', fmtRatio(p.model.p_newhigh)], ['一個月收正機率', fmtRatio(p.model.p_up)], ['預期最大回檔', fmtRatio(p.model.exp_dd)]].map(([k, v]) => (
+                <div key={k}><dt className="text-xs text-muted">{k}</dt><dd className="num text-lg font-bold">{v}</dd></div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="min-w-0 lg:col-span-2">
+          <section className="mb-6 rounded-xl border border-line bg-paper p-4 shadow-sm"><KLine code={code} height={440} /></section>
+          {p.is_etf && <EtfInfo code={code} />}
+        </div>
+        <div className="min-w-0">
+          <DecisionCard code={code} />
+          <Section title="基本盤"><Profile p={p} single /></Section>
+        </div>
       </div>
-      <Panel className="mb-8"><KLine code={code} height={420} /></Panel>
-      {p.is_etf && <EtfInfo code={code} />}
-      <Section title="基本盤"><Profile p={p} /></Section>
-      {!p.is_etf && <Company code={code} />}
       <Analysis code={code} />
+      {!p.is_etf && <Company code={code} />}
     </>
   )
 }

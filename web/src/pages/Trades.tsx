@@ -95,7 +95,7 @@ function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
   const openDerivs = derivs.filter((x) => (d.kind === 'FUT' ? x.kind === 'FUT' : x.kind === 'OPT'))
   const input = 'rounded-md border border-line bg-paper px-2 py-1 text-ink outline-none focus:border-link'
   const field = 'flex flex-col gap-1 text-muted'
-  const pill = (on: boolean, color = 'bg-ink text-paper') => `rounded-md px-3 py-1 ${on ? color : 'border border-line text-ink-2'}`
+  const pill = (on: boolean, color = 'bg-link text-white') => `rounded-md px-3 py-1 ${on ? color : 'border border-line text-ink-2'}`
   const sideLabels = d.kind === 'FUT' ? ['買進（做多／平空）', '賣出（做空／平多）'] : d.kind === 'OPT' ? ['買進（建倉）', '賣出（平倉）'] : ['買進', '賣出']
 
   /** 從既有期貨／選擇權部位帶入平倉內容 */
@@ -229,7 +229,7 @@ function TradeForm({ initial, holdings, derivs, busy, onSubmit, onCancel }: {
         {d.kind === 'OPT' && <span className="text-muted">競賽只做買方：賣出僅限平倉</span>}
       </div>
       <div className="mt-3 flex gap-2">
-        <button type="submit" disabled={busy || !payload} className="rounded-md bg-ink px-4 py-1.5 text-paper disabled:opacity-40">
+        <button type="submit" disabled={busy || !payload} className="rounded-md bg-link px-4 py-1.5 text-white disabled:opacity-40">
           {busy ? '寫入中…' : initial ? '儲存修改' : '新增紀錄'}
         </button>
         {onCancel && <button type="button" onClick={onCancel} className="rounded-md border border-line px-3 py-1.5">取消</button>}
@@ -256,7 +256,7 @@ function TradeHistory({ version, run, busy }: { version: string; run: (fn: () =>
           {v.oversized?.length > 0 && <span className="text-up" title={v.oversized.join('、')}>數量異常</span>}
           {i === 0 ? <span className="text-muted">目前版本</span> : pick === v.sha ? (
             <>
-              <button disabled={busy} className="rounded bg-ink px-2 py-0.5 text-paper disabled:opacity-50"
+              <button disabled={busy} className="rounded bg-link px-2 py-0.5 text-white disabled:opacity-50"
                 onClick={async () => { if (await run(() => post('/api/trades/restore', { version, sha: v.sha }))) setPick(null) }}>確定復原</button>
               <button className="text-muted" onClick={() => setPick(null)}>取消</button>
             </>

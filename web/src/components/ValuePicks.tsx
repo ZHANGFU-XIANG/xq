@@ -15,7 +15,7 @@ export default function ValuePicks() {
       <span className="inline-flex gap-1 text-sm" role="group" aria-label="股價上限">
         {CAPS.map((c) => (
           <button key={c} onClick={() => setCap(c)} aria-pressed={cap === c}
-            className={`rounded-md px-2 py-0.5 ${cap === c ? 'bg-ink text-paper' : 'border border-line text-ink-2'}`}>≤{c} 元</button>
+            className={`rounded-md px-2 py-0.5 ${cap === c ? 'bg-link text-white' : 'border border-line text-ink-2'}`}>≤{c} 元</button>
         ))}
       </span>
     }>

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import SystemHealth from '../components/Health'
-import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtRatio, tone } from '../lib/format'
 
@@ -50,10 +50,18 @@ export default function Model() {
   const live = m.live || {}
   return (
     <>
-      <PageTitle aside={<span className="text-sm text-muted">{m.date}・掃描 {m.n_stocks} 檔</span>}>模型表現</PageTitle>
-      <p className="mb-6 max-w-3xl leading-relaxed text-ink-2">
+      <PageTitle aside={<span className="text-xs text-muted">{m.date}・掃描 {m.n_stocks} 檔</span>}>模型表現</PageTitle>
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="大盤隔夜跳空命中率" value={live.taiex_gap_hit != null ? fmtRatio(live.taiex_gap_hit) : '累積中'} sub={live.taiex_gap_n ? `${live.taiex_gap_n} 次實際預測` : undefined} />
+        <Stat label="個股隔夜跳空命中率" value={live.stock_gap_hit != null ? fmtRatio(live.stock_gap_hit) : '累積中'} sub={live.stock_gap_n ? `${live.stock_gap_n} 次實際預測` : undefined} />
+        <Stat label="一個月推薦實際超額報酬" value={live.alpha_excess != null ? fmtRatio(live.alpha_excess, 2, true) : '累積中'}
+          valueClass={live.alpha_excess > 0 ? 'text-up' : live.alpha_excess < 0 ? 'text-down' : ''} sub={live.alpha_n ? `${live.alpha_n} 筆` : '推薦滿 20 個交易日後開始計算'} />
+        <Stat label="創新高模型 AUC（回測）" value={b?.auc != null ? b.auc.toFixed(3) : '—'} sub="0.5＝亂猜，越接近 1 越準" />
+      </div>
+      <p className="mb-6 max-w-4xl text-sm leading-relaxed text-ink-2">
         回測用「時間外樣本」：每段只用該段之前的資料訓練，再看接下來一個月的實際結果。股票池以目前流動性挑選，存在存活者偏誤，實際表現可能比回測差。
       </p>
+      <div className="grid gap-x-6 lg:grid-cols-2">
       {b && (
         <Section title="兩籃回測比較（每期前 20 名，一個月後）">
           <div className="overflow-x-auto">
@@ -81,12 +89,9 @@ export default function Model() {
           </table>
         </Section>
       )}
+      </div>
       <Section title="實際預測表現" aside={m.backfill_note}>
-        <ul className="space-y-1">
-          <li>大盤隔夜跳空命中率：{live.taiex_gap_hit != null ? `${fmtRatio(live.taiex_gap_hit)}（${live.taiex_gap_n} 次）` : '累積中'}</li>
-          <li>個股隔夜跳空命中率：{live.stock_gap_hit != null ? `${fmtRatio(live.stock_gap_hit)}（${live.stock_gap_n} 次）` : '累積中'}</li>
-          <li>一個月推薦實際超額報酬：{live.alpha_excess != null ? `${fmtRatio(live.alpha_excess, 2, true)}（${live.alpha_n} 筆）` : '推薦滿 20 個交易日後開始計算'}</li>
-        </ul>
+
         {m.monthly?.length > 0 && (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[520px] text-[0.95rem]">

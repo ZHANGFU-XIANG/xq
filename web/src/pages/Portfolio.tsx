@@ -6,7 +6,7 @@ import HoldingAdvice from '../components/HoldingAdvice'
 import RegimeBanner from '../components/RegimeBanner'
 import XQImport from '../components/XQImport'
 import TradeWorkspace, { SEG_LABEL, type Seg } from './Trades'
-import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
+import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink, Tabs } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtNum, fmtPct, fmtRatio, fmtWan, tone } from '../lib/format'
 import { liveEvery } from '../lib/live'
@@ -56,7 +56,7 @@ export default function Portfolio() {
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
   const b = p.breakdown ?? {}
-  const pill = (on: boolean) => `rounded-md px-3 py-1 text-sm ${on ? 'bg-ink text-paper' : 'border border-line text-ink-2'}`
+  const pill = (on: boolean) => `rounded-md px-3 py-1 text-sm ${on ? 'bg-link text-white' : 'border border-line text-ink-2'}`
   const att = r?.attribution
   const maxAtt = Math.max(...(att?.rows ?? []).flatMap((x: Json) => [Math.abs(x.mkt_pct), Math.abs(x.ind_pct), Math.abs(x.idio_pct)]), 0.5)
   return (
@@ -77,15 +77,13 @@ export default function Portfolio() {
 
       <RegimeBanner />
 
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="分頁">
-          {TABS.map(([t, label]) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={pill(tab === t)}
-              onClick={() => nav({ hash: t === 'holdings' ? '' : t }, { replace: true })}>{label}</button>
-          ))}
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-line">
+        <div className="-mb-px">
+          <Tabs value={tab} onChange={(t) => nav({ hash: t === 'holdings' ? '' : t }, { replace: true })}
+            tabs={TABS.map(([t, label]) => ({ key: t, label }))} />
         </div>
         {tab !== 'holdings' && (
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="篩選">
+          <div className="flex flex-wrap gap-1.5 pb-2" role="group" aria-label="篩選">
             {(Object.keys(SEG_LABEL) as Seg[]).map((s) => (
               <button key={s} className={pill(seg === s)} onClick={() => pickSeg(s)}>{SEG_LABEL[s]}</button>
             ))}
