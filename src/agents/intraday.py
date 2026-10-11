@@ -2,7 +2,8 @@
 
 每一輪：
 1. 以證交所即時報價重算整份計畫（on_demand.live_plan）：持股 加碼／續抱／減碼／全部出清＋新部位建倉
-   - 第一天沒有持股時就是「建倉建議」：依三籃比例、目標持股率 90% 配置
+   - 沒有股票庫存時是「建倉建議」：依三籃比例、目標持股率 90% 配置
+   - 已有庫存時不再給建倉／加碼：每檔持股只判斷「續抱或賣出」，新標的改列「近期推薦」（參考，不算下單動作）
    - 盤中已漲 ≥7% 或漲停的不追，跌停的暫緩
 2. 與早上盤前報告比較：新增、取消（附原因）、數量調整、與早盤相同
 3. 每筆給出「現在能不能下單」：現價 ≤ 限價 → 可以下單；高於限價 → 掛單等待
@@ -138,6 +139,8 @@ def run(report: dict | None) -> dict:
     for o in lp["orders"]:
         o = {**o, "existing_before": held.get(o["code"], 0) if o["action"] == "BUY" else 0}
         order_rows.append(_order_status(o, rt, held.get(o["code"], 0), market_open(current_slot(now))))
+    if pf.positions:  # 已有庫存：早盤計畫的新部位買單已改列近期推薦，不算「取消」
+        morning = [o for o in morning if o["action"] == "SELL" or o["code"] in pf.positions]
     changes = _compare(lp["orders"], morning, lp["skipped"]) if morning else []
 
     nav, ratio = lp["nav"], lp["holding_ratio"]
@@ -149,7 +152,8 @@ def run(report: dict | None) -> dict:
         need = (min_ratio - ratio) * nav
         ratio_note = (f"目前實際持股率 {ratio * 100:.1f}%，低於 {min_ratio * 100:.0f}%，還差約 {need:,.0f} 元；"
                       + ("收盤後會扣報酬率 0.2%，請在 13:30 前讓買單成交（可改用較積極的限價）" if now.date() > build_end
-                         else "目前仍在建倉期（10/16 前不罰），但請盡快建立部位"))
+                         else "目前仍在建倉期（10/16 前不罰），但請盡快建立部位")
+                      + ("；可從下方「近期推薦」挑選補足" if pf.positions and lp.get("recommendations") else ""))
     elif ratio < st["target_holding_ratio"] - 0.05:
         ratio_note = f"目前實際持股率 {ratio * 100:.1f}%，高於 70% 下限，但低於目標 {st['target_holding_ratio'] * 100:.0f}%"
 
@@ -181,6 +185,7 @@ def run(report: dict | None) -> dict:
         "derivatives": slim_deriv(lp.get("derivatives") or {}), "recovery": lp.get("recovery"),
         "funding": lp.get("funding"),
         "orders": order_rows, "holding_items": lp["items"], "holding_alerts": lp["hold_alerts"],
+        "recommendations": lp.get("recommendations", []),
         "skipped": lp["skipped"], "changes": changes, "actions": actions, "waits": waits, "ratio_note": ratio_note,
         "rule_notes": rule_notes,
         "summary": ("建倉中：" if building else "") + (f"{len(actions)} 項可以動作" if actions else "目前不需要動作，維持原掛單"),
@@ -254,6 +259,11 @@ def email_body(out: dict) -> str:
     holds = [h for h in out["holding_items"] if h["verdict"] == "續抱"]
     if holds:
         lines += ["", "續抱：" + "、".join(f"{h['code']} {h['name']}" for h in holds)]
+    recs = out.get("recommendations") or []
+    if recs:
+        lines += ["", "近期推薦（參考，非下單指令）："] + [
+            f"- {r['code']} {r['name']}（{r.get('basket_name') or ''}）參考限價 {r['limit_price']}、停損 {r.get('stop')}："
+            + "；".join(r["why"][:2]) + f"｜{r['entry_note']}" for r in recs]
     if out["ratio_note"] and not any(a.startswith("【持股率】") for a in out["actions"]):
         lines += ["", out["ratio_note"]]
     notes = [a for a in out.get("rule_notes", []) if a["level"] != "嚴重"]

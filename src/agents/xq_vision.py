@@ -15,7 +15,7 @@ import time
 
 from pydantic import BaseModel, Field
 
-from src.config import settings, stock_meta
+from src.config import rules, settings, stock_meta
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +67,9 @@ def to_shares(r: Row) -> tuple[int, str | None]:
     if "零股" in board:
         shares = q
     elif "整股" in board:
-        shares = q * 1000
+        # 整股多半是張；但數量已是 1000 的倍數、乘 1000 又超過本金時，代表畫面顯示的已是股數
+        too_big = bool(r.price) and q >= 1000 and q % 1000 == 0 and q * 1000 * r.price > rules()["capital"]["initial"]
+        shares = q if too_big else q * 1000
     elif r.unit == "股":
         shares = q
     elif r.unit == "張":

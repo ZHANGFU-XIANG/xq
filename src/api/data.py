@@ -298,6 +298,10 @@ def _clean_trade(t: dict, base: dict | None = None) -> dict:
                 raise ValueError(f"查無代號 {code}（請確認是上市櫃股票或 ETF）")
             asset = "ETF" if pfm.is_etf(code) else "STOCK"  # 依代號判斷，避免選錯類別讓證交稅算錯
             contract = ""
+            cap = rules()["capital"]["initial"]
+            if shares * price > cap:  # 例：10 張被當成 10,000 張（多乘 1000）
+                raise ValueError(f"{code} {int(shares):,} 股 × {price:g} = {shares * price:,.0f} 元，超過競賽本金 {cap:,.0f} 元，"
+                                 "可能把張數當成股數多乘了 1000，請核對數量")
         elif kind == "FUT":
             if code not in ("TX", "MTX", "TMF"):
                 raise ValueError("期貨商品只能是 TX 大台、MTX 小台、TMF 微台")

@@ -73,3 +73,27 @@ def test_fills_each_row_is_a_trade_and_dedups(monkeypatch, tmp_path):
                                        row("2603", "BUY", 1000, 240.0, "已刪單")])  # 略過
     assert out["duplicates"] and [(t["shares"], t["price"]) for t in out["trades"]] == [(1000, 185.0), (200, 185.5)]
     assert out["skipped"] and out["pending_action"]
+
+
+def test_csv_unit_by_amount():
+    """Fill-report CSVs whose 整股 quantity is already in shares (10/07 bug: 10 張 recorded as 10,000,000 股): infer the unit from 成交價金."""
+    from src.agents import xq_csv
+
+    hdr = "成交時間,委託書號,盤別,交易類別,股票名稱,成交,成交單價,成交價金\n"
+    lots = hdr + "09:01:02,0aneC,整股,現股買進,合庫金(5880),10,26.15,261500\n"
+    shares = hdr + "09:01:02,0aneC,整股,現股買進,合庫金(5880),\"10,000\",26.15,261500\n"
+    odd = hdr + "09:20:00,0aneR,盤中零股,現股買進,合庫金(5880),251,26.15,6564\n"
+    for text, want in ((lots, 10000), (shares, 10000), (odd, 251)):
+        r = xq_csv.parse(text.encode("cp950"))
+        assert r["rows"][0]["shares"] == want, (text, r)
+
+
+def test_csv_unit_without_amount_guard():
+    """No 成交價金 column: 整股 quantity of 10000 cannot be in lots (it would exceed the 10M capital), so treat it as shares."""
+    from src.agents import xq_csv
+
+    hdr = "委託時間,委託書號,盤別,交易類別,股票名稱,原委託,價格,成交,成交均價,交易日期,狀態\n"
+    a = hdr + "09:01:02,0aneC,整股,現股買進,合庫金(5880),10,26.15,10,26.15,2026/10/05,全部成交\n"
+    b = hdr + "09:01:02,0aneC,整股,現股買進,合庫金(5880),10000,26.15,10000,26.15,2026/10/05,全部成交\n"
+    assert xq_csv.parse(a.encode("cp950"))["rows"][0]["shares"] == 10000
+    assert xq_csv.parse(b.encode("cp950"))["rows"][0]["shares"] == 10000

@@ -350,13 +350,35 @@ def live_plan(realtime: bool = True) -> dict:
     names = {c: stock_meta(c)["name"] for c in pf.positions}
     hold_alerts = alerts.holding_alerts(pf, meta, rt, prices, {c: sc["feats"].get(c) or {} for c in pf.positions},
                                         alerts.attention_lists(), alerts.news_risk(names)) if pf.positions else []
-    orders = holding_advice.merge_alert_sells(sells + buys["orders"], hold_alerts, pf, prices, bo)
+    # 已有股票庫存：不再給建倉／加碼買單，持股只判斷「續抱或賣出」；新標的改列「近期推薦」（參考，不是下單指令）
+    holding = bool(pf.positions)  # 只含股票／ETF；期貨在 pf.derivs
+    buy_orders = buys["orders"]
+    recommendations = []
+    if holding:
+        recommendations = [_recommend(o, rt, prices) for o in buy_orders if o["code"] not in pf.positions]
+        buy_orders = []
+    orders = holding_advice.merge_alert_sells(sells + buy_orders, hold_alerts, pf, prices, bo)
     items = holding_advice.build(pf, prices, scores, ctx["alpha"]["predictions"], meta, orders, hold_alerts, bo, nav)
     return {"time": now_tw().strftime("%Y-%m-%d %H:%M"), "realtime": bool(rt) and alerts.is_trading_hours(),
-            "orders": orders, "items": items, "skipped": skipped, "hold_alerts": hold_alerts, "rt": rt,
+            "orders": orders, "items": items, "recommendations": recommendations, "holding": holding,
+            "skipped": skipped, "hold_alerts": hold_alerts, "rt": rt,
             "nav": round(nav), "holding_ratio": round(pf.holding_ratio(prices), 4), "allocation": alloc,
             "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"]},
             "derivatives": deriv, "recovery": rec}
+
+
+def _recommend(o: dict, rt: dict, prices: dict) -> dict:
+    """新部位買單 → 近期推薦（已有持股時用）：理由、參考限價、建議數量與現價距離，不列為下單動作。"""
+    q = rt.get(o["code"]) or {}
+    price = q.get("price") or prices.get(o["code"])
+    gap = round((price / o["limit_price"] - 1) * 100, 2) if price and o.get("limit_price") else None
+    return {"code": o["code"], "name": o["name"], "basket": o.get("basket"), "basket_name": o.get("basket_name"),
+            "asset": o.get("asset"), "sector": o.get("sector"), "score": o.get("score"),
+            "price": price, "chg_pct": q.get("chg_pct"), "limit_price": o["limit_price"], "gap_pct": gap,
+            "stop": o.get("stop"), "shares": o["shares"], "amount": o.get("amount"), "weight_pct": o.get("weight_pct"),
+            "why": [w for w in (o.get("why_stock") or [])[:3] if w], "risks": (o.get("risks") or [])[:2],
+            "entry_note": ("現價已在參考限價內，可考慮進場" if gap is not None and gap <= 0
+                           else f"現價高於參考限價 {gap:.1f}%，等回檔" if gap is not None else "暫無即時報價")}
 
 
 def portfolio_plan(refresh: bool = False) -> dict:

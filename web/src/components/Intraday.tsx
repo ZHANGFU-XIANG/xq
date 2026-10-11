@@ -27,7 +27,7 @@ export default function Intraday({ asset }: { asset: Asset }) {
   const qc = useQueryClient()
   const { data: d, isFetching } = useIntraday()
   const rows: Json[] = (d?.orders ?? []).filter((o: Json) => assetOf(o) === asset)
-  const codes = rows.map((o) => o.code)
+  const codes = [...rows.map((o) => o.code), ...(d?.recommendations ?? []).map((r: Json) => r.code)]
   const { data: q } = useQuotes(codes)
   const { data: intl } = useIntl(codes)
   if (!d) return <p className="mb-6 text-muted">計算盤中建議中（首次約 30 秒）</p>
@@ -38,11 +38,13 @@ export default function Intraday({ asset }: { asset: Asset }) {
   const changes = (d.changes ?? []).filter((c: Json) => assetOf(c.code) === asset)
   const skipped = (d.skipped ?? []).filter((s: Json) => assetOf(s.code) === asset)
   const ready = rows.filter((o) => ['可以下單', '可預掛單'].includes(o.status)).length
+  const recs: Json[] = (d.recommendations ?? []).filter((r: Json) => assetOf(r) === asset)
+  const holdCount = (d.holding_items ?? []).filter((h: Json) => assetOf(h) === asset && h.verdict === '續抱').length
   return (
     <section className="mb-8 rounded-lg border border-line bg-paper p-4" aria-label={`${ASSET_LABEL[asset]}盤中建議`}>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">
-          {ASSET_LABEL[asset]}・{d.building ? '建倉建議' : '盤中建議'}
+          {ASSET_LABEL[asset]}・{d.building ? '建倉建議' : '持股建議'}
           <span className="ml-2 text-sm font-normal text-muted">{['盤前', '休市', '收盤後'].includes(slot) ? (slot === '盤前' ? '開盤前' : slot) : `${slot} 時段`}・盤中每 10 分鐘重算{d.is_last_check ? '・收盤前檢查' : ''}</span>
         </h2>
         <span className="flex items-center gap-3 text-sm text-muted">
@@ -68,7 +70,9 @@ export default function Intraday({ asset }: { asset: Asset }) {
       ) : (
         <>
           <p className="title mb-3 text-lg">
-            {rows.length ? `${ASSET_LABEL[asset]} ${rows.length} 筆建議，${ready} 筆現在可以下單` : `${ASSET_LABEL[asset]}目前沒有建議`}
+            {rows.length ? `${ASSET_LABEL[asset]} ${rows.length} 筆建議，${ready} 筆現在可以下單`
+              : d.building ? `${ASSET_LABEL[asset]}目前沒有建議`
+              : holdCount ? `${ASSET_LABEL[asset]} ${holdCount} 檔持股都建議續抱，不需賣出` : `${ASSET_LABEL[asset]}目前沒有持股需要處理`}
           </p>
           {rows.length > 0 && (
             <ul className="divide-y divide-line/60">
@@ -86,6 +90,24 @@ export default function Intraday({ asset }: { asset: Asset }) {
                 </li>
               ))}
             </ul>
+          )}
+          {!d.building && recs.length > 0 && (
+            <div className="mt-4">
+              <h3 className="mb-1 font-medium">近期推薦<span className="ml-2 text-sm font-normal text-muted">已有庫存，以下僅供參考，不是下單指令</span></h3>
+              <ul className="divide-y divide-line/60">
+                {recs.map((r) => (
+                  <li key={r.code} className="py-2 text-[0.95rem]">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <BasketTag basket={r.basket} />
+                      <Link to={`/stock/${r.code}`} className="font-medium text-ink no-underline hover:text-link"><span className="num text-muted">{r.code}</span> {r.name}</Link>
+                      <span className="num text-sm">參考 {qty(Math.floor(r.shares / 1000), r.shares % 1000)}・限價 {r.limit_price}{r.stop ? `・停損 ${r.stop}` : ''}</span>
+                      <LivePrice q={quotes[r.code]} />
+                    </div>
+                    <div className="mt-0.5 text-sm text-ink-2">{r.why.join('；')}｜{r.entry_note}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {changes.length > 0 && (
             <div className="mt-3 text-sm">

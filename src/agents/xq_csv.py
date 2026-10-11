@@ -2,7 +2,8 @@
 
 XQ 委託回報欄位（Big5）：委託時間, 委託書號, 盤別, 交易類別, 委託種類, 股票名稱, 原委託, 價格, 取消, 成交, 成交均價, 來源別, 交易日期, 狀態
 - 股票名稱為「國票金(2889)」，代號在括號內
-- 盤別「整股」的數量單位是張；「盤中零股／盤後零股」的數量帶「股」字，單位是股
+- 盤別「整股」的數量通常是張、「盤中零股／盤後零股」是股；但有些成交回報匯出的整股已是股數，
+  所以有「成交價金」時一律用價金反推單位（_stock_shares），不能只看盤別
 - 只取「成交」> 0 的列（部分成交取成交量）；委託成功、刪單、失敗的略過
 - 成交價：有「成交均價」用成交均價；沒有（委託回報常見）就用委託價，並提醒使用者核對
 - 與既有紀錄比對：同日期、代號、買賣、股數視為已記錄（委託價可能和實際成交價不同，所以不比價格）
@@ -18,7 +19,7 @@ import io
 import re
 from collections import Counter
 
-from src.config import stock_meta
+from src.config import rules, stock_meta
 from src.state import portfolio as pfm
 
 COLS = {
@@ -83,6 +84,36 @@ def _side(text: str) -> tuple[str | None, bool]:
     return None, False
 
 
+def _stock_shares(filled: float, filled_raw: str, board: str, col: str, price: float,
+                  amount: float | None) -> tuple[int, str | None]:
+    """成交數量 → 股數，回傳 (股數, 警告)。
+
+    XQ 不同畫面／版本匯出的數量單位不一致：委託回報的整股是「張」，部分成交回報匯出的整股已經是「股」
+    （10/07 匯入時 10 張被記成 10,000,000 股就是這個原因）。所以優先用「成交價金」反推：
+    數量×價格 與 數量×1000×價格 哪個對得上價金就用哪個；沒有價金才依 欄名（成交股數）→ 數量帶「股／張」字 → 盤別。"""
+    cands = {"股": filled, "張": filled * 1000}
+    if amount:
+        fits = [u for u, s in cands.items() if abs(s * price - amount) <= max(amount * 0.01, 5)]
+        if len(fits) == 1:
+            return int(round(cands[fits[0]])), None
+    if "股" in col or "股" in filled_raw:
+        unit = "股"
+    elif "張" in col or "張" in filled_raw:
+        unit = "張"
+    elif "零股" in board:
+        unit = "股"
+    elif "整股" in board:
+        # 整股一定是 1000 股的倍數：數量已是 1000 的倍數且乘 1000 會超過本金，代表已經是股數
+        unit = "股" if filled >= 1000 and filled % 1000 == 0 and filled * 1000 * price > rules()["capital"]["initial"] else "張"
+    else:
+        unit = "張" if filled < 1000 else "股"
+    shares = int(round(cands[unit]))
+    warn = None
+    if amount and abs(shares * price - amount) > max(amount * 0.01, 5):
+        warn = f"{shares:,} 股 × {price:g} 與檔案成交價金 {amount:,.0f} 對不上，請核對數量"
+    return shares, warn
+
+
 def parse(raw: bytes, date_map: dict[str, str] | None = None) -> dict:
     """date_map：{委託書號: YYYY-MM-DD}，成交回報沒有日期時用來補（由同時上傳的委託回報取得）。"""
     text = decode(raw)
@@ -137,13 +168,15 @@ def parse(raw: bytes, date_map: dict[str, str] | None = None) -> dict:
         if filled <= 0:
             skipped.append(f"{label}：{status or '未成交'}")
             continue
-        odd = "零股" in board or "股" in filled_raw
-        shares = int(round(filled)) if odd else int(round(filled * 1000))
         avg = _num(get(r, "avg"))
         price = avg or _num(get(r, "limit"))
         if not price:
             skipped.append(f"{label}：缺少價格")
             continue
+        shares, unit_warn = _stock_shares(filled, filled_raw, board, header[idx["filled"]], price, _num(get(r, "amount")))
+        if unit_warn:
+            warns.append(f"{label}：{unit_warn}")
+        odd = shares % 1000 != 0 or "零股" in board
         if not avg:
             used_limit = True
         d = (get(r, "date") or get(r, "time")[:10]).replace("/", "-")[:10]

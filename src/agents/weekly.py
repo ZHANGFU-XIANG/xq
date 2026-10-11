@@ -298,7 +298,8 @@ def next_week_plan() -> dict:
     a = lp.get("allocation") or r.get("allocation") or {}
     pct = lambda v: None if v is None else round(v * 100)  # noqa: E731
     return {"下週目標配置%（佔股票＋ETF）": {"進攻籃": pct(a.get("offense")), "穩健籃": pct(a.get("defense")), "ETF籃": pct(a.get("etf"))},
-            "建議買進": [f"{o['code']} {o['name']}" for o in (lp.get("orders") or r.get("orders") or []) if o.get("action") == "BUY"][:8],
+            "建議買進": ([f"{o['code']} {o['name']}" for o in lp.get("recommendations") or []]
+                         or [f"{o['code']} {o['name']}" for o in (lp.get("orders") or r.get("orders") or []) if o.get("action") == "BUY"])[:8],
             "期貨": (lp.get("derivatives") or {}).get("summary"),
             "尚未達標的規則": [c["item"] for c in r.get("compliance", []) if c.get("status") != "通過"][:4]}
 
