@@ -14,6 +14,7 @@ const ICON: Record<string, string> = {
   '/alerts': 'M12 3a6 6 0 00-6 6v4l-2 3h16l-2-3V9a6 6 0 00-6-6zM10 19a2 2 0 004 0',
   '/stock': 'M4 19V5M4 19h16M8 15l3-4 3 2 5-6',
   '/futures': 'M4 17l5-5 4 4 7-8M15 8h5v5',
+  '/daytrade': 'M13 3L5 14h6l-1 7 8-11h-6l1-7z',
   '/news': 'M5 4h11v16H5a1 1 0 01-1-1V5a1 1 0 011-1zM16 8h3a1 1 0 011 1v9a2 2 0 01-4 0M8 8h5M8 12h5M8 16h3',
   '/portfolio': 'M4 7h16v12H4zM9 7V5h6v2M4 12h16',
   '/model': 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
@@ -21,10 +22,11 @@ const ICON: Record<string, string> = {
 }
 
 const NAV = [
-  { to: '/', label: '總覽', end: true },
+  { to: '/', label: '高報酬推薦', end: true },
   { to: '/daily', label: '每日建議' },
   { to: '/alerts', label: '警示提醒' },
   { to: '/stock', label: '個股' },
+  { to: '/daytrade', label: '當沖' },
   { to: '/futures', label: '期貨' },
   { to: '/news', label: '新聞' },
   { to: '/portfolio', label: '持股與交易' },

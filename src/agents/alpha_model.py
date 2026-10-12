@@ -114,6 +114,8 @@ def build_panel(panel: dict[str, pd.DataFrame], codes: list[str], mkt: pd.Series
     data = data.reset_index().replace([np.inf, -np.inf], np.nan)
     for f in RANK_FEATURES:
         data[f"{f}_rk"] = data.groupby("date")[f].rank(pct=True)
+    num = data.select_dtypes("float64").columns  # 10 年資料約 120 萬列：float32 讓記憶體約減半，精度足夠
+    data[num] = data[num].astype("float32")
     data["y_excess"] = data["y_ret"] - data.groupby("date")["y_ret"].transform("median")
     data["y_up_l"] = np.where(data["y_ret_l"].notna(), (data["y_ret_l"] > 0).astype(float), np.nan)
     data["y_ex_l"] = data["y_ret_l"] - data.groupby("date")["y_ret_l"].transform("median")

@@ -51,7 +51,7 @@ export default function HoldingWatch() {
         )}
       </p>
       {flagged.length === 0 ? <p className="text-sm text-muted">目前沒有需要處理的持股。</p> : (
-        <ul className="space-y-2">
+        <ul className="grid items-start gap-2 md:grid-cols-2">
           {flagged.map((i) => (
             <li key={i.code} className={`rounded-lg border-l-4 px-4 py-2 ${STYLE[i.status]}`}>
               <div className="flex flex-wrap items-baseline gap-x-3">

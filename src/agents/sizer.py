@@ -115,10 +115,15 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
         sell, why, why_qty = 0, "", ""
         locked = held_days(pos, now_tw().date()) < st.get("min_hold_days", 0)  # 剛買進：分數小幅轉弱、權重超標不賣
 
+        ra = recovery_actions.get(code, {})
         if price <= stop:
             sell = pos.shares
             why = f"觸發停損：收盤 {price:.2f} 元 ≤ 停損價 {stop:.2f} 元（成本 {pos.avg_cost:.2f} 元，損益 {pnl * 100:+.2f}%）"
             why_qty = "停損一律全數出場，避免虧損擴大；紀律優先於預測"
+        elif ra.get("swap"):  # 結單轉股（全部賣出、同日買進替代標的）優先於分段停利
+            sell = pos.shares
+            why = ra["why"]
+            why_qty = f"全數賣出 {fmt_shares(sell)}，同日{ra['swap']['orders'][1]['text']}（{ra['swap']['to']['code']} {ra['swap']['to']['name']}）"
         elif stage < len(tp) and pnl >= tp[stage][0]:
             lvl, frac = tp[stage]
             raw = pos.shares * frac
@@ -156,7 +161,7 @@ def plan_sells(pf: Portfolio, prices: dict, feats: dict, scores: dict, meta: dic
             why_qty = f"減碼至上限需賣 {raw:,.0f} 股，取整為 {fmt_shares(sell)}，控制單一標的風險"
         if sell > 0:
             lots, odd = split_lots(sell, True)
-            orders.append({
+            orders.append({"swap": ra.get("swap") if sell >= pos.shares else None,
                 "action": "SELL", "code": code, "name": s.get("name", code), "basket": basket,
                 "shares": int(sell), "lots": lots, "odd": odd,
                 "limit_price": round_tick(price * 0.99, is_etf(code)),
@@ -309,8 +314,10 @@ def _plan_one(c: dict, basket: str, f: dict, price: float, nav: float, held_afte
 
 
 def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, nav: float, alloc: dict,
-                basket_of: dict) -> dict:
-    """AI 助理用：若現在買這一檔（指定籃子），依目前持股、現金與籃子剩餘額度要買幾股、限價、停損與出場計畫。"""
+                basket_of: dict, free: bool = False) -> dict:
+    """AI 助理用：若現在買這一檔（指定籃子），依目前持股、現金與籃子剩餘額度要買幾股、限價、停損與出場計畫。
+    free=True（個股查詢、問 AI）：不套投資組合規則（籃子額度、單檔／產業上限、融資開關與上限），
+    只用風險預算與流動性上限算股數，現金不夠就用融資（成數依 rules.credit.margin_ratio）。"""
     st = params.strategy()
     credit = rules()["credit"]
     bcfg = params.basket(basket)
@@ -324,7 +331,10 @@ def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, 
     c = {**s, "basket": basket, "pick_reason": _pick_reason(s, basket) if basket_score(s, basket) >= bcfg["buy_threshold"]
          else f"【{bcfg['name']}】使用者詢問的試算（分數 {basket_score(s, basket):+.2f} 未達門檻 {bcfg['buy_threshold']:+.2f}，僅供參考）"}
     p = _plan_one(c, basket, feats[s["code"]], prices[s["code"]], nav, held_after, sector_value, target_val, held_val)
-    room = max(0.0, alloc[basket] * st["max_holding_ratio"] * nav - held_val)
+    if free:
+        liq = st["liquidity_cap"] * feats[s["code"]]["avg_vol20"]
+        p.update(cap_name=f"流動性上限（20 日均量 × {st['liquidity_cap'] * 100:.0f}%）", cap_val=liq, desired=min(p["raw"], liq))
+    room = math.inf if free else max(0.0, alloc[basket] * st["max_holding_ratio"] * nav - held_val)
     notes = []
     if p["desired"] * p["entry"] > room:
         p["scaled_down"] = p["desired"] - room / p["entry"]
@@ -336,8 +346,9 @@ def size_single(s: dict, basket: str, pf: Portfolio, prices: dict, feats: dict, 
     want = p["desired"] * p["entry"]
     margin = False
     if want > cash:
-        can_margin = bcfg["allow_margin"] and st["allow_margin"] and loan_left > 0
-        mroom = min(loan_left / credit["margin_ratio"], cash / (1 - credit["margin_ratio"])) if can_margin else 0
+        can_margin = free or (bcfg["allow_margin"] and st["allow_margin"] and loan_left > 0)
+        mroom = (cash / (1 - credit["margin_ratio"]) if free else
+                 min(loan_left / credit["margin_ratio"], cash / (1 - credit["margin_ratio"])) if can_margin else 0)
         margin = mroom > cash
         want = min(want, mroom) if margin else cash
     lots, odd = split_lots(int(max(0.0, want) / p["entry"]), st["allow_odd_lot"])
@@ -519,13 +530,13 @@ def _buy_order(p: dict, shares: int, lots: int, odd: int, amount: float, cost: f
         more.append("使用融資（自備 40%）放大部位：進攻籃允許融資，且融資借款仍在總資產 30% 上限內")
 
     tp = bcfg["take_profit"]
-    lots_tp1 = _round_sell(shares * tp[0][1], shares, st["allow_odd_lot"])
-    exit_plan = [
-        f"停損：收盤跌破 {stop:.2f} 元全數賣出 {fmt_shares(shares)}",
-        f"第 1 段停利：漲至 {round_tick(entry * (1 + tp[0][0]), p['etf'])} 元（+{tp[0][0] * 100:.0f}%）賣出 {fmt_shares(lots_tp1)}，停損上移至成本",
-        f"第 2 段停利：漲至 {round_tick(entry * (1 + tp[1][0]), p['etf'])} 元（+{tp[1][0] * 100:.0f}%）再賣剩餘的 {tp[1][1] * 100:.0f}%，其餘用移動停損（最高價 − 2×ATR）",
+    exit_plan = [f"停損：收盤跌破 {stop:.2f} 元全數賣出 {fmt_shares(shares)}"]
+    for k, (lvl, frac) in enumerate(tp[:2]):  # 2026-10-12 起預設不分段停利（take_profit 為空）
+        exit_plan.append(f"第 {k + 1} 段停利：漲至 {round_tick(entry * (1 + lvl), p['etf'])} 元（+{lvl * 100:.0f}%）賣出 {frac * 100:.0f}%")
+    exit_plan += [
         f"訊號轉弱（{label} ≤ {st['sell_score_threshold']:+.2f}）先減碼一半",
-        f"換股：同一籃出現扣除換股成本後預期報酬高出 {st['swap_margin'] * 100:.1f}% 以上的標的，依虧損補回計畫換股",
+        f"結單轉股：持有滿 {st['min_hold_days']} 個交易日後，綜合排名出現扣成本後預期多 {st['swap_margin'] * 100:.0f}% 以上的股票就全部賣出換股；"
+        f"獲利已達 {st.get('profit_swap_min_pnl', 0.1) * 100:.0f}% 時多 {st.get('profit_swap_margin', 0.02) * 100:.0f}% 就可以當天換",
     ]
     if a and basket == "offense":
         exit_plan.insert(0, f"一個月目標：突破 52 週高點 {a['hi252']} 元（距現價 {-a['dist_hi'] * 100:.1f}%）即確認創新高，續抱讓獲利奔跑")

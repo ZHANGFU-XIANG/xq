@@ -85,7 +85,7 @@ function Analysis({ code }: { code: string }) {
                 <span className="num text-lg">若買進：{qty(plan.lots, plan.odd)}　限價 <b>{plan.limit_price}</b>　停損 <b className="text-down">{plan.stop}</b></span>
                 <span className="num text-sm text-muted">約 {fmtInt(plan.amount)} 元（{fmtPct(plan.weight_pct, 1, false)}）</span>
               </div>
-              <div className="grid gap-6 md:grid-cols-2">
+              <div className="grid items-start gap-6 md:grid-cols-2">
                 <div><h3 className="mb-1 font-medium">張數怎麼算</h3><Bullets items={plan.why_qty} /></div>
                 <div>
                   <h3 className="mb-1 font-medium">出場計畫</h3><Bullets items={plan.exit_plan} />
@@ -101,7 +101,7 @@ function Analysis({ code }: { code: string }) {
         </Section>
       )}
 
-      <div className="grid gap-x-6 md:grid-cols-2">
+      <div className="grid items-start gap-x-6 md:grid-cols-2">
         <Section title={<span className="text-offense">進攻籃評估</span>} aside={`分數 ${a.offense.score >= 0 ? '+' : ''}${a.offense.score.toFixed(2)}・${a.offense.signal}`}>
           <Bullets items={a.offense.reasons} />
           {a.offense.risks.length > 0 && <div className="mt-2 text-ink-2"><Bullets items={a.offense.risks.map((x: string) => `風險：${x}`)} /></div>}
@@ -112,7 +112,7 @@ function Analysis({ code }: { code: string }) {
         </Section>
       </div>
 
-      <div className="grid gap-x-6 md:grid-cols-2">
+      <div className="grid items-start gap-x-6 md:grid-cols-2">
         {att && (
           <Section title={`${att.date} 為何${att.ret_pct >= 0 ? '漲' : '跌'}`} aside={<Change value={att.ret_pct} />}>
             <p className="mb-2">{att.verdict}</p>
@@ -224,7 +224,7 @@ export default function Stock() {
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid items-start gap-6 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
           <section className="mb-6 rounded-xl border border-line bg-paper p-4 shadow-sm"><KLine code={code} height={440} /></section>
           {p.is_etf && <EtfInfo code={code} />}

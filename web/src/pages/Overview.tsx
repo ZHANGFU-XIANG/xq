@@ -1,223 +1,94 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import DecisionBoard from '../components/DecisionBoard'
-import HoldingWatch from '../components/HoldingWatch'
-import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
-import Intraday, { useIntraday } from '../components/Intraday'
-import Potential from '../components/Potential'
 import RegimeBanner from '../components/RegimeBanner'
+import TopPicks from '../components/TopPicks'
+import Events from '../components/Events'
+import USShock from '../components/USShock'
 import ValuePicks from '../components/ValuePicks'
-import { IntlNote, LivePrice } from '../components/LiveBits'
-import { BasketTag, Bullets, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
+import { useChat } from '../components/Chat'
+import { ErrorNote, Loading, PageTitle, Section, Stat, StockLink } from '../components/ui'
 import { get, type Json } from '../lib/api'
-import { fmtPct, fmtRatio, fmtWan, qty, tone } from '../lib/format'
-import { liveEvery, useIntl, useQuotes } from '../lib/live'
+import { fmtPct, fmtRatio } from '../lib/format'
+import { liveEvery } from '../lib/live'
 
-function Balance({ report }: { report: Json }) {
-  // 優先用盤中即時配置（含 ETF 籃）；報告中的配置提供理由與大盤指標
-  const { data: intra } = useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'), staleTime: 60_000 })
-  const alloc: Json = { ...report.allocation, ...(intra?.allocation ?? {}) }
-  const hasEtf = alloc.etf != null
-  const off = Math.round(alloc.offense * 100)
-  const etf = hasEtf ? Math.round(alloc.etf * 100) : 0
-  const def = 100 - off - etf
-  const reasons: string[] = (report.allocation.reasons ?? []).filter((r: string) => !r.startsWith('今日配置'))
-  const etfReasons: string[] = alloc.etf_reasons ?? []
-  const parts = [
-    { key: 'offense', label: '進攻', pct: off, text: 'text-offense', bg: 'bg-offense', note: '追強勢、一個月內創新高' },
-    { key: 'defense', label: '穩健', pct: def, text: 'text-defense', bg: 'bg-defense', note: '收正機率高、回檔小' },
-    ...(hasEtf ? [{ key: 'etf', label: 'ETF', pct: etf, text: 'text-etf', bg: 'bg-etf', note: '分散、稅 0.1%' }] : []),
-  ]
-  const [more, setMore] = useState(false)
-  const all = [...reasons, ...etfReasons]
+/** 當沖排行前 5 名（完整的在當沖頁）。 */
+function DayTradeMini() {
+  const { data: d } = useQuery<Json>({ queryKey: ['daytrade'], queryFn: () => get('/api/daytrade'), refetchInterval: liveEvery(15_000, 300_000) })
+  const rows: Json[] = (d?.rows ?? []).slice(0, 5)
   return (
-    <Section title="今日攻守配置" aside={<span className="text-xs">股票＋ETF；期貨另計</span>}>
-      <div className="flex h-3 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={parts.map((p) => `${p.label} ${p.pct}%`).join('，')}>
-        {parts.map((p) => <div key={p.key} className={p.bg} style={{ width: `${p.pct}%` }} />)}
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {parts.map((p) => (
-          <div key={p.key}>
-            <div className={`num text-xl font-bold ${p.text}`}>{p.pct}%</div>
-            <div className="text-xs font-medium">{p.label}</div>
-            <div className="text-[0.7rem] leading-tight text-muted">{p.note}</div>
-          </div>
-        ))}
-      </div>
-      {alloc.taiex && (
-        <p className="mt-3 text-xs text-muted">加權 RSI {alloc.taiex.rsi14}・20 日 {fmtPct(alloc.taiex.r20_pct, 1)}・距季線 {fmtPct(alloc.taiex.dist_ma60_pct, 1)}</p>
-      )}
-      {all.length > 0 && (
-        <>
-          <ol className="mt-2 space-y-1 border-l-2 border-line pl-3 text-sm text-ink-2">
-            {(more ? all : all.slice(0, 2)).map((r, i) => <li key={i}>{r}</li>)}
-          </ol>
-          {all.length > 2 && <button className="mt-1 text-xs text-link" onClick={() => setMore(!more)}>{more ? '收起' : `看全部 ${all.length} 點理由`}</button>}
-        </>
-      )}
-    </Section>
-  )
-}
-
-function UrgentBanner() {
-  const { data } = useQuery<Json>({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000) })
-  // 剛啟動時先拿到的是盤前報告當時的警示（可能已過時），等即時版算好再顯示，避免跳出過期的警示
-  const items: Json[] = data?.from_report ? [] : (data?.alerts ?? []).filter((a: Json) => a.level === '嚴重' || a.level === '警告')
-  if (!items.length) return null
-  return (
-    <section className="mb-6 rounded-lg border border-up/40 bg-up/5 px-4 py-3" aria-label="緊急警示">
-      <div className="mb-1 flex items-baseline justify-between gap-3">
-        <h2 className="font-bold text-up">{items.length} 則警示需要處理</h2>
-        <Link to="/alerts" className="text-sm">看全部</Link>
-      </div>
-      <ul className="space-y-1 text-[0.95rem]">
-        {items.slice(0, 4).map((a, i) => (
-          <li key={i}><span className={a.level === '嚴重' ? 'font-bold text-up' : 'font-bold text-warn'}>{a.level}</span>　{a.title}：{a.final?.text ?? a.action}</li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function MorningPlan({ r, asset }: { r: Json; asset: Asset }) {
-  const mine: Json[] = r.orders.filter((o: Json) => assetOf(o) === asset)
-  const codes: string[] = mine.map((o: Json) => o.code)
-  const { data: q } = useQuotes(codes)
-  const { data: intl } = useIntl(codes)
-  const quotes: Json = q?.quotes ?? {}
-  const notes: Json = intl?.impacts ?? {}
-  const buys = mine.filter((o: Json) => o.action === 'BUY')
-  const sells = mine.filter((o: Json) => o.action === 'SELL')
-  return (
-    <Section title={`${ASSET_LABEL[asset]}・盤前計畫（07:00）`} aside={<Link to={`/daily/${r.key}?asset=${asset}`}>完整理由與 K 線</Link>}>
-      {r.text?.outlook && <p className="mb-3 text-[0.95rem] leading-relaxed text-ink-2">{r.text.outlook}</p>}
-      {!mine.length && <Empty>今天沒有{ASSET_LABEL[asset]}達到進出場條件。</Empty>}
-      {sells.length > 0 && (
-        <div className="mb-4 space-y-2">
-          {sells.map((o: Json) => (
-            <div key={o.code} className="rounded-lg border-l-4 border-down bg-paper px-4 py-3">
-              <div className="flex flex-wrap items-baseline gap-x-3">
-                <span className="font-bold text-down">賣出</span><StockLink code={o.code} name={o.name} />
-                <span className="num">{qty(o.lots, o.odd)}</span><span className="num text-muted">限價 {o.limit_price}</span>
-                <LivePrice q={quotes[o.code]} />
-              </div>
-              <div className="mt-1 text-sm text-ink-2">{o.why_sell}</div>
-            </div>
+    <Section title="當沖排行" aside={<Link to="/daytrade">看全部</Link>}>
+      {!d ? <Loading label="計算中" /> : (
+        <ul className="space-y-1.5 text-[0.95rem]">
+          {rows.map((r) => (
+            <li key={r.code} className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate"><span className="num mr-1 text-muted">{r.rank}</span><StockLink code={r.code} name={r.name} /></span>
+              <span className={`shrink-0 text-xs ${r.verdict.startsWith('可以當沖') ? 'font-bold text-up' : 'text-muted'}`}>{r.verdict}</span>
+            </li>
           ))}
-        </div>
-      )}
-      {buys.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-[0.95rem]">
-            <thead className="text-left text-sm text-muted">
-              <tr className="border-b border-line">
-                <th className="py-2 font-normal">籃子</th><th className="font-normal">標的</th><th className="text-right font-normal">即時</th>
-                <th className="text-right font-normal">數量</th><th className="text-right font-normal">限價</th><th className="text-right font-normal">停損</th>
-                <th className="pl-4 font-normal">國際影響</th>
-              </tr>
-            </thead>
-            <tbody>
-              {buys.map((o: Json) => (
-                <tr key={o.code} className="border-b border-line/70 align-top">
-                  <td className="py-2.5"><BasketTag basket={o.basket} /></td>
-                  <td className="py-2.5"><Link to={`/daily/${r.key}?asset=${asset}&code=${o.code}`} className="text-ink no-underline hover:text-link"><span className="num text-muted">{o.code}</span> {o.name}</Link></td>
-                  <td className="py-2.5 text-right"><LivePrice q={quotes[o.code]} /></td>
-                  <td className="num py-2.5 text-right">{qty(o.lots, o.odd)}</td>
-                  <td className="num py-2.5 text-right">{o.limit_price}</td>
-                  <td className="num py-2.5 text-right text-down">{o.stop}</td>
-                  <td className="py-2.5 pl-4"><IntlNote notes={notes[o.code]} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {intl?.factor_date && (
-        <p className="mt-2 text-xs text-muted">國際影響：{intl.factor_date} 國際市場收盤變動 × 該股過去一年與該市場的連動程度（只列統計顯著、影響 ≥0.4% 者）</p>
+          <li className="pt-1 text-xs text-muted">{d.phase}・{d.time.slice(11, 16)}</li>
+        </ul>
       )}
     </Section>
   )
-}
-
-/** 分頁上的數字：該類別目前的建議筆數（期貨＝建議口數筆數＋避險）。 */
-function countByAsset(d?: Json): Partial<Record<Asset, number>> {
-  if (!d) return {}
-  const n = (a: Asset) => (d.orders ?? []).filter((o: Json) => assetOf(o) === a).length
-  const fut = (d.derivatives?.orders?.length ?? 0) + (d.derivatives?.hedge ? 1 : 0)
-  return { STOCK: n('STOCK'), ETF: n('ETF'), FUT: fut }
 }
 
 export default function Overview() {
-  const { data: r, isLoading, error } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
-  const [tab, setTab] = useAssetTab()
-  const { data: intra } = useIntraday()
-  // 總資產、持股率、交易筆數與規則檢查用即時持倉（成交紀錄＋即時價），不用盤前報告的快照，成交後馬上反映
-  const { data: live } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(15_000, 120_000) })
-  if (isLoading) return <Loading />
-  if (error) return <ErrorNote error={error} />
-  if (!r) return <Empty>還沒有任何報告。報告會在交易日 07:00 自動產生。</Empty>
-  const pf = live ?? r.portfolio
-  const tx = r.predictions.TAIEX
-  const compliance: Json[] = [
-    ...(live?.compliance ?? r.compliance.filter((c: Json) => !c.item.startsWith('執行建議後'))),
-    ...r.compliance.filter((c: Json) => c.item.startsWith('執行建議後')),
-  ]
-  const fails = compliance.filter((c: Json) => c.status !== '通過')
+  const chat = useChat()
+  const [cap, setCap] = useState(() => { try { return Number(localStorage.getItem('picks_cap')) || 0 } catch { return 0 } })
+  const pickCap = (v: number) => { setCap(v); try { localStorage.setItem('picks_cap', String(v)) } catch { /* 無法記住也沒關係 */ } }
+  const qs = cap ? `?max_price=${cap}` : ''
+  const { data: d, isLoading, error } = useQuery<Json>({
+    queryKey: ['picks', qs], queryFn: () => get(`/api/picks${qs}`), refetchInterval: liveEvery(20_000, 300_000),
+    placeholderData: (prev: Json) => prev,
+  })
+  const bt = d?.backtest ?? {}
+  const top = d?.items?.[0]
   return (
     <>
-      <PageTitle aside={<span className="text-xs text-muted">{r.date} {r.title}・產出 {r.generated_at}</span>}>今天怎麼做</PageTitle>
-      <UrgentBanner />
-
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Stat label="投資組合總值（同 App）" value={fmtWan(pf.nav)}
-          sub={live?.breakdown ? `證券 ${fmtWan(live.breakdown.stock_mv + live.breakdown.etf_mv + live.breakdown.cash)}・期貨 ${fmtWan(live.breakdown.futures_equity)}` : '盤前報告快照'} />
-        <Stat label="投資報酬率（同 App）" value={fmtPct(pf.return_pct, 4)} valueClass={tone(pf.return_pct)}
-          sub={live?.return_net_pct != null ? `扣手續費後 ${fmtPct(live.return_net_pct, 3)}` : '盤前報告快照'} />
-        <Stat label="持股率（同 App）" value={fmtRatio(pf.holding_ratio, 2)} valueClass={pf.holding_ratio < 0.7 ? 'text-up' : ''} sub="規則下限 70%・期貨不算" />
-        <Stat label="交易筆數" value={`${pf.trade_count}／10`} valueClass={pf.trade_count >= 10 ? '' : 'text-warn'}
-          sub={`交易過 ${pf.symbol_count ?? '—'}／5 檔`} />
-        <Stat label="執行建議後持股率" value={fmtRatio(r.projected_ratio)} sub={`盤前計畫 ${r.generated_at}`} />
-        <Stat label="大盤開盤預測" value={fmtPct(tx?.gap_pct)} valueClass={tone(tx?.gap_pct)}
-          sub={tx ? `命中率 ${fmtRatio(tx.gap_hit_rate)}・${tx.after_open}` : undefined} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
-          <DecisionBoard />
-        </div>
-        <div className="min-w-0">
-          <RegimeBanner compact />
-          <HoldingWatch />
-          <Balance report={r} />
-        </div>
-      </div>
-
-      <AssetTabs tab={tab} onChange={setTab} counts={countByAsset(intra)} />
-      <Intraday asset={tab} />
-      {tab !== 'FUT' && (
+      <PageTitle aside={<button onClick={() => chat.ask('現在推薦買什麼？報酬最高的是哪幾檔？')} className="rounded-md bg-link px-4 py-2 text-sm font-medium text-white hover:opacity-90">問 AI</button>}>
+        高報酬推薦・綜合排名
+      </PageTitle>
+      {isLoading && <Loading label="計算全市場排行（首次約需 1 分鐘）" />}
+      {error && <ErrorNote error={error} />}
+      {d && (
         <>
-          <MorningPlan r={r} asset={tab} />
-          <Potential asset={tab as 'STOCK' | 'ETF'} />
-          {tab === 'STOCK' && <ValuePicks />}
+          <USShock />
+          <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="第一名" value={top ? <span className="text-xl">{top.name}</span> : '—'}
+              sub={top ? `綜合預期 ${fmtPct(top.score, 1)}・勝率 ${fmtRatio(top.p_up, 0)}・可信度${top.confidence}` : undefined} />
+            <Stat label={`回測：前 ${bt.topk} 名 20 日報酬`} value={fmtPct((bt.topk_ret ?? 0) * 100, 1)} valueClass="text-up"
+              sub={`全市場 ${fmtPct((bt.mkt_ret ?? 0) * 100, 1)}・樣本外 ${bt.folds?.length ?? 0} 期平均`} />
+            <Stat label="回測：一個月內創新高" value={fmtRatio(bt.topk_newhigh, 0)} sub={`全市場 ${fmtRatio(bt.base_rate, 0)}`} />
+            <Stat label="排序範圍" value={`${d.n_universe} 檔`} sub={`資料日 ${d.asof}・${d.time.slice(11, 16)} 更新`} />
+          </div>
+          <div className="grid items-start gap-6 lg:grid-cols-3">
+            <div className="min-w-0 lg:col-span-2">
+              <Section title="綜合排名" aside={d.trading ? '盤中每 20 秒更新' : '收盤後'} className="[&>div:last-child]:p-0">
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-3 text-sm" role="group" aria-label="股價上限">
+                  <span className="mr-1">股價</span>
+                  {[0, 50, 100, 200, 500, 1000].map((v) => (
+                    <button key={v} onClick={() => pickCap(v)}
+                      className={`rounded-md px-3 py-1 ${cap === v ? 'bg-link text-white' : 'border border-line text-ink-2 hover:text-ink'}`}>
+                      {v ? `${v} 元內` : '不限'}
+                    </button>
+                  ))}
+                  <span className="ml-1 text-muted">
+                    {d.n_events > 0 && `・納入 ${d.n_events} 檔今日資訊事件`}{d.n_choppy > 0 && `・排除 ${d.n_choppy} 檔走勢鋸齒／成交值偏低`}
+                  </span>
+                </div>
+                <div className="p-4"><TopPicks items={d.items} /></div>
+              </Section>
+              <p className="-mt-3 mb-6 text-sm leading-relaxed text-muted">{d.method}</p>
+            </div>
+            <div className="min-w-0 lg:sticky lg:top-4">
+              <RegimeBanner compact />
+              <DayTradeMini />
+            </div>
+          </div>
+          <Events />
+          <ValuePicks />
         </>
-      )}
-
-      <Section title="競賽規則檢查" aside={fails.length ? `${fails.length} 項需注意` : '全部通過'}>
-        <ul className="space-y-1.5 text-[0.95rem]">
-          {compliance.map((c: Json) => (
-            <li key={c.item} className="flex gap-2">
-              <span className={`shrink-0 font-medium ${c.status === '通過' ? 'text-down' : c.status === '注意' ? 'text-warn' : 'text-up'}`}>{c.status}</span>
-              <span><span className="font-medium">{c.item}</span>　<span className="text-ink-2">{c.detail}</span></span>
-            </li>
-          ))}
-        </ul>
-      </Section>
-
-      {r.tuner?.issues?.length > 0 && (
-        <Section title="調整 Agent 提醒">
-          <Bullets items={r.tuner.issues.map((i: Json) => i.detail)} />
-        </Section>
       )}
     </>
   )

@@ -61,7 +61,7 @@ export default function Model() {
       <p className="mb-6 max-w-4xl text-sm leading-relaxed text-ink-2">
         回測用「時間外樣本」：每段只用該段之前的資料訓練，再看接下來一個月的實際結果。股票池以目前流動性挑選，存在存活者偏誤，實際表現可能比回測差。
       </p>
-      <div className="grid gap-x-6 lg:grid-cols-2">
+      <div className="grid items-start gap-x-6 lg:grid-cols-2">
       {b && (
         <Section title="兩籃回測比較（每期前 20 名，一個月後）">
           <div className="overflow-x-auto">

@@ -122,7 +122,7 @@ export default function Company({ code }: { code: string }) {
         </>
       )}
 
-      <div className="grid gap-6 text-[0.95rem] md:grid-cols-2">
+      <div className="grid items-start gap-6 text-[0.95rem] md:grid-cols-2">
         {Object.keys(c.dividend ?? {}).length > 0 && (
           <div>
             <h3 className="mb-1 font-bold">最近股利</h3>

@@ -38,7 +38,7 @@ export default function ValuePicks() {
                   {data.items.map((x: Json) => (
                     <tr key={x.code} className="border-b border-line/70">
                       <td className="num py-2 text-muted">{x.rank}</td>
-                      <td><StockLink code={x.code} name={x.name} />{x.held && <span className="ml-2 text-xs text-muted">已持有</span>}
+                      <td><StockLink code={x.code} name={x.name} />
                         <div className="text-xs text-muted">{x.sector}</div></td>
                       <td className="num text-right">{x.price}</td>
                       <td className="num text-right">{fmtInt(x.lot_cost)}</td>

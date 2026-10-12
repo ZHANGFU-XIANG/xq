@@ -137,7 +137,7 @@ export default function Alerts() {
         )
       })}
 
-      {tab === 'MARKET' && <div className="grid gap-8 lg:grid-cols-2">
+      {tab === 'MARKET' && <div className="grid items-start gap-8 lg:grid-cols-2">
         <Section title={`跌停（${d.limit_down_count}）`} aside={d.down_industries?.slice(0, 3).map((g: Json) => `${g.industry} ${g.count}`).join('、')}>
           {d.limit_down.length ? <LimitTable rows={d.limit_down} kind="down" /> : <p className="text-muted">沒有跌停股。</p>}
         </Section>

@@ -57,8 +57,8 @@ def test_recovery_swaps_only_when_benefit_exceeds_cost():
     meta = {"2303": {"stop": 80}}
     res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.10, 0.6), 10_000_000, 10_000_000, {})
     assert res["actions"]["2303"]["decision"] == "換股"
-    # 替代標的優勢不足（扣成本後 < swap_margin 3%）→ 續抱
-    res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
+    # 替代標的優勢不足（扣成本 0.585% 後 < swap_margin 1%）→ 續抱
+    res = recovery.plan(pf, prices, scores, a, meta, _ranked_alt(0.02, 0.6), 10_000_000, 10_000_000, {})
     assert "2303" not in res["actions"]
     # 跌破停損 → 停損換股
     res = recovery.plan(pf, {"2303": 79.0}, scores, a, meta, _ranked_alt(0.03, 0.6), 10_000_000, 10_000_000, {})
@@ -248,3 +248,57 @@ def test_trim_small_odd_lot():
     assert sizer.trim_odd(2, 300, 26.0)[:2] == (2, 0)          # 300 股 × 26 = 7,800 < 14,035 → 不買零股
     assert sizer.trim_odd(2, 300, 100.0)[:2] == (2, 300)       # 30,000 元的零股保留
     assert sizer.trim_odd(0, 8, 2330.0)[:2] == (0, 8)          # 沒有整張時零股是唯一買法，保留
+
+
+# ---- 結單轉股（傳入綜合排名 alts）
+def _alt(score_pct, code="9999", price=50.0):
+    return [{"code": code, "name": "替代股", "score": score_pct, "p_up": 0.6, "confidence": "高", "price": price,
+             "verdict": "可以買"}]
+
+
+def _held(days_ago: int, price_buy=100):
+    import datetime as dt
+
+    from src.config import now_tw
+
+    d = (now_tw().date() - dt.timedelta(days=days_ago)).isoformat()
+    return build_portfolio([{"date": d, "code": "2303", "side": "BUY", "shares": "100000", "price": str(price_buy), "margin": "0"}])
+
+
+_A = {"2303": {"exp_ret": 0.01, "p_newhigh": 0.2, "combo": 0.5}}
+_S = {"2303": {"score": 0.1, "name": "聯電", "features": {"close": 100, "ma20": 95}}}
+_M = {"2303": {"stop": 50}}
+
+
+def test_rotation_after_min_hold_with_margin():
+    pf = _held(30)
+    res = recovery.plan(pf, {"2303": 101.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(4.0))
+    it = res["items"][0]
+    assert it["decision"] == "獲利換股" and it["swap"]["rule"] == "換股" and it["swap"]["to"]["code"] == "9999"
+    assert it["swap"]["orders"][0]["action"] == "SELL" and it["swap"]["orders"][1]["shares"] > 0
+    # 優勢不到 1% → 不換
+    res = recovery.plan(pf, {"2303": 101.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(2.0))
+    assert "2303" not in res["actions"]
+
+
+def test_profit_swap_same_day_inside_min_hold():
+    pf = _held(1)  # 剛買，未滿 10 個交易日
+    # 獲利 12%、扣成本後多 2.4% ≥ 2% → 可以當天結單
+    res = recovery.plan(pf, {"2303": 112.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(4.0))
+    assert res["items"][0]["swap"]["rule"] == "獲利結單" and res["actions"]["2303"]["decision"] == "獲利換股"
+    # 獲利只有 5% → 仍受最短持有限制
+    res = recovery.plan(pf, {"2303": 105.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(4.0))
+    assert "2303" not in res["actions"]
+
+
+def test_rotation_blocked_when_holding_ratio_would_drop(monkeypatch):
+    from src.agents import compliance
+
+    def fake(pf, prices, orders, today, nav):
+        return [{"item": "執行建議後持股率 ≥ 70%", "status": "未通過", "detail": "預估 60.0%（目標 90%）"}]
+
+    monkeypatch.setattr(compliance, "check", fake)
+    pf = _held(30)
+    res = recovery.plan(pf, {"2303": 101.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(4.0))
+    it = res["items"][0]
+    assert "2303" not in res["actions"] and not it["swap"]["compliance_ok"] and "70%" in it["why"]

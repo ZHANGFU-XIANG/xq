@@ -47,7 +47,7 @@ export default function Potential({ asset = 'STOCK' }: { asset?: 'STOCK' | 'ETF'
   const notes: Json = intl?.impacts ?? {}
   return (
     <Section title="潛在標的" aside={<span className="text-sm text-muted">模型看好、今天還沒列入下單</span>}>
-      <div className={`grid gap-x-8 ${baskets.length > 1 ? 'md:grid-cols-2' : ''}`}>
+      <div className={`grid items-start gap-x-8 ${baskets.length > 1 ? 'md:grid-cols-2' : ''}`}>
         {baskets.map((b) => (
           <div key={b}>
             <h3 className={`mb-1 font-medium ${b === 'offense' ? 'text-offense' : b === 'etf' ? 'text-etf' : 'text-defense'}`}>{b === 'offense' ? '進攻籃' : b === 'etf' ? 'ETF 籃' : '穩健籃'}</h3>

@@ -34,6 +34,12 @@ FastAPI；React 前端與 API 在同一個網址。
 | GET | `/api/holding-advice?refresh=` | 每檔庫存的加碼／續抱／減碼／出清建議 |
 | GET | `/api/alerts?refresh=` | 警示（股票／ETF／期貨／市場與規則），5 分鐘快取 |
 | GET | `/api/decisions` | 買賣決策總表：可以買／等回檔再買／先不要買／持股續抱・減碼・出清，每檔一句理由與改變結論的條件（盤中每 10 分鐘以即時價重算） |
+| GET | `/api/picks` | 高報酬推薦（參數 budget、split、odd 依預算篩選）：全市場一個月模型排序前 N 名（不參考持股），即時價、預期報酬、機率、停損目標、樣本外回測 |
+| GET | `/api/exit-plan/{code}` | 個股退場：退場日、檢查日、移動停利線、續抱或出場與理由（持有中用實際買進日與成本） |
+| GET | `/api/events` | 資訊事件：今天爆量跳空大漲的股票、分級、買法、歷史同類事件報酬、新聞與重大訊息標題 |
+| GET | `/api/us-shock` | 美股（費半）重挫預警：一般／嚴重、每檔連動 β 與動作、事件研究數字 |
+| GET | `/api/daytrade` | 當沖排行：整體結論、可以當沖／訊號成立／等突破／先不要當沖，進場停損目標張數與扣成本損益、日 K 回測（盤中 15 秒快取） |
+| GET | `/api/daytrade/{code}` | 單檔能不能當沖與理由 |
 | GET | `/api/potential` | 潛在標的：模型看好但今天沒列入下單的股票與 ETF，附「為什麼還沒買」與觸發條件 |
 | GET | `/api/weekly-reports` | 競賽各週與已產生的週報 |
 | POST | `/api/weekly-report` | `{week}` → 產生週報 PPT，回傳下載路徑 |

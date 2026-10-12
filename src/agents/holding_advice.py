@@ -124,6 +124,7 @@ def build(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: di
             "shares": pos.shares, "avg_cost": round(pos.avg_cost, 2), "price": round(price, 2),
             "pnl": round(pnl), "pnl_pct": round(pnl / pos.cost_basis * 100, 2) if pos.cost_basis else 0,
             "weight_pct": round(mv / nav * 100, 2) if nav else 0, "stop": stop,
+            "swap": (sell or {}).get("swap"),
             "verdict": verdict, "qty": qty, "qty_text": qty_text, "limit_price": limit,
             "reasons": [r for r in reasons if r], "conditions": conditions, "score": score,
             "model": {k: a.get(k) for k in ("exp_ret", "p_newhigh", "p_up", "exp_dd")} if a else None,

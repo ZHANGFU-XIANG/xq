@@ -763,6 +763,13 @@ def holding_watch() -> dict:
         rg = live_regime()
     except Exception:  # noqa: BLE001
         rg = None
+    try:  # 費半重挫：嚴重 → 高連動股開盤先賣、第 3 天買回；一般 → 續抱不要殺低（研究見 us_shock.py）
+        from src.agents import us_shock
+
+        shock = us_shock.assess()
+        shock_ex = us_shock.exposure(codes) if shock.get("level") in ("一般重挫", "嚴重") else {}
+    except Exception:  # noqa: BLE001
+        shock, shock_ex = {}, {}
     items = []
     for c, pos in pf.positions.items():
         q = rt.get(c) or {}
@@ -790,6 +797,10 @@ def holding_watch() -> dict:
             sell.append(f"今日 {chg:+.2f}% 重挫，模型一個月收正機率 {p_up * 100:.0f}% 低於全市場平均 {base * 100:.0f}%")
         basket = (meta.get(c) or {}).get("basket") or "offense"
         weak_stock = (ma20 and price < ma20) or (p_up is not None and p_up < base)
+        sx = shock_ex.get(c) or {}
+        if shock.get("level") == "嚴重" and sx.get("linked"):
+            sell.append(f"{shock['headline']}：這檔與費半連動 β {sx['beta']}，{shock['first_tw_day'][5:]} 開盤先賣、"
+                        f"{shock['rebuy_date'][5:]} 收盤前買回（同樣情況續抱 3 日平均再少約 1.6～1.9%）")
         if rg and rg["state"] == "轉弱" and basket == "offense" and weak_stock:
             sell.append(f"大盤紅燈轉弱，這檔進攻股也走弱（{'跌破 20 日均線' if ma20 and price < ma20 else f'收正機率 {p_up * 100:.0f}% 低於平均'}），提早撤出、改買穩健籃／ETF")
         oversold = []
@@ -799,7 +810,10 @@ def holding_watch() -> dict:
             oversold.append(f"貼近 10 日低點 {low10:g}")
         if chg is not None and chg <= -3:
             oversold.append(f"今日 {chg:+.2f}%")
-        if not sell and oversold and p_up is not None and p_up >= hi_p and (exp_ret or 0) > 0.02 and not (stop and price <= stop):
+        if not sell and shock.get("level") == "一般重挫" and sx.get("linked"):
+            rebound.append(f"{shock['headline']}，這檔連動 β {sx['beta']}（估影響 {sx['exp_impact_pct']:+.1f}%）："
+                           f"續抱不要殺低，歷史 117 次中位數 2 個交易日回到原價（約 {shock['recover_date'][5:]}）")
+        if not sell and not rebound and oversold and p_up is not None and p_up >= hi_p and (exp_ret or 0) > 0.02 and not (stop and price <= stop):
             rebound.append("、".join(oversold) + f"，但模型一個月收正機率 {p_up * 100:.0f}%（全市場平均 {base * 100:.0f}%）、"
                            f"預期 {exp_ret * 100:+.1f}%：續抱、不要殺低")
         if not sell and not rebound:
@@ -824,7 +838,9 @@ def holding_watch() -> dict:
     out = {"time": now_tw().strftime("%H:%M:%S"), "trading": alerts.is_trading_hours(), "base_rate": base, "items": items,
            "counts": {k: sum(1 for i in items if i["status"] == k) for k in order},
            "note": "機率為模型估計（測試期高機率組實際收正約 63%、全部股票約 56%），不是保證；RSI 盤中以即時價計算",
-           "regime": {k: rg[k] for k in ("state", "light", "level", "headline", "warnings", "actions", "lines")} if rg else None}
+           "regime": {k: rg[k] for k in ("state", "light", "level", "headline", "warnings", "actions", "lines")} if rg else None,
+           "us_shock": {k: shock.get(k) for k in ("level", "headline", "advice", "first_tw_day", "rebuy_date", "recover_date")}
+           if shock.get("level") in ("一般重挫", "嚴重") else None}
     _WATCH.update(t=time.time(), v=out)
     return out
 
@@ -1511,3 +1527,302 @@ def health() -> dict:
     return {"time": now.strftime("%Y-%m-%d %H:%M"), "overall": overall, "checks": checks,
             "slot": intraday.current_slot(now),
             "runs": {wf: {"label": v["label"], "runs": v.get("runs", [])[:8]} for wf, v in runs.items()}}
+
+
+_PICKS: dict = {}
+
+
+def _atr14(df: pd.DataFrame, before=None) -> float | None:
+    d = df[df.index < pd.Timestamp(before)].tail(15) if before is not None else df.tail(15)
+    if len(d) < 15:
+        return None
+    tr = pd.concat([d.High - d.Low, (d.High - d.Close.shift()).abs(), (d.Low - d.Close.shift()).abs()], axis=1).max(axis=1)
+    return float(tr.tail(14).mean())
+
+
+def add_trading_days(d, n: int):
+    """d 之後第 n 個交易日。"""
+    import datetime as dt
+
+    from src.config import is_trading_day
+
+    cur = d
+    while n > 0:
+        cur += dt.timedelta(days=1)
+        if is_trading_day(cur):
+            n -= 1
+    return cur
+
+
+def trading_days_between(a, b) -> int:
+    """a（不含）到 b（含）之間的交易日數。"""
+    import datetime as dt
+
+    from src.config import is_trading_day
+
+    n, cur = 0, a
+    while cur < b:
+        cur += dt.timedelta(days=1)
+        n += is_trading_day(cur)
+    return n
+
+
+EVENT_EXCESS = {"A": 6.4, "L": 2.6, "B": 2.8}  # 資訊事件 20 日超額報酬（%，events.py 研究；漲停用隔天開盤買的數字）
+
+
+def _news_credibility(news: list[dict]) -> tuple[float, str]:
+    """消息可信度（防假消息、傳聞）：公開資訊觀測站正式公告或 2 個以上不同來源 → 1.0；
+    只有 1 個來源 → 0.5；查無相關消息 → 0.3；公司發「澄清」→ 0.3。規則化判斷，無法回測（沒有歷史新聞資料）。"""
+    titles = [n.get("title") or "" for n in news]
+    if any("澄清" in t for t in titles):
+        return 0.3, "公司發布澄清公告，消息可能是傳聞或媒體誤報"
+    official = [n for n in news if n.get("source") == "公開資訊觀測站"]
+    sources = {n.get("source") for n in news if n.get("source")}
+    if official:
+        return 1.0, f"公開資訊觀測站有正式公告（{official[0]['title'][:24]}）"
+    if len(sources) >= 2:
+        return 1.0, f"{len(sources)} 個不同新聞來源報導"
+    if len(sources) == 1:
+        return 0.5, "只有 1 個來源報導，未經公司正式公告，打折計算"
+    return 0.3, "查不到相關新聞或公告，原因不明（可能是傳聞或主力拉抬），打折計算"
+
+
+def high_return_picks(limit: int = 20, include_etf: bool = False, budget: float | None = None, split: int = 1,
+                      odd: bool = False, max_price: float | None = None) -> dict:
+    """綜合排名（總覽用）：把各種已回測的獲利因素換算成「預期 20 日報酬」相加後排序，不參考本隊持股與資金。
+
+    組成（每項都有各自的回測，見各模組；相加是假設，組合本身未另外回測）：
+    1. 一個月模型預期報酬（10 年資料；樣本外前 20 名 20 日 +6.7%、全市場 +3.0%）
+    2. 資訊事件：今天爆量跳空大漲（events.py：買得到的資訊衝擊超額 +6.4%、漲停隔天開盤買 +2.6%、強勢放量 +2.8%）
+       × 消息可信度（_news_credibility：正式公告／多來源 1.0、單一來源 0.5、查無消息或公司澄清 0.3）
+    3. 美股嚴重重挫且與費半高度連動：−1.8%（us_shock.py：之後 3 天平均再跌 1.6～1.9%）並改成等回檔再買
+    排除：走勢鋸齒／成交值偏低（10 日報酬 +3.80% → +4.34%）。
+    大盤燈號只顯示不扣分（模型推薦股在紅燈期 40 筆 20 日 +12.4%、強勢期 740 筆 +7.5%，沒有一致關係）。
+    max_price：股價上限（元／股）；budget＋split：每檔預算（AI 用）。勝率＝模型估計 20 日收正機率（由 10 年歷史相似情境學得）。"""
+    import time
+
+    from src.agents import alerts, alpha_model, events, sizer, us_shock
+    from src.config import settings
+
+    key = (limit, include_etf, budget, split, odd, max_price)
+    hit = _PICKS.get(key)
+    if hit and time.time() - hit[0] < (20 if alerts.is_trading_hours() else 300):
+        return hit[1]
+    pc = settings()["picks"]
+    ctx = on_demand.context()
+    al = ctx["alpha"]
+    preds = al["predictions"]
+    warn = alerts.attention_lists()
+    pool = [c for c, a in preds.items() if include_etf or not (a.get("features") or {}).get("is_etf")]
+    pool.sort(key=lambda c: -(preds[c].get("combo") or 0))
+    rank_of = {c: i for i, c in enumerate(pool, 1)}
+    per = budget / max(1, split) if budget else None
+    cap = max_price or (per / (1 if odd else 1000) if per else None)
+    if cap:  # 先用收盤價粗篩（留 10% 給盤中漲幅），再用即時價確認
+        pool = [c for c in pool if (preds[c].get("close") or 0) <= cap * 1.1]
+    top = pool[:max(80, limit * 4)]
+    # 排除「漲一天就回去」的鋸齒股（例：艾笛森）：候選中走勢效率比或 20 日均成交值最低 1/3 不列入
+    er = {}
+    for c in top:
+        df_ = ctx["panel"].get(c)
+        if df_ is None or len(df_) < 22:
+            continue
+        cl = df_[df_.index < pd.Timestamp(ctx["target"])].Close.tail(21)
+        moves = cl.pct_change().abs().sum()
+        er[c] = abs(cl.iloc[-1] / cl.iloc[0] - 1) / moves if moves else 0
+    er_cut = pd.Series(list(er.values())).quantile(1 / 3) if er else 0
+    val_cut = pd.Series([(preds[c].get("features") or {}).get("log_val20") or 0 for c in top]).quantile(1 / 3) if top else 0
+    choppy = {c for c in top if c in er and (er[c] < er_cut or ((preds[c].get("features") or {}).get("log_val20") or 0) < val_cut)}
+    # 資訊事件（全市場掃描，事件股不受鋸齒排除：它今天就是因消息放量）
+    try:
+        ev = {e["code"]: e for e in events.scan(limit=40)["items"] if e["code"] in preds}
+    except Exception as e_:  # noqa: BLE001
+        log_ = __import__("logging").getLogger(__name__)
+        log_.warning("資訊事件掃描失敗：%s", e_)
+        ev = {}
+    cand = list(dict.fromkeys([c for c in top if c not in choppy] + [c for c in ev if not cap or ev[c]["price"] <= cap]))
+    rt = alerts.realtime(cand)
+    try:
+        shock = us_shock.assess()
+        shock_ex = us_shock.exposure(cand) if shock.get("level") == "嚴重" else {}
+    except Exception:  # noqa: BLE001
+        shock, shock_ex = {}, {}
+    try:
+        rg = live_regime()
+    except Exception:  # noqa: BLE001
+        rg = None
+    entry_day = now_tw().date() if alerts.is_trading_hours() else on_demand.current_target()
+    exit_day, review_day = add_trading_days(entry_day, pc["hold_days"]), add_trading_days(entry_day, pc["review_days"])
+    rows = []
+    for c in cand:
+        a = preds[c]
+        f = a.get("features") or {}
+        q = rt.get(c) or {}
+        price = q.get("price") or a.get("close")
+        if cap and price > cap:
+            continue
+        etf = bool(f.get("is_etf"))
+        shares = None
+        if per:
+            shares = int(per // price) if odd else int(per // (price * 1000)) * 1000
+            if shares <= 0:
+                continue
+        # ---- 綜合預期報酬（%）
+        model_e = (a.get("exp_ret") or 0) * 100
+        parts = [{"name": "一個月模型", "pct": round(model_e, 2), "note": f"排名第 {rank_of.get(c, '—')}、創新高機率 {(a.get('p_newhigh') or 0) * 100:.0f}%"}]
+        e = ev.get(c)
+        cred, cred_note = None, None
+        if e:
+            cred, cred_note = _news_credibility(e.get("news") or [])
+            bonus = EVENT_EXCESS[e["tier"]] * cred
+            parts.append({"name": f"資訊事件・{e['label']}", "pct": round(bonus, 2),
+                          "note": f"歷史超額 +{EVENT_EXCESS[e['tier']]}% × 可信度 {cred}（{cred_note}）"})
+        sx = shock_ex.get(c) or {}
+        if shock.get("level") == "嚴重" and sx.get("linked"):
+            parts.append({"name": "美股嚴重重挫", "pct": -1.8, "note": f"與費半連動 β {sx['beta']}，之後 3 天平均再跌 1.6～1.9%"})
+        score = round(sum(p_["pct"] for p_ in parts), 2)
+        p_up = a.get("p_up") or 0
+        conf = ("低" if (cred is not None and cred < 0.5) or p_up < 0.5 else
+                "高" if p_up >= 0.6 and (cred is None or cred >= 1.0) else "中")
+        df = ctx["panel"].get(c)
+        atr = _atr14(df, ctx["target"]) if df is not None else None
+        stop = sizer.round_tick(price - pc["stop_atr"] * atr, etf) if atr else None
+        target = sizer.round_tick(price * (1 + max(score, 0) / 100), etf, up=True)
+        if (warn.get(c) or {}).get("type") == "處置":
+            verdict, conf = "先不要買", "低"
+            entry = ("處置股（分盤撮合約 5～20 分鐘一次、大量委託需預收款）：十年回測推薦名單中處置中的股票 40 日 +6.3%、"
+                     "非處置 +8.3%，投資組合排除處置股年化 59% → 65%")
+        elif q.get("at_limit_up"):
+            verdict = "等回檔再買"
+            entry = f"今天已漲停（{price}），排隊買；沒買到就下一個交易日開盤直接買"
+        elif sx.get("linked") and shock.get("level") == "嚴重":
+            verdict = "等回檔再買"
+            entry = f"{shock['headline']}，與費半高度連動：{shock['rebuy_date'][5:]} 收盤前再買"
+        elif score <= 0:
+            verdict = "先不要買"
+            entry = "綜合預期報酬不是正的"
+        else:
+            verdict = "可以買"
+            entry = (f"{'收盤前' if e and alerts.is_trading_hours() else '現在'}直接買，限價 {sizer.round_tick(price, etf, up=True)}"
+                     "（回測：直接買 20 日 +8.6%，等回檔掛低價常買不到最強的股票，只剩 +2.5～6.0%）")
+        rows.append({
+            "code": c, "name": stock_meta(c)["name"], "sector": stock_meta(c).get("sector"), "is_etf": etf,
+            "score": score, "parts": parts, "confidence": conf, "credibility": cred, "credibility_note": cred_note,
+            "model_rank": rank_of.get(c), "event": ({k: e[k] for k in ("tier", "label", "gap_pct", "volume_ratio")}
+                                                    | {"news": [n["title"] for n in (e.get("news") or [])[:3]]}) if e else None,
+            "verdict": verdict, "entry_note": entry, "price": price, "chg_pct": q.get("chg_pct"),
+            "exp_ret": a.get("exp_ret"), "p_newhigh": a.get("p_newhigh"), "p_up": a.get("p_up"), "exp_dd": a.get("exp_dd"),
+            "exp_ret_long": a.get("exp_ret_long"), "rsi14": round(f["rsi14"], 1) if f.get("rsi14") is not None else None,
+            "stop": stop, "target": target, "lot_cost": round(price * 1000),
+            "shares": shares, "qty_text": sizer.fmt_shares(shares) if shares else None,
+            "amount": round(shares * price) if shares else None,
+            "exit": {"date": exit_day.isoformat(), "review": review_day.isoformat(),
+                     "text": f"抱到 {exit_day:%m/%d}（第 {pc['hold_days']} 個交易日）出場，{review_day:%m/%d} 檢查一次；"
+                             f"收盤跌破「進場後最高收盤 − {pc['trail_atr']}×ATR」"
+                             + (f"（目前約 {round(pc['trail_atr'] * atr, 1)} 元）" if atr else "") + "可鎖利出場"},
+            "attention": (warn.get(c) or {}).get("type"),
+            "reasons": alpha_model.explain(a),
+        })
+    order = {"可以買": 0, "等回檔再買": 1, "先不要買": 2}
+    rows.sort(key=lambda r: (order[r["verdict"]], -r["score"]))
+    rows = rows[:limit]
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+    m = al.get("metrics") or {}
+    out = {"asof": al.get("asof"), "time": now_tw().strftime("%Y-%m-%d %H:%M:%S"),
+           "trading": alerts.is_trading_hours(), "n_universe": len(preds), "items": rows, "n_choppy": len(choppy),
+           "n_events": len(ev), "max_price": cap,
+           "budget": budget, "split": split, "per_stock": round(per) if per else None, "odd": odd,
+           "regime": {k: rg.get(k) for k in ("light", "headline")} if rg else None,
+           "us_shock": {k: shock.get(k) for k in ("level", "headline", "advice")} if shock.get("level") in ("一般重挫", "嚴重") else None,
+           "backtest": {"topk": params.alpha()["top_k"], "topk_ret": m.get("topk_ret"), "mkt_ret": m.get("mkt_ret"),
+                        "topk_newhigh": m.get("topk_newhigh"), "base_rate": m.get("base_rate"),
+                        "off_up_rate": m.get("off_up_rate"), "off_dd": m.get("off_dd"), "auc": m.get("auc"),
+                        "folds": [{k: f_.get(k) for k in ("start", "end", "topk_ret", "mkt_ret")} for f_ in m.get("folds", [])]},
+           "entry_exit_backtest": [
+               "進場（每期前 20 名、持有 20 日、扣成本）：隔日開盤直接買 +8.6%、掛昨收 +6.0%、昨收−0.5ATR +4.4%、"
+               "回測 5 日線 +4.1%、回測 10 日線 +2.5%",
+               "出場（直接買進後）：抱 40 日 +17.4%、抱 20 日 +8.6%、移動停利 4ATR +11.0%、排名掉出前 200 名 +9.7%、"
+               "跌破 20 日線 +6.8%、固定停利 15%／停損 8% +1.5%"],
+           "method": ("綜合預期報酬＝一個月模型預期報酬＋資訊事件歷史超額報酬×消息可信度－美股嚴重重挫影響，依此排序；"
+                      "消息可信度：公開資訊觀測站正式公告或 2 個以上來源算 1、單一來源 0.5、查無消息或公司澄清 0.3（防假消息與傳聞）。"
+                      "排除走勢鋸齒與成交值偏低的股票；勝率是模型由 10 年歷史相似情境估計的 20 日收正機率。"
+                      "各組成都有回測，相加後的組合未另外回測；大盤燈號只顯示不扣分。")}
+    _PICKS[key] = (time.time(), out)
+    return out
+
+
+def exit_plan(code: str, entry_date: str | None = None, entry_price: float | None = None) -> dict:
+    """個股退場時間與條件。持有中用實際最早買進日與平均成本；沒持有則以今天買進試算；也可指定買進日與價格。
+    規則（settings.picks，回測見 high_return_picks）：第 hold_days 個交易日出場、review_days 檢查、
+    移動停利線只當參考。2026-10-12 十年回測（2021-11～2026-10，含 2022 空頭）：
+    大盤紅燈全部出場年化 59% → 33%、2022 年 +6% → −8.5%（拿掉）；移動停利 4ATR 在綠／灰／紅燈都輸抱 40 日（只當參考）。"""
+    import datetime as dt
+
+    from src.agents import alerts, market_data
+    from src.config import settings
+
+    pc = settings()["picks"]
+    code = code.strip().upper()
+    ctx = on_demand.context()
+    df = market_data.tw_price(code)
+    if df is None or df.empty:
+        return {"code": code, "error": "查無行情"}
+    q = alerts.realtime([code]).get(code) or {}
+    price = float(q.get("price") or df.Close.iloc[-1])
+    today = now_tw().date()
+    held = pfm.build_portfolio().positions.get(code)
+    source = "指定買進日"
+    if entry_date is None and held is not None and held.lots:
+        entry_date, source = str(held.lots[0].date), "目前持股（最早一筆仍持有的買進日、平均成本）"
+        entry_price = entry_price or round(held.avg_cost, 2)
+    if entry_date is None:
+        entry_date, source = today.isoformat(), "今天買進試算"
+    ed = dt.date.fromisoformat(str(entry_date)[:10])
+    entry_price = float(entry_price or price)
+    since = df[df.index >= pd.Timestamp(ed)]
+    hi = max([entry_price, price] + ([float(since.Close.max())] if len(since) else []))
+    atr = _atr14(df)
+    trail = round(hi - pc["trail_atr"] * atr, 2) if atr else None
+    held_days = trading_days_between(ed, today)
+    exit_day, review_day = add_trading_days(ed, pc["hold_days"]), add_trading_days(ed, pc["review_days"])
+    rg = None
+    try:
+        rg = live_regime()
+    except Exception:  # noqa: BLE001
+        pass
+    shock, sx = {}, {}
+    try:
+        from src.agents import us_shock
+
+        shock = us_shock.assess()
+        sx = us_shock.exposure([code]).get(code) or {}
+    except Exception:  # noqa: BLE001
+        pass
+    if shock.get("level") == "嚴重" and sx.get("linked"):
+        verdict, why = "先出場、之後買回", (f"{shock['headline']}，這檔與費半連動 β {sx['beta']}：{shock['advice']}")
+    elif held_days >= pc["hold_days"]:
+        verdict, why = "出場", f"已持有 {held_days} 個交易日，達到 {pc['hold_days']} 日退場點"
+    else:
+        verdict = "續抱"
+        why = (f"已持有 {held_days} 個交易日，還有 {pc['hold_days'] - held_days} 個交易日到退場日 {exit_day:%m/%d}"
+               + (f"；{review_day:%m/%d} 是中途檢查日" if held_days < pc["review_days"] else "")
+               + "；期間若出現預期更好的股票，持股建議會提示結單轉股")
+        if trail and price < trail and held_days > 0:
+            why += (f"。現價已跌破移動停利線 {trail}：想先鎖利可以賣，但回測顯示照移動停利出場平均比抱滿少賺"
+                    "（十年回測各種大盤狀態都一樣）")
+    a = ctx["alpha"]["predictions"].get(code) or {}
+    return {"code": code, "name": stock_meta(code)["name"], "source": source, "entry_date": ed.isoformat(),
+            "entry_price": entry_price, "price": price, "pnl_pct": round((price / entry_price - 1) * 100, 2),
+            "held_days": held_days, "verdict": verdict, "why": why,
+            "exit_date": exit_day.isoformat(), "review_date": review_day.isoformat(),
+            "highest_close": round(hi, 2), "atr14": round(atr, 2) if atr else None, "trail_stop": trail,
+            "regime": rg.get("headline") if rg else None,
+            "us_shock": ({"level": shock.get("level"), "headline": shock.get("headline"), "advice": shock.get("advice"),
+                          "beta_sox": sx.get("beta"), "linked": sx.get("linked")} if shock.get("level") in ("一般重挫", "嚴重") else None),
+            "model_now": {"exp_ret": a.get("exp_ret"), "p_newhigh": a.get("p_newhigh"), "p_up": a.get("p_up")} if a else None,
+            "rules": [f"時間出場：進場後第 {pc['hold_days']} 個交易日（回測抱 40 日平均 +17.4%，優於各種停利法）",
+                      f"中途檢查：第 {pc['review_days']} 個交易日",
+                      f"鎖利參考：進場後最高收盤 − {pc['trail_atr']}×ATR（回測照它出場平均比抱滿少賺，只當參考）",
+                      "結單轉股：出現扣成本後預期明顯更好的股票時全部賣出換股（見持股建議）"],
+            "note": "十年回測（2021～2026，含 2022 空頭）；機率與報酬為模型估計，不是保證"}

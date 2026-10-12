@@ -187,6 +187,11 @@ def load_panel(codes: list[str] | None = None, refresh: bool = True) -> dict[str
         return panel
     codes = codes if codes is not None else candidate_codes()
     stale = not PANEL_PKL.exists() or time.time() - PANEL_PKL.stat().st_mtime > 3 * 3600
+    # history_years 調長（例如 5 → 10 年）時，舊快取整批太短：全部重新下載完整歷史
+    cutoff = pd.Timestamp.today() - pd.Timedelta(days=365 * cfg["history_years"] - 180)
+    if panel and min(df.index[0] for df in panel.values()) > cutoff:
+        log.info("快取歷史短於 %d 年，重新下載完整歷史", cfg["history_years"])
+        panel = {}
     new = [c for c in codes if c not in panel]
     if new:
         log.info("下載 %d 檔完整歷史", len(new))

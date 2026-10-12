@@ -3,6 +3,12 @@ import { createChart, LineSeries, type Time } from 'lightweight-charts'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import HoldingAdvice from '../components/HoldingAdvice'
+import AssetTabs, { useAssetTab } from '../components/AssetTabs'
+import DecisionBoard from '../components/DecisionBoard'
+import HoldingWatch from '../components/HoldingWatch'
+import RotationAdvice from '../components/RotationAdvice'
+import Intraday from '../components/Intraday'
+import USShock from '../components/USShock'
 import RegimeBanner from '../components/RegimeBanner'
 import XQImport from '../components/XQImport'
 import TradeWorkspace, { SEG_LABEL, type Seg } from './Trades'
@@ -52,6 +58,7 @@ export default function Portfolio() {
   const [seg, setSeg] = useState<Seg>(() => {
     try { return (localStorage.getItem('trade_seg') as Seg) || 'all' } catch { return 'all' }
   })
+  const [asset, setAsset] = useAssetTab()
   const pickSeg = (s: Seg) => { setSeg(s); try { localStorage.setItem('trade_seg', s) } catch { /* 無法記住也沒關係 */ } }
   if (isLoading) return <Loading />
   if (error) return <ErrorNote error={error} />
@@ -76,6 +83,7 @@ export default function Portfolio() {
       </div>
 
       <RegimeBanner />
+      <USShock holdings />
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-line">
         <div className="-mb-px">
@@ -92,6 +100,9 @@ export default function Portfolio() {
       </div>
 
       {tab !== 'holdings' ? <TradeWorkspace view={tab} seg={seg} /> : (<>
+      <DecisionBoard />
+      <RotationAdvice />
+      <HoldingWatch />
       <HoldingAdvice />
 
       <Section title="目前持股" aside="同一檔分批成交（整股／零股、不同時間）各自列出成本，賣出先進先出">
@@ -202,6 +213,21 @@ export default function Portfolio() {
         </Section>
       )}
 
+      <AssetTabs tab={asset} onChange={setAsset} />
+      <Intraday asset={asset} />
+
+      {p.compliance?.length > 0 && (
+        <Section title="競賽規則檢查" aside={p.compliance.some((c: Json) => c.status !== '通過') ? '有項目需注意' : '全部通過'}>
+          <ul className="space-y-1.5 text-[0.95rem]">
+            {p.compliance.map((c: Json) => (
+              <li key={c.item} className="flex gap-2">
+                <span className={`shrink-0 font-medium ${c.status === '通過' ? 'text-down' : c.status === '注意' ? 'text-warn' : 'text-up'}`}>{c.status}</span>
+                <span><span className="font-medium">{c.item}</span>　<span className="text-ink-2">{c.detail}</span></span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       </>)}
     </>
   )

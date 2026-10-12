@@ -34,7 +34,12 @@ def test_verdicts_from_orders():
     assert order == ["全部出清", "減碼", "加碼", "續抱"]
 
 
-def test_add_on_take_profit_uses_new_average_cost():
+def test_add_on_take_profit_uses_new_average_cost(monkeypatch):
+    # 2026-10-12 起預設不分段停利；這裡明確設定停利段數，驗證「設定時」停利價用加碼後成本
+    from src.state import params
+
+    orig = params.basket
+    monkeypatch.setattr(params, "basket", lambda name: {**orig(name), "take_profit": [[0.10, 0.3333], [0.20, 0.5]]})
     items = {i["code"]: i for i in holding_advice.build(_pf(), PRICES, {}, {}, META, _orders(), [], BO, 10_000_000)}
     tp = next(c for c in items["2330"]["conditions"] if "停利" in c)
     assert "加碼後成本" in tp  # 平均成本約 1020 → +10% 約 1120，不會低於加碼價 1060

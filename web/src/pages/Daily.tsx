@@ -107,7 +107,7 @@ export default function Daily() {
       ) : !orders.length ? (
         <Empty>這份報告沒有{ASSET_LABEL[tab]}的交易建議。</Empty>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
+        <div className="grid items-start gap-6 lg:grid-cols-[17rem_1fr]">
           <nav aria-label="建議清單" className="space-y-1 rounded-xl border border-line bg-paper p-2 shadow-sm lg:sticky lg:top-16 lg:self-start">
             {orders.map((o) => {
               const active = sel?.code === o.code

@@ -30,7 +30,12 @@ def market_context(target: dt.date, use_memory: bool = False) -> dict:
     codes = universe.liquid_universe(panel, target)
     etf = {c for c in codes if stock_meta(c)["is_etf"]}
     tx = market_data.taiex(3)
-    alpha_out = alpha_model.run(panel, codes, tx.Close, target, etf)
+    # 手上的持股就算變成處置股（被排除在選股池外）也要有預測，結單轉股才能比較（例：10/12 聯茂）
+    try:
+        held = [c for c in pfm.build_portfolio().positions if c not in codes and len(panel.get(c, [])) >= 300]
+    except Exception:  # noqa: BLE001
+        held = []
+    alpha_out = alpha_model.run(panel, codes + held, tx.Close, target, etf)
     return {"us_hist": us_hist, "panel": panel, "codes": codes, "etf": etf, "taiex": tx, "alpha": alpha_out,
             "target": target}
 

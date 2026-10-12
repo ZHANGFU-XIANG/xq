@@ -49,7 +49,7 @@ export default function News() {
         </section>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid items-start gap-6 lg:grid-cols-3">
       <div className="min-w-0 lg:col-span-2">
       <Section title={`最新新聞（${news.length}）`}
         aside={

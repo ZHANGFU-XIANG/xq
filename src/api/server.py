@@ -53,9 +53,14 @@ def _warm():
         sync.pull()
         on_demand.context()  # 預載全市場日 K 與當日模型
         WARM["ready"] = True
+        WARM["seconds"] = round(time.time() - WARM["started"])  # 10 年資料後的預載耗時（/api/status 可看）
+        log.info("預載完成：%d 秒", WARM["seconds"])
         data.live_alerts(refresh=True)  # 預先計算警示（含新聞），期間的請求先拿報告內的警示
         data.live_intraday(refresh=True)  # 預先計算盤中／建倉建議（期間的請求先拿雲端存檔）
         data.track_record()
+        from src.agents import daytrade
+
+        daytrade.daily()  # 預先計算當沖日線分數與回測
     except Exception as e:  # noqa: BLE001
         WARM["error"] = str(e)[:200]
         log.exception("預載失敗")
@@ -113,7 +118,7 @@ def status(request: Request):
     except HTTPException:
         authed = False
     return {"auth_required": auth.auth_required(), "authenticated": authed, "warm": WARM["ready"],
-            "warm_error": WARM["error"], "mode": "cloud" if sync.cloud() else "local", "sync": sync.state,
+            "warm_error": WARM["error"], "warm_seconds": WARM.get("seconds"), "mode": "cloud" if sync.cloud() else "local", "sync": sync.state,
             "target_date": on_demand.current_target().isoformat(), "build": build_id()}
 
 
@@ -352,6 +357,46 @@ def data_sources():
 @app.get("/api/decisions", dependencies=[api])
 def decisions_():
     return data.decision_board()
+
+
+@app.get("/api/picks", dependencies=[api])
+def picks_(limit: int = 20, etf: bool = False, budget: float | None = None, split: int = 1, odd: bool = False,
+           max_price: float | None = None):
+    return data.high_return_picks(min(max(limit, 5), 50), etf, budget if budget and budget > 0 else None,
+                                  min(max(split, 1), 20), odd, max_price if max_price and max_price > 0 else None)
+
+
+@app.get("/api/events", dependencies=[api])
+def events_():
+    from src.agents import events
+
+    return events.scan()
+
+
+@app.get("/api/us-shock", dependencies=[api])
+def us_shock_(codes: str = ""):
+    from src.agents import us_shock
+
+    return us_shock.view([c for c in codes.split(",") if c] or None)
+
+
+@app.get("/api/exit-plan/{code}", dependencies=[api])
+def exit_plan_(code: str, entry_date: str | None = None, entry_price: float | None = None):
+    return data.exit_plan(code, entry_date, entry_price)
+
+
+@app.get("/api/daytrade", dependencies=[api])
+def daytrade_(refresh: bool = False):
+    from src.agents import daytrade
+
+    return daytrade.board(refresh)
+
+
+@app.get("/api/daytrade/{code}", dependencies=[api])
+def daytrade_stock(code: str):
+    from src.agents import daytrade
+
+    return daytrade.stock(code)
 
 
 @app.get("/api/potential", dependencies=[api])

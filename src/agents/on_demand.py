@@ -230,7 +230,7 @@ def analyze(code: str) -> dict:
         pos = pf.positions[code]
         price = sc["prices"][code]
         rec = recovery.plan(pf, sc["prices"], sc["scores"], ctx["alpha"]["predictions"], meta, sc["ranked"], nav,
-                            rules()["capital"]["initial"], {}, bo)
+                            rules()["capital"]["initial"], {}, bo, alts=rotation_alts())
         sells = sizer.plan_sells(pf, sc["prices"], sc["feats"], sc["scores"], meta, nav, rec["actions"])
         mine = next((o for o in sells if o["code"] == code), None)
         item = next((i for i in rec["items"] if i["code"] == code), None)
@@ -242,7 +242,7 @@ def analyze(code: str) -> dict:
         out["sell_order"] = mine
         out["recovery"] = item
     elif is_etf:
-        order = sizer.size_single(s, "etf", pf, sc["prices"], sc["feats"], nav, alloc, bo)
+        order = sizer.size_single(s, "etf", pf, sc["prices"], sc["feats"], nav, alloc, bo, free=True)
         sig = s.get("etf_signal")
         out["verdict"] = ("建議買進（ETF 籃）" if sig == "買進候選" else
                           f"溢價不追：{'；'.join(s.get('etf_risks', []))}" if sig == "溢價不追" else
@@ -255,7 +255,7 @@ def analyze(code: str) -> dict:
             basket = "defense"
         else:
             basket = "offense" if s["score"] >= s["def_score"] else "defense"
-        order = sizer.size_single(s, basket, pf, sc["prices"], sc["feats"], nav, alloc, bo)
+        order = sizer.size_single(s, basket, pf, sc["prices"], sc["feats"], nav, alloc, bo, free=True)
         bname = params.basket(basket)["name"]
         if s["signal"] == "過熱不追":
             out["verdict"] = f"過熱不追：{s['overheat']}；若要佈局，等回檔至試算限價附近再分批"
@@ -280,9 +280,8 @@ def analyze(code: str) -> dict:
                               + (f"。理由：{'；'.join(h['reasons'])}" if h.get("reasons") else ""))
             out["holding_advice"] = {k: h.get(k) for k in ("verdict", "qty", "qty_text", "limit_price", "reasons", "conditions")}
     if out["decision"] == "可以買" and not (out.get("buy_plan") or {}).get("shares"):
-        # 條件符合但算出 0 股（資金或籃子額度已滿）：直接說現在買不了、要怎樣才能買，不要寫「可以買」卻 0 張
-        out["decision"] = "先不要買"
-        out["verdict"] += "；但目前資金或籃子額度已滿，算出可買 0 股——要先賣出預期報酬較低的持股騰出額度才能買"
+        # 個股查詢不套投資組合規則（2026-10-12 使用者要求）：結論只看個股本身，0 股只提示資金不足，不改成「先不要買」
+        out["verdict"] += "；目前帳上現金（含融資）算出 0 股，要買需先準備資金"
     out["news"] = search_news(f"{stock_meta(code)['name']} {code}", 8)
     return {"decision": out.pop("decision"), **out}  # 放最前面，壓縮工具結果時不會被截掉
 
@@ -339,6 +338,17 @@ def simulate(trades: list[dict]) -> dict:
 
 
 _PLAN: dict = {"t": 0.0, "v": None, "key": None}
+
+
+def rotation_alts() -> list[dict] | None:
+    """結單轉股的替代標的：首頁綜合排名（全市場、含資訊事件×可信度、美股重挫）。失敗時回傳 None（改用舊的同籃比較）。"""
+    try:
+        from src.api import data as apidata
+
+        return apidata.high_return_picks(limit=15)["items"]
+    except Exception as e:  # noqa: BLE001
+        log.warning("綜合排名取得失敗，換股改用同籃比較：%s", e)
+        return None
 CHASE_LIMIT = 7.0  # 盤中已漲超過 7% 或漲停：不追
 
 
@@ -374,7 +384,8 @@ def live_plan(realtime: bool = True) -> dict:
     nav = pf.nav(pipeline.with_marks(pf, prices))
     bo = pipeline.basket_of(pf, meta, scores)
     alloc = pipeline.current_allocation(ctx, target, now_tw().date(), nav)
-    rec = recovery.plan(pf, prices, scores, ctx["alpha"]["predictions"], meta, ranked, nav, rules()["capital"]["initial"], {}, bo)
+    rec = recovery.plan(pf, prices, scores, ctx["alpha"]["predictions"], meta, ranked, nav, rules()["capital"]["initial"], {}, bo,
+                        alts=rotation_alts() if pf.positions else None)
     sells = sizer.plan_sells(pf, prices, sc["feats"], scores, meta, nav, rec["actions"])
     deriv = pipeline.derivatives_plan(pf, prices, nav, alloc, scores, sc["us_snap"], now_tw().date())
     buys = sizer.plan_buys(ranked, pf, prices, nav, sells, sc["feats"], alloc, bo, deriv["reserve"])

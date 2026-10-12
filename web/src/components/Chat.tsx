@@ -18,10 +18,10 @@ type Msg = {
 const TOOL_NAMES: Record<string, string> = {
   find_stock: '搜尋股票', stock_profile: '查詢基本盤', analyze_stock: '分析個股', get_daily_report: '讀取每日報告',
   get_portfolio: '讀取持股', search_news: '搜尋新聞', get_macro: '讀取國際大事', get_rules: '讀取競賽規則',
-  get_model_health: '讀取模型表現', get_alerts: '讀取警示', get_holding_advice: '計算持股建議', get_potential_picks: '讀取潛在標的', company_profile: '查詢公開資訊觀測站', import_xq_holdings: '比對 XQ 庫存', simulate_trades: '模擬試算', record_trade: '準備記錄成交', run_analysis: '準備重跑分析',
+  get_model_health: '讀取模型表現', get_alerts: '讀取警示', get_holding_advice: '計算持股建議', get_potential_picks: '讀取潛在標的', company_profile: '查詢公開資訊觀測站', import_xq_holdings: '比對 XQ 庫存', simulate_trades: '模擬試算', record_trade: '準備記錄成交', run_analysis: '準備重跑分析', get_daytrade: '計算當沖排行', get_top_picks: '讀取高報酬推薦', get_exit_plan: '計算退場時間', get_us_shock: '讀取美股重挫預警', get_events: '掃描資訊事件',
 }
 
-const EXAMPLES = ['現在哪些能買、哪些不能買？持股要不要抱？', '今天建議買哪些？為什麼？', '有哪些潛在標的值得留意？', '為什麼沒有推薦聯發科？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我手上的股票該加碼還是賣掉？', '我剛買了 2892 第一金 10 張 38.5 元']
+const EXAMPLES = ['現在推薦買什麼？報酬最高的是哪幾檔？', '我的持股要不要抱？', '預算 30 萬推薦買哪幾檔？', '聯茂什麼時候該出場？', '費半跌了，我的電子股要抱多久？', '今天有哪些因為消息大漲的股票？', '今天有什麼適合當沖的？', '今天建議買哪些？為什麼？', '有哪些潛在標的值得留意？', '為什麼沒有推薦聯發科？', '2603 長榮現在可以買嗎？要買幾張？', '如果我把聯電換成台積電，持股率會變多少？', '我手上的股票該加碼還是賣掉？', '我剛買了 2892 第一金 10 張 38.5 元']
 
 type Conv = { id: string; title: string; updated: number; msgs: Msg[] }
 type Ctx = {

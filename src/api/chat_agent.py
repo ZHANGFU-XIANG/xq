@@ -49,7 +49,7 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 寫作格式：
 - 不使用粗體、井字號標題、表情符號、分隔線、HTML 標籤，也不要用「當然」「好的」「以下是」「希望對你有幫助」「總結來說」「值得注意的是」這類客套或制式用語。
 - 第一句直接給結論；接著用「1. 2. 3.」列出依據（每點附出處）；最後一行以「建議：」開頭寫具體動作。比較多檔時可以用簡單表格。
-- 買賣結論一律用這幾個詞開頭，不要模稜兩可：「可以買」「等回檔再買（到多少價）」「先不要買」「續抱」「減碼」「全部出清」。
+- 買賣結論一律用這幾個詞開頭，不要模稜兩可：「可以買」「等回檔再買（到多少價）」「先不要買」「續抱」「減碼」「全部出清」；當沖問題改用「可以當沖做多」「可以當沖做空」「等突破再進（到多少價）」「先不要當沖」。
   不要寫「可以考慮」「視情況」「建議觀察」這種沒有結論的話；工具判斷是觀望就寫「先不要買」並說原因。
   續抱一定要講續抱的理由（例如沒跌破停損、模型預期報酬仍為正）與「什麼情況要改賣」（停損價、停利價）。
 - 註明資料日期。不要輸出 JSON、英文欄位名稱或工具名稱（例如 get_futures_view、record_transfer）；需要使用者做的事用一般說法，例如「跟我說要從證券戶轉多少到期貨戶」。
@@ -63,11 +63,27 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5. 「如果買/賣…會怎樣」用 simulate_trades 試算，說明成本、持股率與競賽規則影響。
 5c. 使用者貼上看起來像 XQ 庫存表格的內容時，呼叫 import_xq_holdings（text 原樣傳入），說明差異並提醒按確認同步。
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
-5j. 問「現在能買什麼／哪些不能買／要不要換股／今天怎麼做／持股要不要抱」這類總覽問題時，先呼叫 get_decision_board，
+5k. 問「推薦什麼／買什麼報酬高／有什麼好股票／現在能買什麼」時呼叫 get_top_picks（全市場高報酬排行，不看本隊持股），
+    照排名列出前幾檔的綜合預期報酬（score）與組成、勝率、可信度、停損與目標、買點與退場日；使用者說「股價 200 以下」時帶 max_price，給預算時帶 budget；
+    可信度低（只有單一來源、查無消息或公司澄清）要明講可能是傳聞；
+    不要因為本隊持股、資金或籃子額度而改結論。
+5n. 問「今天有什麼消息面的股票／法說會利多／哪些因為消息大漲／能不能追」時呼叫 get_events，
+    照分級回答買法（收盤前買或漲停排隊、隔天開盤買）、持有天數與歷史同類事件報酬，並用新聞標題說明可能原因（標註出處、不要自行推測）。
+5m. 問美股、費半、那斯達克跌了對台股或持股的影響、「電子股跌爛要抱多久」「要不要先跑」時呼叫 get_us_shock，
+    照 level 回答：一般重挫→續抱、約幾天回本；嚴重→開盤先賣、哪天買回；附歷史次數與平均數字。
+5o. 問「要不要結單換股／賣哪檔換哪檔／獲利了要不要換」時呼叫 get_holding_advice，看每檔的 swap（換到哪檔、多幾 %、觸發規則、
+    兩筆委託、競賽規則檢查）；沒有 swap 就說明原因（持有未滿 10 個交易日且獲利未達 10%，或綜合排名最佳股票扣成本後優勢不足）。
+    10 個交易日、1%、10%、2% 這些門檻來自十年回測（避免來回換股付成本），不是競賽規則；競賽規則只有持股率 70%、持有與交易檔數、最後一日規定。
+    換股一律全部賣出、同日買進。
+5l. 問某檔「什麼時候賣／退場／出場／獲利了要不要跑／抱到什麼時候」時呼叫 get_exit_plan，第一句照 verdict（續抱／出場），
+    講退場日、移動停利線與理由。
+5j. 問「我的持股要不要抱／要不要換股／手上的股票今天怎麼做」這類持股問題時，先呼叫 get_decision_board，
     只要寫 2～4 句總結：第一句講現在最該做的一件事（例如先賣哪檔、可以買哪檔），再點出要注意的風險，句末加出處。
     逐檔的結論、張數、限價、理由與停損條件，系統會自動附在你的回答後面，不要再逐檔列出。
 5b. 問到警示、漲跌停、負面新聞、要不要賣、該賣多少時，先呼叫 get_alerts，照工具給的建議股數與理由回答。
-6. 競賽重點：持股率需 ≥70%（每日收盤檢查）、至少 5 檔、10 筆交易、禁止權證、只有正報酬才排名。
+6. 競賽規則（持股率 ≥70%、至少 5 檔、10 筆交易、禁止權證、籃子比例、最短持有天數）只用在「本隊持股、持股建議、交易紀錄、每日／週報告」。
+   查個股、問能不能買、融資、當沖、放空、權證或其他一般投資問題時，不要套用競賽規則、不要加上持股率或籃子額度的限制或提醒，
+   照工具給的個股結論與張數直接回答；使用者要融資就照融資算（成數 60%），要當沖就給當沖計畫。
 5i. 要做週報、週報 PPT、本週交易報告時呼叫 make_weekly_report，回答時說明週次、期間、成交筆數，並提醒用下方的下載按鈕下載。
 5g. 問 ETF 時用 get_etf_view，比例一律用 today_etf_share_pct（今日實際比例），不要把「基準比例」當成今日比例；個別 ETF 用 analyze_stock（含折溢價、類別、ETF 籃張數）；問期貨、台指期、選擇權、避險時用 get_futures_view，並照實說明回測有沒有優勢；沒有優勢就直說不建議。
 5h. 使用者說期貨／選擇權成交時，用 record_trade 並填 contract（例如 TMF202610、TXO202610P46000）；說轉帳到期貨戶或證券戶時用 record_transfer。
@@ -94,6 +110,11 @@ SOURCE_DESC = {
     "get_decision_board": "本系統買賣決策總表（盤中即時價、一個月模型、每日排名）",
     "get_holding_watch": "本系統持股動向（證交所即時報價、一個月模型）",
     "get_value_picks": "本系統平價潛力股排名（一個月模型、注意處置股公告）",
+    "get_top_picks": "本系統高報酬推薦（全市場一個月模型排序、證交所即時報價，不參考本隊持股）",
+    "get_events": "本系統資訊事件偵測（證交所即時價量、新聞與公開資訊觀測站標題；2022～2026 年 15,960 次事件研究）",
+    "get_us_shock": "本系統美股重挫預警（Yahoo Finance 費城半導體收盤、2021～2026 年 117 次重挫事件研究）",
+    "get_exit_plan": "本系統退場規則（回測：時間出場、移動停利、大盤燈號；證交所即時報價）",
+    "get_daytrade": "本系統當沖排行（證交所／櫃買可當沖名單、證交所即時報價、日 K 回測）",
     "get_recovery_plan": "本系統虧損補回計畫（一個月模型、期貨回測、ETF 預估淨值）",
     "get_trade_stats": "本系統交易紀錄統計（data/trades.csv 重播計算，先進先出）",
     "get_regime": "本系統大盤攻守燈號（加權指數日 K 與即時報價、美股 VIX／費半，回測驗證）",
@@ -115,8 +136,11 @@ def _system() -> str:
             f"\n本隊目前持股：{held}。使用者說「我的股票」「持股」「庫存」「這些股票」時就是指這些；"
             "問到持股表現、要不要賣、要不要加碼時，先呼叫 get_portfolio 與 get_holding_watch（盤中動向），需要具體股數再呼叫 get_holding_advice；"
             "問到虧損怎麼補回、ETF 或期貨怎麼操作時呼叫 get_recovery_plan；問便宜又安全的股票時呼叫 get_value_picks；"
+            "問當沖、今天能不能當沖、哪檔適合當沖、某檔可不可以當沖時呼叫 get_daytrade（問特定股票要帶 code），"
+            "第一句照工具的 verdict 給結論（可以當沖做多／可以當沖做空／等突破再進／先不要當沖），講進場價、停損、目標、張數與平倉時間；"
             "問交易紀錄、勝率、賺賠、手續費、操作檢討時呼叫 get_trade_stats；問大盤、該攻該守、要不要撤資時呼叫 get_regime。"
-            "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）。")
+            "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）；"
+            "也不要自己加上工具沒有的風險警語或保守提醒（例如「當沖風險高請謹慎」），使用者已了解風險。")
 
 
 RULES_URL = "https://sites.google.com/gs.takming.edu.tw/2026pmcxc/競賽專區/競賽規則"
@@ -233,7 +257,7 @@ TOOLS = [
     {"name": "get_macro", "description": "最新國際大事與對持股的影響金額、後續決策",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_rules", "description": "競賽規則", "parameters": {"type": "object", "properties": {}}},
-    {"name": "get_holding_advice", "description": "庫存中每檔股票的建議：加碼／續抱／減碼／全部出清，含股數、限價、理由與停損停利條件（依目前庫存與即時價計算）",
+    {"name": "get_holding_advice", "description": "庫存中每檔股票的建議：加碼／續抱／減碼／全部出清，含股數、限價、理由與停損停利條件（依目前庫存與即時價計算）；以及結單轉股（swap：全部賣出換到綜合排名哪一檔、扣成本後多幾 %、觸發規則、兩筆委託、競賽規則檢查）",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_alerts", "description": "即時警示：持股跌停／跌破停損／負面新聞與建議賣出股數、今日建議買進前的風險、全市場漲跌停與原因、注意／處置股",
      "parameters": {"type": "object", "properties": {}}},
@@ -280,6 +304,29 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_decision_board", "description": "買賣決策總表：哪些可以買（張數、限價、資金從哪來）、哪些等回檔再買、哪些先不要買與原因、每檔持股續抱／減碼／出清的理由與改變結論的條件（盤中即時價每 1 分鐘重算）",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_top_picks", "description": "綜合排名（高報酬推薦）：一個月模型＋今天的資訊事件（乘上消息可信度、防假消息）＋美股重挫影響，"
+                                       "換算成綜合預期 20 日報酬排序（不參考本隊持股與資金）；含組成明細、勝率、可信度、買點、停損、目標、退場日",
+     "parameters": {"type": "object", "properties": {
+         "limit": {"type": "integer", "description": "幾檔，預設 10"},
+         "max_price": {"type": "number", "description": "股價上限（元／股），例如 200 代表只看一股 200 元以內"},
+         "budget": {"type": "number", "description": "資金預算（元），只列買得起的股票並算張數"},
+         "split": {"type": "integer", "description": "預算分成幾檔，預設 1"},
+         "odd": {"type": "boolean", "description": "允許零股（預算買不起一張時）"}}}},
+    {"name": "get_events", "description": "今天因消息（法說會、營收、重大訊息、新聞）爆量跳空大漲的股票：分級（買得到的資訊衝擊／漲停／強勢放量）、"
+                                    "漲幅、跳空、量比、買法與持有天數、歷史同類事件報酬、相關新聞與重大訊息標題",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_us_shock", "description": "美股（費城半導體）重挫對台股電子股的影響：最近一晚費半漲跌、是一般重挫（續抱、約幾天回本）還是嚴重（開盤先賣、哪天買回），"
+                                      "每檔持股（或指定代號）與費半的連動 β、估計開盤影響與動作，附歷史事件研究數字",
+     "parameters": {"type": "object", "properties": {"codes": {"type": "string", "description": "逗號分隔代號（選填，預設本隊持股）"}}}},
+    {"name": "get_exit_plan", "description": "個股什麼時候退場、獲利後怎麼出場：退場日、中途檢查日、移動停利線、目前該續抱或出場與理由（持有中用實際買進日與成本，"
+                                       "沒持有則以今天買進試算，也可指定買進日與價格）",
+     "parameters": {"type": "object", "properties": {"code": {"type": "string"},
+                                                     "entry_date": {"type": "string", "description": "買進日 YYYY-MM-DD（選填）"},
+                                                     "entry_price": {"type": "number", "description": "買進價（選填）"}},
+                    "required": ["code"]}},
+    {"name": "get_daytrade", "description": "當沖建議：今日可現股當沖名單中最適合當沖的排行（盤中即時強弱、估計量比、進場價、停損、目標、張數、扣成本後損益）、"
+                                     "整體結論（verdict）與同規則日線回測是否有優勢；給 code 則回傳該檔能不能當沖與理由",
+     "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "股票代號（選填；問特定股票能不能當沖時填）"}}}},
     {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_data_sources", "description": "各資料來源目前狀態：FinMind 各組 token 是否冷卻、證交所／櫃買中心官方來源最近成功或失敗時間",
@@ -493,6 +540,37 @@ def call_tool(name: str, args: dict) -> dict:
             return apidata.holding_watch()
         if name == "get_value_picks":
             return apidata.value_picks(float(args.get("max_price") or 50), limit=10)
+        if name == "get_top_picks":
+            r = apidata.high_return_picks(int(args.get("limit") or 10), budget=args.get("budget") or None,
+                                          split=int(args.get("split") or 1), odd=bool(args.get("odd")),
+                                          max_price=args.get("max_price") or None)
+            return {**r, "items": [{k: v for k, v in i.items() if k != "reasons"} | {"reasons": i["reasons"][:3]} for i in r["items"]]}
+        if name == "get_events":
+            from src.agents import events
+
+            r = events.scan()
+            return {**{k: v for k, v in r.items() if k != "tiers"},
+                    "items": [{**i, "news": [n["title"] for n in i["news"][:3]]} for i in r["items"]]}
+        if name == "get_us_shock":
+            from src.agents import us_shock
+
+            return us_shock.view([c.strip() for c in str(args.get("codes") or "").split(",") if c.strip()] or None)
+        if name == "get_exit_plan":
+            return apidata.exit_plan(str(args["code"]), args.get("entry_date"), args.get("entry_price"))
+        if name == "get_daytrade":
+            from src.agents import daytrade
+
+            if args.get("code"):
+                return daytrade.stock(str(args["code"]))
+            b = daytrade.board()
+            keep = ("rank", "code", "name", "verdict", "signal", "score", "price", "chg_pct", "from_open_pct", "volume_ratio",
+                    "atr_pct", "val20_e8", "short_ok", "entry", "stop", "target", "qty_text", "net_reward_pct", "net_risk_pct",
+                    "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note")
+            slim = lambda r: {k: r[k] for k in keep if r.get(k) is not None}  # noqa: E731
+            return {"verdict": b["verdict"], "time": b["time"], "phase": b["phase"], "phase_note": b["phase_note"],
+                    "counts": b["counts"], "edge": b["edge"], "backtest": b["backtest"], "cost_note": b["cost_note"],
+                    "top": [slim(r) for r in b["top"]], "ranking": [slim(r) for r in b["rows"][:12]], "rules": b["rules"],
+                    "note": b["note"]}
         if name == "get_recovery_plan":
             return apidata.recovery_plan()
         if name == "get_regime":
