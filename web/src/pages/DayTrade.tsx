@@ -137,8 +137,11 @@ function Lookup() {
 export default function DayTrade() {
   const chat = useChat()
   const [tab, setTab] = useState<Tab>('all')
+  const [cap, setCap] = useState(() => { try { return Number(localStorage.getItem('daytrade_cap')) || 0 } catch { return 0 } })
+  const pickCap = (v: number) => { setCap(v); try { localStorage.setItem('daytrade_cap', String(v)) } catch { /* 無法記住也沒關係 */ } }
   const { data: d, isLoading, error } = useQuery<Json>({
-    queryKey: ['daytrade'], queryFn: () => get('/api/daytrade'), refetchInterval: liveEvery(15_000, 300_000),
+    queryKey: ['daytrade', 'board', cap], queryFn: () => get(`/api/daytrade${cap ? `?max_price=${cap}` : ''}`),
+    refetchInterval: liveEvery(15_000, 300_000), placeholderData: (prev: Json) => prev,
   })
   const rows: Json[] = d?.rows ?? []
   const lists: Record<Tab, Json[]> = {
@@ -174,6 +177,16 @@ export default function DayTrade() {
               { key: 'signal', label: '訊號成立', count: lists.signal.length },
               { key: 'wait', label: '等突破', count: lists.wait.length },
             ]} />
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-3 text-sm" role="group" aria-label="股價上限">
+              <span className="mr-1">股價</span>
+              {[0, 100, 200, 500].map((v) => (
+                <button key={v} onClick={() => pickCap(v)}
+                  className={`rounded-md px-3 py-1 ${cap === v ? 'bg-link text-white' : 'border border-line text-ink-2 hover:text-ink'}`}>
+                  {v ? `${v} 元內` : '不限'}
+                </button>
+              ))}
+              {d.max_price ? <span className="ml-1 text-muted">・依昨收篩選，{fmtInt(d.n_in_range)} 檔可當沖標的在範圍內，取當沖適合度前 {rows.length} 檔排名</span> : null}
+            </div>
             <div className="p-4"><Rows rows={lists[tab]} /></div>
           </Section>
           <div className="grid items-start gap-x-6 lg:grid-cols-2">

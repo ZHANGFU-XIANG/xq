@@ -420,20 +420,22 @@ def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cas
     return row
 
 
-_BOARD: dict = {"t": 0.0, "v": None}
+_BOARD: dict = {}  # 股價上限 → {"t": 時間, "v": 結果}
 ORDER = {"可以當沖做多": 0, "可以當沖做空": 1, "等突破再進": 2, "開盤後觀察": 3, "不開新倉": 4, "先不要當沖": 5}
 
 
-def board(refresh: bool = False) -> dict:
-    """當沖排行（盤中 15 秒快取、盤後 5 分鐘）。"""
+def board(refresh: bool = False, max_price: float | None = None) -> dict:
+    """當沖排行（盤中 15 秒快取、盤後 5 分鐘）。max_price：股價上限（元／股，依前一日收盤價），先篩價格再取前 prefilter_n 名。"""
     ttl = 15 if alerts.is_trading_hours() else 300
-    if _BOARD["v"] is not None and not refresh and time.time() - _BOARD["t"] < ttl:
-        return _BOARD["v"]
+    cache = _BOARD.get(max_price)
+    if cache and not refresh and time.time() - cache["t"] < ttl:
+        return cache["v"]
     c = cfg()
     now = now_tw()
     ph, ph_note = phase(now)
     dl = daily()
-    codes = dl["ranked"][:c["prefilter_n"]]
+    ranked = [k for k in dl["ranked"] if not max_price or (dl["rows"][k].get("close") or 0) <= max_price]
+    codes = ranked[:c["prefilter_n"]]
     held = list(pfm.build_portfolio().positions)
     rt = alerts.realtime(codes + held) if ph not in ("休市",) else {}
     nav, cash = _account(rt)
@@ -451,6 +453,7 @@ def board(refresh: bool = False) -> dict:
     out = {
         "time": now.strftime("%Y-%m-%d %H:%M:%S"), "phase": ph, "phase_note": ph_note, "target": str(dl["target"]),
         "trading": alerts.is_trading_hours(), "source": dl["source"], "eligible_count": len(eligible()),
+        "max_price": max_price, "n_in_range": len(ranked),
         "nav": round(nav), "cash": round(cash),
         "counts": {k: sum(1 for r in rows if r["verdict"] == k) for k in ORDER},
         "top": act[:c["top_n"]], "signals": signals[:c["top_n"]], "rows": rows, "backtest": bt,
@@ -469,7 +472,7 @@ def board(refresh: bool = False) -> dict:
                  "回測用日 K 近似盤中訊號（量比條件與停損停利先後順序需要分鐘資料，無法精確回測）；所有數字是規則計算，不是保證。"),
     }
     out["verdict"] = _overall(out, bt)
-    _BOARD.update(t=time.time(), v=out)
+    _BOARD[max_price] = {"t": time.time(), "v": out}
     return out
 
 

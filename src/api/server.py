@@ -386,10 +386,10 @@ def exit_plan_(code: str, entry_date: str | None = None, entry_price: float | No
 
 
 @app.get("/api/daytrade", dependencies=[api])
-def daytrade_(refresh: bool = False):
+def daytrade_(refresh: bool = False, max_price: float | None = None):
     from src.agents import daytrade
 
-    return daytrade.board(refresh)
+    return daytrade.board(refresh, max_price if max_price and max_price > 0 else None)
 
 
 @app.get("/api/daytrade/{code}", dependencies=[api])

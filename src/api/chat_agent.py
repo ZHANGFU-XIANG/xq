@@ -362,7 +362,8 @@ TOOLS = [
                     "required": ["code"]}},
     {"name": "get_daytrade", "description": "當沖建議：今日可現股當沖名單中最適合當沖的排行（盤中即時強弱、估計量比、進場價、停損、目標、張數、扣成本後損益）、"
                                      "整體結論（verdict）與同規則日線回測是否有優勢；給 code 則回傳該檔能不能當沖與理由",
-     "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "股票代號（選填；問特定股票能不能當沖時填）"}}}},
+     "parameters": {"type": "object", "properties": {"code": {"type": "string", "description": "股票代號（選填；問特定股票能不能當沖時填）"},
+                                                     "max_price": {"type": "number", "description": "股價上限（元／股，選填），例如 100 代表只排一股 100 元以內的當沖標的"}}}},
     {"name": "get_potential_picks", "description": "潛在標的：模型看好但今天沒列入下單的股票（候補遞補、過熱等回檔），含排名、分數、為什麼還沒買、觸發條件",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_data_sources", "description": "各資料來源目前狀態：FinMind 各組 token 是否冷卻、證交所／櫃買中心官方來源最近成功或失敗時間",
@@ -562,7 +563,7 @@ def _market_now() -> dict:
     return out
 
 
-def _daytrade_live(code: str = "") -> dict:
+def _daytrade_live(code: str = "", max_price: float | None = None) -> dict:
     """當沖建議：強制以證交所最新即時報價重算（不用快取），並附即時盤勢與個股最新新聞／重大訊息。"""
     from src.agents import daytrade, events
 
@@ -580,13 +581,13 @@ def _daytrade_live(code: str = "") -> dict:
         if ev:
             r["event_today"] = {k: ev.get(k) for k in ("label", "chg_pct", "gap_pct", "volume_ratio", "plan", "stats")}
         return {**r, "market_now": market, "fetched_at": now_tw().strftime("%Y-%m-%d %H:%M:%S")}
-    b = daytrade.board(refresh=True)
+    b = daytrade.board(refresh=True, max_price=max_price)
     keep = ("rank", "code", "name", "verdict", "signal", "score", "price", "chg_pct", "from_open_pct", "volume_ratio",
             "atr_pct", "val20_e8", "short_ok", "entry", "stop", "target", "qty_text", "net_reward_pct", "net_risk_pct",
             "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note", "quote_time", "levels")
     slim = lambda r: {k: r[k] for k in keep if r.get(k) is not None}  # noqa: E731
     return {"verdict": b["verdict"], "time": b["time"], "fetched_at": now_tw().strftime("%Y-%m-%d %H:%M:%S"),
-            "phase": b["phase"], "phase_note": b["phase_note"], "market_now": market,
+            "phase": b["phase"], "phase_note": b["phase_note"], "market_now": market, "max_price": b["max_price"],
             "counts": b["counts"], "edge": b["edge"], "backtest": b["backtest"], "cost_note": b["cost_note"],
             "top": [slim(r) for r in b["top"]], "ranking": [slim(r) for r in b["rows"][:12]], "rules": b["rules"],
             "note": b["note"]}
@@ -657,7 +658,7 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "get_exit_plan":
             return apidata.exit_plan(str(args["code"]), args.get("entry_date"), args.get("entry_price"))
         if name == "get_daytrade":
-            return _daytrade_live(str(args.get("code") or "").strip())
+            return _daytrade_live(str(args.get("code") or "").strip(), float(args.get("max_price") or 0) or None)
         if name == "get_recovery_plan":
             return apidata.recovery_plan()
         if name == "get_regime":

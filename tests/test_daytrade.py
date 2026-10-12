@@ -99,3 +99,20 @@ def test_backtest_runs_on_random_panel(monkeypatch):
     bt = daytrade._backtest(f)
     assert bt and bt["long"] and bt["short"] and bt["open_close"]
     assert bt["long"]["worst"]["avg_net_pct"] <= bt["long"]["best"]["avg_net_pct"]
+
+
+def test_board_price_cap(monkeypatch):
+    rows = {c: {**BASE, "code": c, "close": p, "base_score": s} for c, p, s in
+            [("A", 50.0, 90), ("B", 150.0, 80), ("C", 450.0, 70), ("D", 900.0, 60)]}
+    monkeypatch.setattr(daytrade, "daily", lambda: {"ranked": list(rows), "rows": rows, "backtest": EDGE,
+                                                    "target": "2026-10-13", "source": "測試"})
+    monkeypatch.setattr(daytrade, "eligible", lambda: set(rows))
+    monkeypatch.setattr(daytrade, "phase", lambda now: ("休市", ""))
+    monkeypatch.setattr(daytrade, "_account", lambda rt: (10_000_000, 400_000))
+    monkeypatch.setattr(daytrade.pfm, "build_portfolio", lambda: type("P", (), {"positions": {}})())
+    monkeypatch.setattr(daytrade, "_BOARD", {})
+    codes = lambda cap: [r["code"] for r in daytrade.board(max_price=cap)["rows"]]  # noqa: E731
+    assert codes(None) == ["A", "B", "C", "D"]
+    assert codes(100) == ["A"] and codes(200) == ["A", "B"] and codes(500) == ["A", "B", "C"]
+    b = daytrade.board(max_price=200)
+    assert b["max_price"] == 200 and b["n_in_range"] == 2 and [r["rank"] for r in b["rows"]] == [1, 2]
