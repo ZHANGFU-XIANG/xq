@@ -30,8 +30,8 @@ def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initi
     off = rg["offense"]
     bt = rg["backtest"]
     reasons = [f"{rg['headline']} → 進攻籃 {off * 100:.0f}%（已持續 {rg['days_in_state']} 個交易日）",
-               f"依據：{bt['period']}，{bt['adopted']['name']} 年化 {bt['adopted']['cagr']}%、最大回檔 {bt['adopted']['max_dd']}%，"
-               f"優於{bt['baseline']['name']}（{bt['baseline']['cagr']}%、{bt['baseline']['max_dd']}%）"]
+               "依據（報酬率第一）：十年回測每次前 20 名 20 日報酬，進攻籃在綠燈 6.0%／灰燈 6.2%／紅燈 3.7%，"
+               "都高於穩健籃 4.4%／3.8%／2.1%，勝率相近"]
     tilt = round(cfg["base_offense"] - regime_mod.OFFENSE["中性"], 2)  # 調整 Agent 依兩籃實際表現學到的偏移
     if tilt:
         off += tilt
@@ -82,7 +82,7 @@ def decide(taiex: pd.DataFrame, target: pd.Timestamp, history: list[dict], initi
         etf_reasons.append("綠燈強勢 → ETF −5%，資金優先給進攻個股")
     if history:
         peak = max(max(h["nav"] for h in history), initial)
-        if 1 - nav / peak >= cfg["drawdown_steps"][0][0]:
+        if cfg["drawdown_steps"] and 1 - nav / peak >= cfg["drawdown_steps"][0][0]:
             e += 0.10
             etf_reasons.append(f"總資產回撤 {(1 - nav / peak) * 100:.1f}% → ETF +10%，降低個股波動")
     if remaining_days <= cfg["late_days"] and cum > 0:

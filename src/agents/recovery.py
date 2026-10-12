@@ -137,7 +137,8 @@ def plan(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: dic
             decision = "停損換股"
             why = f"收盤 {price} 已跌破停損價 {stop}，依紀律出場；資金轉往評分最高的候選標的"
         elif swap and swap["ok"]:
-            used.add(swap["to"]["code"])
+            if len(pf.positions) - len(actions) <= st.get("max_positions", 99):
+                used.add(swap["to"]["code"])  # 已在 5 檔以內：一檔替代標的只配一檔持股；超過時讓弱勢持股併入同一檔，集中持股
             decision = "獲利換股" if pnl_pct > 0 else "換股"
             cond = {"獲利結單": f"已獲利 {pnl_pct * 100:+.1f}%（≥ {st['profit_swap_min_pnl'] * 100:.0f}%），且扣成本後多 {swap['gain'] * 100:.1f}%"
                                 f"（門檻 {st['profit_swap_margin'] * 100:.0f}%），今天就可以結單",

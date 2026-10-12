@@ -236,10 +236,10 @@ def test_regime_states_and_lines():
 
     up = [100 * (1.004 ** i) for i in range(120)]  # 穩定上漲 → 綠燈
     r = regime.assess(_tx(up))
-    assert r["state"] == "強勢" and r["level"] == "綠燈" and r["offense"] == 0.85
+    assert r["state"] == "強勢" and r["level"] == "綠燈" and r["offense"] == 1.0
     down = up + [up[-1] * (0.985 ** i) for i in range(1, 30)]  # 連跌 → 跌破季線 −2% → 紅燈
     r2 = regime.assess(_tx(down))
-    assert r2["state"] == "轉弱" and r2["level"] == "紅燈" and r2["offense"] == 0.30
+    assert r2["state"] == "轉弱" and r2["level"] == "紅燈" and r2["offense"] == 1.0  # 報酬率第一：紅燈也全部進攻
     assert r2["lines"]["weak_enter"] < r2["lines"]["ma60"] < r2["lines"]["weak_exit"]
     # 盤中預判：綠燈時即時價跌破轉弱線
     r3 = regime.assess(_tx(up), live_price=r["lines"]["weak_enter"] - 1)
@@ -268,10 +268,10 @@ def test_allocation_follows_regime_and_caps_on_yellow():
     up = _tx([100 * (1.004 ** i) for i in range(120)])
     t = up.index[-1] + pd.Timedelta(days=1)
     a = allocation.decide(up, t, [], 1e7, 1e7, 30, [])
-    assert a["stock_split"]["offense"] == 0.85 and a["regime"]["level"] == "綠燈"
+    assert a["stock_split"]["offense"] == 1.0 and a["regime"]["level"] == "綠燈"
     vix = pd.DataFrame({"Close": [20.0, 30.0]}, index=pd.bdate_range("2026-06-01", periods=2))
     b = allocation.decide(up, t, [], 1e7, 1e7, 30, [], us_hist={"^VIX": vix})
-    assert b["stock_split"]["offense"] == 0.60  # 黃燈：進攻最多 60%
+    assert b["regime"]["level"] == "黃燈" and b["stock_split"]["offense"] == 1.0  # 報酬率第一：黃燈只提醒不減碼
 
 
 def test_deriv_review_equity_method():

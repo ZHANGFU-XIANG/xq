@@ -40,17 +40,17 @@ alpha:
 
 # ---------------------------------------------------------------- 攻守配置（動態）
 allocation:
-  base_offense: 0.60                # 中性時進攻 60% / 穩健 40%；實際依大盤燈號（regime.py）：綠燈 85%、紅燈 30%
+  base_offense: 1.0                 # 2026-10-12 報酬率第一：各燈號都全部進攻（regime.OFFENSE；舊值 0.60，須與 OFFENSE["中性"] 相同）
   min_offense: 0.25
-  max_offense: 0.90
-  drawdown_steps: [[0.04, 0.10], [0.08, 0.20]]                        # 總資產回撤 ≥4% 進攻 −10%，≥8% −20%
+  max_offense: 1.0
+  drawdown_steps: []                # 2026-10-12 取消回撤減碼（未經回測；紅燈全部出場的回測反而更差）；舊值 [[0.04, 0.10], [0.08, 0.20]]
   late_days: 15                     # 剩餘交易日 ≤ 15 時：已正報酬 → 進攻 −10% 保住晉級；仍虧損 → 進攻 +10% 爭取轉正
-  etf: {base: 0.15, min: 0.05, max: 0.35}   # ETF 籃佔「股票＋ETF」目標持股的比例（動態調整）
+  etf: {base: 0.0, min: 0.0, max: 0.0}      # 2026-10-12 報酬率第一：不配置 ETF 籃（進攻前 20 名各燈號都贏全市場）；舊值 base 0.15、0.05～0.35
 
 baskets:
   offense:
     name: 進攻籃
-    max_positions: 6
+    max_positions: 5
     max_weight: 0.25
     allow_margin: true
     buy_threshold: 0.30
@@ -100,7 +100,7 @@ strategy:
   style: aggressive
   target_holding_ratio: 0.90        # 目標持股率（規則下限 70%，保留緩衝）
   max_holding_ratio: 1.00           # 持股率上限（>100% 代表使用融資槓桿）
-  max_positions: 10                 # 兩籃合計上限（各籃上限見 baskets）
+  max_positions: 5                  # 2026-10-12 報酬率第一：集中 5 檔（十年模擬年化中位 90%、最差 78.5%；10 檔 87%／60.6%）；競賽規定最少持有 5 檔
   min_positions: 5
   risk_per_trade: 0.015             # 每筆最大可承受虧損 = 總資產 × 1.5% × 信心係數
   max_weight: 0.25                  # 單一標的上限

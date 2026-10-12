@@ -145,19 +145,19 @@ def test_allocation_reacts_to_regime_drawdown_and_endgame():
     calm = _taiex_series([0.0005, -0.0004] * 60)
     t = calm.index[-1] + pd.Timedelta(days=1)
     base = allocation.decide(calm, t, [], 10_000_000, 10_000_000, 30, [])
-    assert base["stock_split"]["offense"] == 0.60 and base["etf"] == 0.15
+    # 2026-10-12 報酬率第一：各燈號全部進攻、不配置 ETF、取消回撤減碼
+    assert base["stock_split"]["offense"] == 1.0 and base["etf"] == 0.0
     assert abs(base["offense"] + base["defense"] + base["etf"] - 1) < 0.01  # 三籃合計 100%
-    hot = _taiex_series([0.0] * 80 + [0.01] * 25)  # 連漲：2026-10-06 起依回測改為綠燈加攻（舊「過熱就減碼」規則回測無益已移除）
+    hot = _taiex_series([0.0] * 80 + [0.01] * 25)
     r = allocation.decide(hot, hot.index[-1] + pd.Timedelta(days=1), [], 10_000_000, 10_000_000, 30, [])
-    assert r["stock_split"]["offense"] == 0.85 and any("綠燈" in x for x in r["reasons"])
-    assert r["etf"] == 0.10 and any("綠燈" in x for x in r["etf_reasons"])  # 強勢時資金優先給進攻個股
+    assert r["stock_split"]["offense"] == 1.0 and any("綠燈" in x for x in r["reasons"]) and r["etf"] == 0.0
     hist = [{"date": "d", "nav": 10_500_000}]
-    r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%
-    assert r["stock_split"]["offense"] == 0.40 and r["etf"] == 0.25
+    r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%：不再減碼
+    assert r["stock_split"]["offense"] == 1.0
     r = allocation.decide(calm, t, [], 10_000_000, 10_300_000, 10, [])  # 尾聲且為正報酬 → 保住晉級
-    assert r["stock_split"]["offense"] == 0.50 and r["etf"] == 0.25
-    r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 爭取轉正
-    assert r["stock_split"]["offense"] == 0.70 and r["etf"] == 0.15
+    assert r["stock_split"]["offense"] == 0.90
+    r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 爭取轉正（已達上限 100%）
+    assert r["stock_split"]["offense"] == 1.0
 
 
 def test_overheated_stock_not_bought_in_offense():
@@ -226,10 +226,13 @@ def test_tuner_independent_periods_block_overlapping_samples():
     assert tuner.tune_allocation({"alpha": alpha}) is None
 
 
-def test_tuner_needs_significance_and_consistent_halves():
+def test_tuner_needs_significance_and_consistent_halves(monkeypatch):
     import datetime as dt
 
     from src.agents import tuner
+
+    orig = params.allocation  # 現行已全部進攻（上限 100%）；用舊的 60%／上限 90% 驗證調整邏輯
+    monkeypatch.setattr(params, "allocation", lambda: {**orig(), "base_offense": 0.60, "max_offense": 0.90})
 
     def make(diffs):
         out = []

@@ -136,7 +136,9 @@ def _system() -> str:
             f"\n本隊目前持股：{held}。使用者說「我的股票」「持股」「庫存」「這些股票」時就是指這些；"
             "問到持股表現、要不要賣、要不要加碼時，先呼叫 get_portfolio 與 get_holding_watch（盤中動向），需要具體股數再呼叫 get_holding_advice；"
             "問到虧損怎麼補回、ETF 或期貨怎麼操作時呼叫 get_recovery_plan；問便宜又安全的股票時呼叫 get_value_picks；"
-            "問當沖、今天能不能當沖、哪檔適合當沖、某檔可不可以當沖時呼叫 get_daytrade（問特定股票要帶 code），"
+            "問當沖、今天能不能當沖、哪檔適合當沖、某檔可不可以當沖時，每次都要重新呼叫 get_daytrade（問特定股票要帶 code），"
+            "不可沿用前面對話的當沖結果（盤中價格每分鐘在變）；回答要寫出資料時間（fetched_at、quote_time），"
+            "並用 market_now 說明當下盤勢：加權即時漲跌、大盤燈號、美股預警、今天因消息大漲的股票（附新聞標題）；"
             "第一句照工具的 verdict 給結論（可以當沖做多／可以當沖做空／等突破再進／先不要當沖），講進場價、停損、目標、張數與平倉時間；"
             "問交易紀錄、勝率、賺賠、手續費、操作檢討時呼叫 get_trade_stats；問大盤、該攻該守、要不要撤資時呼叫 get_regime。"
             "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）；"
@@ -170,6 +172,17 @@ def _links(name: str, r: dict) -> list[dict]:
 
 
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF️]")
+_CITE_VARIANT = re.compile(r"[【\[［（(]\s*S\s*(\d+)\s*[】\]］）)]")
+# 模型偶爾自己加的制式警語（使用者已了解風險，要求不要；只刪這幾種固定說法，不動有具體數字的風險說明）
+_BOILER = re.compile(r"[，、；]?\s*(請|並)?(務必|自行)?(注意|留意|評估)(當沖|投資|操作)?風險(並謹慎(操作|評估))?[。！]?"
+                     r"|[，、；]?\s*並?遵守競賽規則（如適用）[。]?|[，、；]?\s*投資一定有風險[^。\n]*[。]?")
+
+
+def _norm_cites(text: str) -> str:
+    """出處格式統一成〔S1〕：模型有時寫成【S1】、[S1]、（S1），原本會被判成「未附出處」。"""
+    return _CITE_VARIANT.sub(lambda m: f"〔S{m.group(1)}〕", text or "")
+
+
 _FILLERS = re.compile(r"^(當然|好的|沒問題|以下是[^。：]*[。：]?|希望(以上|這些)?對你有(所)?幫助[。！]?)\s*")
 
 
@@ -185,6 +198,7 @@ def _style(text: str) -> str:
         lines.append(ln.rstrip())
     out = "\n".join(lines).strip()
     out = _FILLERS.sub("", out)
+    out = _BOILER.sub("", out)
     return re.sub(r"\n{3,}", "\n\n", out)
 
 
@@ -492,6 +506,69 @@ def _data_gaps(a: dict) -> dict | None:
                     "這不代表中性，相關分數與排名可能失真，回答時必須以「無法確認：」說明"}
 
 
+
+def _market_now() -> dict:
+    """當沖要看的即時盤勢：加權／櫃買即時指數、大盤燈號、美股（費半）預警、今天因消息爆量大漲的股票。每次都即時抓。"""
+    out: dict = {}
+    try:
+        idx = apidata.live_quotes([]).get("indices") or {}
+        out["indices"] = {k: {f: v.get(f) for f in ("name", "price", "chg_pct", "time")} for k, v in idx.items()}
+    except Exception as e:  # noqa: BLE001
+        out["indices_error"] = str(e)[:80]
+    try:
+        rg = apidata.live_regime()
+        out["regime"] = rg.get("headline")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from src.agents import us_shock
+
+        sh = us_shock.assess()
+        out["us_shock"] = {k: sh.get(k) for k in ("level", "headline", "advice")}
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from src.agents import events
+
+        ev = events.scan()
+        out["events_today"] = [{"code": e["code"], "name": e["name"], "label": e["label"], "chg_pct": e["chg_pct"],
+                                "volume_ratio": e["volume_ratio"], "news": (e.get("news") or [{}])[0].get("title")}
+                               for e in ev["items"][:6]]
+        out["events_time"] = ev["time"]
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _daytrade_live(code: str = "") -> dict:
+    """當沖建議：強制以證交所最新即時報價重算（不用快取），並附即時盤勢與個股最新新聞／重大訊息。"""
+    from src.agents import daytrade, events
+
+    market = _market_now()
+    if code:
+        r = daytrade.stock(code)
+        try:
+            r["news"] = [{k: n.get(k) for k in ("title", "date", "source")} for n in events._headlines(code, r.get("name") or code)[:4]]
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            ev = next((e for e in events.scan()["items"] if e["code"] == code), None)
+        except Exception:  # noqa: BLE001
+            ev = None
+        if ev:
+            r["event_today"] = {k: ev.get(k) for k in ("label", "chg_pct", "gap_pct", "volume_ratio", "plan", "stats")}
+        return {**r, "market_now": market, "fetched_at": now_tw().strftime("%Y-%m-%d %H:%M:%S")}
+    b = daytrade.board(refresh=True)
+    keep = ("rank", "code", "name", "verdict", "signal", "score", "price", "chg_pct", "from_open_pct", "volume_ratio",
+            "atr_pct", "val20_e8", "short_ok", "entry", "stop", "target", "qty_text", "net_reward_pct", "net_risk_pct",
+            "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note", "quote_time")
+    slim = lambda r: {k: r[k] for k in keep if r.get(k) is not None}  # noqa: E731
+    return {"verdict": b["verdict"], "time": b["time"], "fetched_at": now_tw().strftime("%Y-%m-%d %H:%M:%S"),
+            "phase": b["phase"], "phase_note": b["phase_note"], "market_now": market,
+            "counts": b["counts"], "edge": b["edge"], "backtest": b["backtest"], "cost_note": b["cost_note"],
+            "top": [slim(r) for r in b["top"]], "ranking": [slim(r) for r in b["rows"][:12]], "rules": b["rules"],
+            "note": b["note"]}
+
 def call_tool(name: str, args: dict) -> dict:
     try:
         if name == "find_stock":
@@ -558,19 +635,7 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "get_exit_plan":
             return apidata.exit_plan(str(args["code"]), args.get("entry_date"), args.get("entry_price"))
         if name == "get_daytrade":
-            from src.agents import daytrade
-
-            if args.get("code"):
-                return daytrade.stock(str(args["code"]))
-            b = daytrade.board()
-            keep = ("rank", "code", "name", "verdict", "signal", "score", "price", "chg_pct", "from_open_pct", "volume_ratio",
-                    "atr_pct", "val20_e8", "short_ok", "entry", "stop", "target", "qty_text", "net_reward_pct", "net_risk_pct",
-                    "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note")
-            slim = lambda r: {k: r[k] for k in keep if r.get(k) is not None}  # noqa: E731
-            return {"verdict": b["verdict"], "time": b["time"], "phase": b["phase"], "phase_note": b["phase_note"],
-                    "counts": b["counts"], "edge": b["edge"], "backtest": b["backtest"], "cost_note": b["cost_note"],
-                    "top": [slim(r) for r in b["top"]], "ranking": [slim(r) for r in b["rows"][:12]], "rules": b["rules"],
-                    "note": b["note"]}
+            return _daytrade_live(str(args.get("code") or "").strip())
         if name == "get_recovery_plan":
             return apidata.recovery_plan()
         if name == "get_regime":
@@ -675,7 +740,7 @@ def _gemini_thinking(model: str):
     if model.startswith("gemini-2.5"):
         return types.ThinkingConfig(thinking_budget=0)
     if model.startswith("gemini-3"):
-        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)  # 使用者要求不要深度思考
     return None
 
 
@@ -900,6 +965,7 @@ def _run(messages: list[dict], emit, loop, loops: list, user_text: str) -> dict:
             err = e
     if not text and err:
         return {"type": "answer", "text": f"AI 服務暫時無法使用：{str(err)[:120]}", "verified": False}
+    text = _norm_cites(text)
     # 前文（含先前已核實的回答）也算事實來源，延續對話時引用前面的數字不會被誤判
     facts = {"user": user_text, "tools": [o["result"] for o in outputs], "date": now_tw().date().isoformat(),
              "history": [m["content"] for m in messages[:-1]]}
@@ -914,6 +980,7 @@ def _run(messages: list[dict], emit, loop, loops: list, user_text: str) -> dict:
                                                         "查不到的就寫「無法確認」（不要再呼叫寫入類工具）。"}]
         try:
             text2, more = (loops[0])(retry, lambda e: None, start=len(outputs))
+            text2 = _norm_cites(text2)
             facts["tools"] += [o["result"] for o in more]
             outputs = outputs + more
             if verify(_hide_cites(text2), facts)[0]:
