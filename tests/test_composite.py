@@ -16,3 +16,13 @@ def test_clarification_overrides():
     score, note = _news_credibility([{"title": "大立光電澄清媒體報導", "source": "公開資訊觀測站"},
                                      {"title": "毛利率新低", "source": "鉅亨網"}])
     assert score == 0.3 and "澄清" in note
+
+
+def test_daytrade_verdict_follows_tool():
+    from src.api.chat_agent import _fix_daytrade_verdict
+
+    out = [{"tool": "get_daytrade", "result": {"code": "3008", "verdict": "開盤後觀察"}}]
+    assert _fix_daytrade_verdict("大立光明天可以當沖做多。\n1. 細節", out).startswith("大立光明天開盤後觀察。")
+    assert _fix_daytrade_verdict("看好大立光。", out).startswith("開盤後觀察：")
+    # 排行（沒有單一代號）不改
+    assert _fix_daytrade_verdict("可以當沖做多：A", [{"tool": "get_daytrade", "result": {"verdict": "x"}}]) == "可以當沖做多：A"

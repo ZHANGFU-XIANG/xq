@@ -49,7 +49,7 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 寫作格式：
 - 不使用粗體、井字號標題、表情符號、分隔線、HTML 標籤，也不要用「當然」「好的」「以下是」「希望對你有幫助」「總結來說」「值得注意的是」這類客套或制式用語。
 - 第一句直接給結論；接著用「1. 2. 3.」列出依據（每點附出處）；最後一行以「建議：」開頭寫具體動作。比較多檔時可以用簡單表格。
-- 買賣結論一律用這幾個詞開頭，不要模稜兩可：「可以買」「等回檔再買（到多少價）」「先不要買」「續抱」「減碼」「全部出清」；當沖問題改用「可以當沖做多」「可以當沖做空」「等突破再進（到多少價）」「先不要當沖」。
+- 買賣結論一律用這幾個詞開頭，不要模稜兩可：「可以買」「等回檔再買（到多少價）」「先不要買」「續抱」「減碼」「全部出清」；當沖問題改用「可以當沖做多」「可以當沖做空」「等突破再進（到多少價）」「開盤後觀察」「不開新倉」「先不要當沖」，而且一定照工具 verdict 原文，不可自行升級（例如工具寫開盤後觀察，就不能寫成可以當沖做多）。
   不要寫「可以考慮」「視情況」「建議觀察」這種沒有結論的話；工具判斷是觀望就寫「先不要買」並說原因。
   續抱一定要講續抱的理由（例如沒跌破停損、模型預期報酬仍為正）與「什麼情況要改賣」（停損價、停利價）。
 - 註明資料日期。不要輸出 JSON、英文欄位名稱或工具名稱（例如 get_futures_view、record_transfer）；需要使用者做的事用一般說法，例如「跟我說要從證券戶轉多少到期貨戶」。
@@ -64,7 +64,8 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
 5c. 使用者貼上看起來像 XQ 庫存表格的內容時，呼叫 import_xq_holdings（text 原樣傳入），說明差異並提醒按確認同步。
 5d. 問到手上股票要不要加碼、續抱、減碼或賣掉時，呼叫 get_holding_advice，照工具給的結論、股數與條件回答。
 5k. 問「推薦什麼／買什麼報酬高／有什麼好股票／現在能買什麼」時呼叫 get_top_picks（全市場高報酬排行，不看本隊持股），
-    照排名列出前幾檔的綜合預期報酬（score）與組成、勝率、可信度、停損與目標、買點與退場日；使用者說「股價 200 以下」時帶 max_price，給預算時帶 budget；
+    照排名列出前幾檔的綜合預期報酬（score）與組成、勝率、可信度、停損與目標、買點與退場日；這是持有約 40 個交易日的波段推薦，
+    不是當沖，不要寫「收盤前出場」「不可留倉」；使用者說「股價 200 以下」時帶 max_price，給預算時帶 budget；
     可信度低（只有單一來源、查無消息或公司澄清）要明講可能是傳聞；
     不要因為本隊持股、資金或籃子額度而改結論。
 5n. 問「今天有什麼消息面的股票／法說會利多／哪些因為消息大漲／能不能追」時呼叫 get_events，
@@ -139,6 +140,8 @@ def _system() -> str:
             "問當沖、今天能不能當沖、哪檔適合當沖、某檔可不可以當沖時，每次都要重新呼叫 get_daytrade（問特定股票要帶 code），"
             "不可沿用前面對話的當沖結果（盤中價格每分鐘在變）；回答要寫出資料時間（fetched_at、quote_time），"
             "並用 market_now 說明當下盤勢：加權即時漲跌、大盤燈號、美股預警、今天因消息大漲的股票（附新聞標題）；"
+            "（以下只限當沖問題）問當沖買賣時機或掛單價時，用 levels 的買點、賣點、停損回答，並照 levels.note 說明這些價位未經分鐘資料驗證、"
+            "當沖買到就要在賣點或收盤前出場；"
             "第一句照工具的 verdict 給結論（可以當沖做多／可以當沖做空／等突破再進／先不要當沖），講進場價、停損、目標、張數與平倉時間；"
             "問交易紀錄、勝率、賺賠、手續費、操作檢討時呼叫 get_trade_stats；問大盤、該攻該守、要不要撤資時呼叫 get_regime。"
             "建議只能來自工具結果，不要自己加上工具沒有的買賣建議（例如工具沒說減碼就不要建議減碼）；"
@@ -176,6 +179,25 @@ _CITE_VARIANT = re.compile(r"[【\[［（(]\s*S\s*(\d+)\s*[】\]］）)]")
 # 模型偶爾自己加的制式警語（使用者已了解風險，要求不要；只刪這幾種固定說法，不動有具體數字的風險說明）
 _BOILER = re.compile(r"[，、；]?\s*(請|並)?(務必|自行)?(注意|留意|評估)(當沖|投資|操作)?風險(並謹慎(操作|評估))?[。！]?"
                      r"|[，、；]?\s*並?遵守競賽規則（如適用）[。]?|[，、；]?\s*投資一定有風險[^。\n]*[。]?")
+
+
+DT_VERDICTS = ("可以當沖做多", "可以當沖做空", "等突破再進", "開盤後觀察", "不開新倉", "先不要當沖")
+
+
+def _fix_daytrade_verdict(text: str, outputs: list) -> str:
+    """單檔當沖：第一行的結論一定要和工具 verdict 一致（模型有時把「開盤後觀察」寫成「可以當沖做多」）。"""
+    dts = [o["result"] for o in outputs if o["tool"] == "get_daytrade" and isinstance(o["result"], dict)
+           and o["result"].get("code") and o["result"].get("verdict") in DT_VERDICTS]
+    if len(dts) != 1 or not text:
+        return text
+    v = dts[0]["verdict"]
+    first, _, rest = text.partition("\n")
+    for w in DT_VERDICTS:
+        if w != v and w in first:
+            first = first.replace(w, v)
+    if v not in first:
+        first = f"{v}：{first}"
+    return first + ("\n" + rest if rest else "")
 
 
 def _norm_cites(text: str) -> str:
@@ -561,7 +583,7 @@ def _daytrade_live(code: str = "") -> dict:
     b = daytrade.board(refresh=True)
     keep = ("rank", "code", "name", "verdict", "signal", "score", "price", "chg_pct", "from_open_pct", "volume_ratio",
             "atr_pct", "val20_e8", "short_ok", "entry", "stop", "target", "qty_text", "net_reward_pct", "net_risk_pct",
-            "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note", "quote_time")
+            "profit_at_target", "loss_at_stop", "trigger", "plan", "reasons", "size_note", "quote_time", "levels")
     slim = lambda r: {k: r[k] for k in keep if r.get(k) is not None}  # noqa: E731
     return {"verdict": b["verdict"], "time": b["time"], "fetched_at": now_tw().strftime("%Y-%m-%d %H:%M:%S"),
             "phase": b["phase"], "phase_note": b["phase_note"], "market_now": market,
@@ -990,6 +1012,7 @@ def _run(messages: list[dict], emit, loop, loops: list, user_text: str) -> dict:
         except Exception:  # noqa: BLE001
             pass
     text = _style(text)
+    text = _fix_daytrade_verdict(text, outputs)
     text, uncited = _flag_uncited(text) if outputs else (text, 0)
     text += _board_detail(outputs)
     used_model = any(o["tool"] in MODEL_TOOLS for o in outputs)

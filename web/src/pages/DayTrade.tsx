@@ -58,6 +58,7 @@ function Rows({ rows }: { rows: Json[] }) {
                   <td colSpan={11} className="py-2 pr-2 text-sm leading-relaxed text-ink-2">
                     {r.plan && <div className="mb-1 font-medium text-ink">{r.plan}</div>}
                     <div>{(r.reasons ?? []).join('；')}</div>
+                    {r.levels && <div className="mt-1"><span className="font-medium text-ink">技術價位：</span>{r.levels.text}</div>}
                     {r.size_note && <div className="mt-1 text-warn">{r.size_note}</div>}
                     {r.net_reward_pct != null && <div className="mt-1 text-muted">到目標扣成本 +{r.net_reward_pct}%、觸停損含成本 −{r.net_risk_pct}%{r.short_ok ? '' : '；此股暫停先賣後買，只能先買後賣'}</div>}
                   </td>
@@ -67,7 +68,8 @@ function Rows({ rows }: { rows: Json[] }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-muted">點一下列可展開理由與操作計畫；損益已扣手續費與證交稅。</p>
+      <p className="mt-2 text-xs text-muted">點一下列可展開理由、操作計畫與技術價位（買點、賣點、停損）；損益已扣手續費與證交稅。
+        技術價位未經分鐘資料驗證：日 K 回測掛支撐價買進後抱到收盤平均是虧的，買到就要在賣點或收盤前出場。</p>
     </div>
   )
 }
@@ -124,6 +126,8 @@ function Lookup() {
             {data.daily_rank && <span className="text-muted">當沖適合度第 {data.daily_rank}／{data.daily_total} 名</span>}</div>
           {data.plan && <div className="font-medium">{data.plan}</div>}
           <div className="text-ink-2">{(data.reasons ?? []).join('；')}</div>
+          {data.levels && <div className="mt-1"><span className="font-medium">技術價位：</span>{data.levels.text}</div>}
+          {data.levels && <div className="mt-1 text-xs text-muted">{data.levels.note}</div>}
         </div>
       )}
     </div>

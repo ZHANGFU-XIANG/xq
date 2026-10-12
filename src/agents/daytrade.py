@@ -209,6 +209,8 @@ def daily(refresh: bool = False) -> dict:
             "trend": "多頭排列" if tr == 1.0 else "站上月線" if tr == 0.6 else "月線之下",
             "base_score": _num(last["score"].get(code), 1), "cost_pct": round(float(f["cost"][code]), 3),
             "data_date": str(f["C"][code].dropna().index[-1].date()),
+            "prev_high": _num(last["H"].get(code)), "prev_low": _num(last["L"].get(code)),
+            "ma5": _num(last["ma5"].get(code)), "ma20": _num(last["ma20"].get(code)),
         }
     ranked = sorted((c for c, r in rows.items() if r["base_score"] is not None), key=lambda c: -rows[c]["base_score"])
     out = {"target": target, "rows": rows, "ranked": ranked, "backtest": _backtest(f),
@@ -286,11 +288,39 @@ def _pnl(code: str, shares: int, entry: float, exit_: float, side: str) -> int:
     return int(sell_amt - buy_amt - fee(buy_amt) - fee(sell_amt) - tax)
 
 
+LEVELS_NOTE = ("技術價位（前一日樞紐點、前日高低、均線）只供掛單參考，未經分鐘資料驗證：2025-10～2026-10 日 K 回測，"
+               "掛支撐價買進後抱到收盤，S1 每筆 −0.51%、S2 −0.25%、前日低點 −0.59%（已扣成本），所以買到支撐價就要在賣點或收盤前出場，"
+               "不可留倉；沒有方法能保證買在絕對低點")
+
+
+def levels(d: dict) -> dict | None:
+    """前一日樞紐點（P、S1、S2、R1、R2）與前日高低、5／20 日線 → 買點區間、賣點區間、停損參考。"""
+    h, l_, c = d.get("prev_high"), d.get("prev_low"), d.get("close")
+    if not (h and l_ and c):
+        return None
+    etf = d.get("is_etf", False)
+    pv = (h + l_ + c) / 3
+    s1, r1 = 2 * pv - h, 2 * pv - l_
+    s2, r2 = pv - (h - l_), pv + (h - l_)
+    t = lambda x, up=False: sizer.round_tick(x, etf, up=up)  # noqa: E731
+    buy1 = t(max(s1, l_))          # 第一買點：S1 與前日低點較高者
+    buy2 = t(min(s1, s2, l_))      # 第二買點（較深的支撐）
+    sell1 = t(pv, up=True)         # 第一賣點：樞紐點
+    sell2 = t(max(r1, h), up=True)  # 第二賣點：R1 與前日高點較高者
+    stop = t(buy2 - 0.5 * (d.get("atr") or 0))
+    return {"pivot": round(pv, 2), "s1": t(s1), "s2": t(s2), "r1": t(r1, up=True), "r2": t(r2, up=True),
+            "prev_high": h, "prev_low": l_, "ma5": d.get("ma5"), "ma20": d.get("ma20"),
+            "buy_zone": [buy2, buy1], "sell_zone": [sell1, sell2], "stop": stop,
+            "text": (f"買點參考：{buy1}（S1／前日低點）、更低接 {buy2}；賣點參考：{sell1}（樞紐點）、{sell2}（R1／前日高點）；"
+                     f"跌破 {stop} 停損；5 日線 {d.get('ma5')}、月線 {d.get('ma20')}"),
+            "note": LEVELS_NOTE}
+
+
 def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cash: float, bt: dict | None = None) -> dict:
     """單檔當沖判斷。d：日線列；q：即時報價；bt：日線回測（require_edge 時，訊號的同規則回測沒有優勢就不給進場）。"""
     c = cfg()
     etf = d["is_etf"]
-    row = {**d, "price": None, "chg_pct": None, "from_open_pct": None, "volume_ratio": None, "range_pos": None,
+    row = {**d, "levels": levels(d), "price": None, "chg_pct": None, "from_open_pct": None, "volume_ratio": None, "range_pos": None,
            "direction": None, "entry": None, "stop": None, "target": None, "reasons": [], "plan": None}
     stop_pct = max(c["stop_atr"] * (d["atr_pct"] or 0), c["min_stop_pct"])
     hist = (f"近 {c['history_days']} 日開盤買收盤賣扣成本勝率 {d['win60'] * 100:.0f}%、平均 {d['oc_mean60']:+.2f}%"
