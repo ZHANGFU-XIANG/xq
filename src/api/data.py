@@ -1497,7 +1497,9 @@ def health() -> dict:
         last = dt.datetime.strptime(f, "%Y%m%d_%H%M").replace(tzinfo=config.TW_TZ)
         age = (now - last).total_seconds() / 60
         stale = trading and 9 * 60 + 10 <= hm <= 13 * 60 + 40 and age > 70
-        add("雲端盤中建議", "error" if stale else "ok", f"最近一次 {last.strftime('%m/%d %H:%M')}（{age:.0f} 分鐘前）",
+        in_session = trading and 9 * 60 <= hm <= 13 * 60 + 40
+        idle = "" if in_session else "（盤中 09:00～13:00 每 40 分鐘一輪，收盤後與休市日不更新，屬正常）"
+        add("雲端盤中建議", "error" if stale else "ok", f"最近一次 {last.strftime('%m/%d %H:%M')}（{age:.0f} 分鐘前）{idle}",
             "盤中每 40 分鐘一輪，超過 70 分鐘沒更新代表排程延遲或失敗" if stale else "")
     elif trading and hm >= 9 * 60 + 10:
         add("雲端盤中建議", "warn", "今天還沒有雲端盤中建議紀錄")

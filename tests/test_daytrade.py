@@ -56,16 +56,22 @@ def test_short_only_when_allowed():
 
 
 def test_limit_and_time_rules():
-    assert ev(q(110.0, up=True))["verdict"] == "先不要當沖"
-    assert ev(q(90.0, down=True))["verdict"] == "先不要當沖"
-    assert ev(q(102.0, lo=99.5), ph="收盤前")["verdict"] == "不開新倉"
+    assert ev(q(110.0, up=True))["verdict"] == "等打開再進" and ev(q(110.0, up=True))["plan"]
+    assert ev(q(90.0, down=True))["verdict"] == "等打開再進"
+    assert ev(q(102.0, lo=99.5), ph="收盤前")["verdict"] == "準備平倉"
     assert ev(q(102.0, lo=99.5), ph="盤前")["verdict"] == "開盤後觀察"
     assert ev(None, ph="盤中")["verdict"] == "開盤後觀察"
 
 
 def test_near_limit_up_not_worth_it():
     r = ev(q(109.5, op=104.0, lo=103.5, prev=100.0))  # 目標被截在漲停前一檔＝進場價，扣成本後沒有空間
-    assert r["verdict"] == "先不要當沖" and "離漲停太近" in r["reasons"][0]
+    assert r["verdict"] == "等回檔再進" and "離漲停太近" in r["reasons"][0] and r["trigger"] < 109.5 and r["plan"]
+
+
+def test_always_recommend():
+    """使用者要求一定要推薦：量很小、沒訊號也給突破價與計畫，不出現「先不要當沖」。"""
+    r = ev(q(99.0, op=100.0, hi=100.2, lo=98.8, vol=500))
+    assert r["verdict"] == "等突破再進" and r["trigger"] and r["plan"]
 
 
 def test_wait_for_breakout_trigger():
@@ -116,3 +122,4 @@ def test_board_price_cap(monkeypatch):
     assert codes(100) == ["A"] and codes(200) == ["A", "B"] and codes(500) == ["A", "B", "C"]
     b = daytrade.board(max_price=200)
     assert b["max_price"] == 200 and b["n_in_range"] == 2 and [r["rank"] for r in b["rows"]] == [1, 2]
+    assert b["verdict"].startswith("當沖推薦") and "A" in b["verdict"] and b["picks"][0]["code"] == "A"

@@ -12,9 +12,10 @@ const VERDICT_STYLE: Record<string, string> = {
   可以當沖做多: 'bg-up text-white',
   可以當沖做空: 'bg-down text-white',
   等突破再進: 'bg-warn/15 text-warn',
+  等回檔再進: 'bg-warn/15 text-warn',
   開盤後觀察: 'bg-mist text-ink-2',
-  不開新倉: 'bg-mist text-ink-2',
-  先不要當沖: 'bg-mist text-muted',
+  準備平倉: 'bg-mist text-ink-2',
+  等打開再進: 'bg-mist text-ink-2',
 }
 
 function Verdict({ v }: { v: string }) {
@@ -150,7 +151,7 @@ export default function DayTrade() {
     signal: rows.filter((r) => r.signal),
     wait: rows.filter((r) => r.verdict === '等突破再進'),
   }
-  const go = d?.verdict?.startsWith('可以當沖')
+  const go = d?.verdict?.startsWith('可以當沖') || d?.verdict?.startsWith('當沖推薦')
   return (
     <>
       <PageTitle aside={<button onClick={() => chat.ask('今天有什麼適合當沖的？能不能當沖？')} className="rounded-md bg-link px-4 py-2 text-sm font-medium text-white hover:opacity-90">問 AI</button>}>

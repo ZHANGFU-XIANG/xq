@@ -5,7 +5,7 @@
 2. 日線分數（每個目標交易日算一次）：波動（ATR%）、流動性（20 日均成交值）、
    近 60 日「開盤買、收盤賣」扣成本後的勝率與平均、短線趨勢 → 挑前 N 檔
 3. 即時判斷（證交所 MIS，盤中每次查詢重算）：站上開盤價與昨收、估計量比、在今日高低區間的位置
-   → 「可以當沖做多／可以當沖做空（先賣後買）／等突破再進／先不要當沖」，附進場、停損、目標、張數、扣成本後損益
+   → 「可以當沖做多／可以當沖做空（先賣後買）／等突破再進／等回檔再進」，附進場、停損、目標、張數、扣成本後損益
 4. 日線回測：每天取日線分數前 N 名「開盤買、收盤賣」扣成本的實際結果，誠實呈現有沒有優勢
    （盤中訊號需要分鐘資料，無法用日線回測，畫面上會標註）
 
@@ -354,16 +354,18 @@ def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cas
     live_reasons = [f"現價 {price}（{q.get('chg_pct'):+.2f}%），距開盤 {from_open:+.2f}%", vr_txt,
                     f"位在今日高低區間 {pos * 100:.0f}% 位置"]
     if q.get("at_limit_up"):
-        row.update(verdict="先不要當沖", reasons=["已漲停鎖住：買不到，也沒有上漲空間"] + live_reasons)
+        row.update(verdict="等打開再進", reasons=["已漲停鎖住：現在買不到"] + live_reasons,
+                   plan=f"漲停打開、站穩開盤價 {op} 上方且估計量比 ≥ {c['min_volume_ratio']} 再做多")
         return row
     if q.get("at_limit_down"):
-        row.update(verdict="先不要當沖", reasons=["已跌停鎖住：買了可能賣不掉"] + live_reasons)
+        row.update(verdict="等打開再進", reasons=["已跌停鎖住：現在掛單不容易成交"] + live_reasons,
+                   plan=f"跌停打開、站回開盤價 {op} 上方再做多")
         return row
     long_ok = price > op and price > prev and pos >= 0.6 and v >= c["min_volume_ratio"]
     short_ok = d["short_ok"] and price < op and price < prev and pos <= 0.4 and v >= c["min_volume_ratio"]
     side = "long" if long_ok else "short" if short_ok else None
     if ph == "收盤前":
-        row.update(verdict="不開新倉", reasons=live_reasons,
+        row.update(verdict="準備平倉", reasons=live_reasons,
                    plan=f"{c['last_entry']} 後不開新倉；已有這檔的當沖部位，{c['flat_by']} 前不論賺賠全部平倉")
         return row
     tick = sizer.tick_size(price, etf)
@@ -378,10 +380,8 @@ def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cas
         if v < c["min_volume_ratio"]:
             missing.append(f"{vr_txt}，低於 {c['min_volume_ratio']}")
         trigger = sizer.round_tick(max(hi or price, op, prev) + tick, etf, up=True)
-        weak = v < 0.5
-        row.update(verdict="先不要當沖" if weak else "等突破再進", reasons=missing + base_reasons[:2],
-                   trigger=None if weak else trigger,
-                   plan=None if weak else f"站上 {trigger} 且估計量比 ≥ {c['min_volume_ratio']} 再做多")
+        row.update(verdict="等突破再進", reasons=missing + base_reasons[:2], trigger=trigger,
+                   plan=f"站上 {trigger} 且估計量比 ≥ {c['min_volume_ratio']} 再做多")
         return row
     dist = max(c["stop_atr"] * (d["atr"] or 0), price * c["min_stop_pct"] / 100)
     entry = price
@@ -397,7 +397,10 @@ def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cas
             target = max(target, sizer.round_tick(q["limit_down"] + tick, etf, up=True))
     net_reward = (abs(target - entry) / entry * 100) - d["cost_pct"]
     if net_reward <= 0:
-        row.update(verdict="先不要當沖", reasons=[f"離{'漲' if side == 'long' else '跌'}停太近，到目標價扣成本只剩 {net_reward:.2f}%"] + live_reasons)
+        back_px = sizer.round_tick(entry - dist, etf) if side == "long" else sizer.round_tick(entry + dist, etf, up=True)
+        row.update(verdict="等回檔再進", trigger=back_px,
+                   reasons=[f"離{'漲' if side == 'long' else '跌'}停太近，現價進場到目標價扣成本只剩 {net_reward:.2f}%"] + live_reasons,
+                   plan=(f"拉回到 {back_px} 附近再做多" if side == "long" else f"反彈到 {back_px} 附近再做空"))
         return row
     sz = _size(d["code"], entry, stop, nav, cash)
     win, loss = _pnl(d["code"], sz["shares"], entry, target, side), _pnl(d["code"], sz["shares"], entry, stop, side)
@@ -421,7 +424,8 @@ def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cas
 
 
 _BOARD: dict = {}  # 股價上限 → {"t": 時間, "v": 結果}
-ORDER = {"可以當沖做多": 0, "可以當沖做空": 1, "等突破再進": 2, "開盤後觀察": 3, "不開新倉": 4, "先不要當沖": 5}
+ORDER = {"可以當沖做多": 0, "可以當沖做空": 1, "等突破再進": 2, "等回檔再進": 3, "開盤後觀察": 4, "準備平倉": 5,
+         "等打開再進": 6, "先不要當沖": 7}
 
 
 def board(refresh: bool = False, max_price: float | None = None) -> dict:
@@ -447,6 +451,7 @@ def board(refresh: bool = False, max_price: float | None = None) -> dict:
     for i, r in enumerate(rows, 1):
         r["rank"] = i
     act = [r for r in rows if r["verdict"].startswith("可以當沖")]
+    picks = act or [r for r in rows if r.get("plan")]  # 一定給推薦：沒有訊號成立時，推薦排行前面、有操作計畫的標的
     signals = [r for r in rows if r.get("signal")]
     k = c["costs"]
     disc = "" if k["fee_discount"] >= 1 else f"（手續費 {k['fee_discount'] * 10:g} 折）"
@@ -456,7 +461,7 @@ def board(refresh: bool = False, max_price: float | None = None) -> dict:
         "max_price": max_price, "n_in_range": len(ranked),
         "nav": round(nav), "cash": round(cash),
         "counts": {k: sum(1 for r in rows if r["verdict"] == k) for k in ORDER},
-        "top": act[:c["top_n"]], "signals": signals[:c["top_n"]], "rows": rows, "backtest": bt,
+        "top": act[:c["top_n"]], "picks": picks[:c["top_n"]], "signals": signals[:c["top_n"]], "rows": rows, "backtest": bt,
         "edge": {s: bool((bt or {}).get(s) and bt[s]["edge"]) for s in ("long", "short")},
         "cost_note": (f"來回成本{disc}：股票約 {(2 * k['commission'] * k['fee_discount'] + k['stock_tax']) * 100:.3f}%"
                       f"（現股當沖證交稅減半 {k['stock_tax'] * 100:.2f}%＋手續費 {k['commission'] * k['fee_discount'] * 100:.4f}%×2），"
@@ -477,22 +482,15 @@ def board(refresh: bool = False, max_price: float | None = None) -> dict:
 
 
 def _overall(out: dict, bt: dict | None) -> str:
-    """整體結論（一句話）：有沒有可以當沖的標的、回測有沒有優勢。"""
-    c = cfg()
+    """整體結論（一句話）：一定給推薦（使用者 2026-10-12 要求不要顯示「先不要當沖」）。"""
     if out["top"]:
         r = out["top"][0]
         return f"可以當沖：第一名 {r['code']} {r['name']}，{r['plan']}"
-    gated = [s for s in ("long", "short") if not out["edge"][s]]
-    if bt and len(gated) == 2 and c.get("require_edge", True):
-        lg, sh = bt.get("long") or {}, bt.get("short") or {}
-        k = c["costs"]
-        rt_cost = (2 * k["commission"] * k["fee_discount"] + k["stock_tax"]) * 100
-        return (f"先不要當沖：以實際交易成本（當沖證交稅 0.15%＋手續費，來回約 {rt_cost:.3f}%）計算，"
-                f"同規則近一年日線回測做多平均 {lg.get('avg_net_pct', 0):+.2f}%、做空 {sh.get('avg_net_pct', 0):+.2f}%（每筆、已扣成本），"
-                "沒有優勢；下方排行只列出盤中最強、最適合當沖的標的與參考價位，回測轉正時會自動改為可以當沖")
-    if out["phase"] in ("休市", "盤前", "收盤後"):
-        return "尚未開盤：下方是依日線分數排出的當沖觀察清單，開盤後依即時價給結論"
-    return "目前沒有符合進場條件的標的：等排行中的股票站上觸發價、量能放大再進場"
+    if out["picks"]:
+        r = out["picks"][0]
+        head = "當沖推薦（尚未開盤）" if out["phase"] in ("休市", "盤前", "收盤後") else "當沖推薦"
+        return f"{head}：第一名 {r['code']} {r['name']}，{r['plan']}"
+    return "當沖推薦：排行計算中，請稍後重新整理"
 
 
 def stock(code: str) -> dict:
@@ -501,12 +499,14 @@ def stock(code: str) -> dict:
     elig = eligible()
     name = stock_meta(code).get("name") or code
     if elig and code not in elig:
-        return {"code": code, "name": name, "verdict": "先不要當沖", "reasons": ["不在證交所／櫃買中心今日可現股當沖名單"]}
+        return {"code": code, "name": name, "verdict": "不在當沖名單", "reasons": ["不在證交所／櫃買中心今日可現股當沖名單，規定上不能現股當沖"],
+                "plan": "改看當沖排行推薦的標的"}
     dl = daily()
     d = dl["rows"].get(code)
     if d is None:
-        return {"code": code, "name": name, "verdict": "先不要當沖",
-                "reasons": ["不在本系統流動性名單（20 日均成交值或歷史資料不足），當沖進出容易被價差吃掉"]}
+        return {"code": code, "name": name, "verdict": "資料不足",
+                "reasons": ["不在本系統流動性名單（20 日均成交值或歷史資料不足），無法計算進場、停損與目標"],
+                "plan": "改看當沖排行推薦的標的"}
     c = cfg()
     gaps = []
     if d["close"] < c["min_price"]:
@@ -523,7 +523,7 @@ def stock(code: str) -> dict:
         d = {**d, "base_score": 0.0}
     r = evaluate(d, rt.get(code), ph, now, nav, cash, dl["backtest"])
     if gaps:
-        r.update(verdict="先不要當沖", reasons=gaps + r["reasons"], plan=None, entry=None, stop=None, target=None)
+        r.update(reasons=r["reasons"] + [f"留意：{g}" for g in gaps])
     rank = next((i for i, x in enumerate(dl["ranked"], 1) if x == code), None)
     return {**r, "phase": ph, "phase_note": ph_note, "daily_rank": rank, "daily_total": len(dl["ranked"]),
             "time": now.strftime("%Y-%m-%d %H:%M:%S")}
