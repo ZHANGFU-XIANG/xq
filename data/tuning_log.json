@@ -73,5 +73,12 @@
   "changes": [],
   "note": "回復 2026-10-09 的 allocation.base_offense 0.65 → 0.60：該次調整用重疊樣本（約 3 個不重疊期間）、在休市日執行且未經回測驗證",
   "checks": 1
+ },
+ {
+  "date": "2026-10-12",
+  "issues": [],
+  "changes": [],
+  "note": "無需調整",
+  "checks": 1
  }
 ]
