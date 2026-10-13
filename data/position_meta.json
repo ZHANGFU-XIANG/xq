@@ -2,21 +2,21 @@
   "5880": {
     "stop": 25.28,
     "tp_stage": 0,
-    "high": 26.450000762939453,
+    "high": 27.200000762939453,
     "shares": 24000,
     "basket": "defense"
   },
   "2889": {
     "stop": 15.43,
     "tp_stage": 0,
-    "high": 16.5,
+    "high": 16.799999237060547,
     "shares": 40416,
     "basket": "defense"
   },
   "2845": {
     "stop": 12.6,
     "tp_stage": 0,
-    "high": 12.95,
+    "high": 13.149999618530273,
     "shares": 36071,
     "basket": "defense"
   },
@@ -45,7 +45,7 @@
     "stop": 936.69,
     "tp_stage": 0,
     "high": 1010.0,
-    "shares": 1041,
+    "shares": 1091,
     "basket": "offense"
   },
   "6196": {
@@ -59,7 +59,7 @@
     "stop": 639.23,
     "tp_stage": 0,
     "high": 806.0,
-    "shares": 1048,
+    "shares": 1000,
     "basket": "offense"
   },
   "2103": {
@@ -75,5 +75,19 @@
     "high": 2330.0,
     "shares": 8,
     "basket": "defense"
+  },
+  "6182": {
+    "stop": 97.31,
+    "tp_stage": 0,
+    "high": 116.0,
+    "shares": 1000,
+    "basket": "offense"
+  },
+  "3037": {
+    "stop": 1046.11,
+    "tp_stage": 0,
+    "high": 1180.0,
+    "shares": 570,
+    "basket": "offense"
   }
 }
