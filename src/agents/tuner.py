@@ -8,6 +8,8 @@
    - 隔夜模型：比較不同 Ridge 正則化與歷史長度，近 60 日命中率較佳才採用
    - 風控：回撤過大時下修每筆風險與單一標的上限；恢復後逐步回到預設
    - 評分權重：依各因子與實際報酬的相關性（IC），由最差因子移 0.05 權重給最佳因子
+   - 演算法參數（strategy_tuner，策略調參 Agent）：投資組合換股規則、當沖、期貨門檻，以十年樣本外回測報酬最大化，
+     只在訓練段挑參數、驗證段不能輸才採用
 5. 每次修改都寫入 data/tuning_log.json（含修改前完整參數，可回復），不得修改競賽規則
 """
 from __future__ import annotations
@@ -21,6 +23,7 @@ import logging
 import numpy as np
 import pandas as pd
 
+from src.agents import strategy_tuner
 from src.config import DATA_DIR, settings
 from src.state import params
 from src.state.portfolio import load_history
@@ -354,6 +357,8 @@ def apply(changes: list[dict], issues: list[dict], today: dt.date, note: str = "
             cur["score_weights"] = ch["after"]
         elif p == "allocation.base_offense":
             cur.setdefault("allocation", {})["base_offense"] = ch["after"]
+        elif strategy_tuner.apply_change(cur, ch):  # 策略調參 Agent：投資組合／當沖／期貨
+            pass
         elif p.startswith("strategy."):
             cur.setdefault("strategy", {})[p.split(".", 1)[1]] = ch["after"]
     params.save_learned(cur)

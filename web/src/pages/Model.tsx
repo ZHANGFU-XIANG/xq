@@ -42,6 +42,41 @@ function groupByDate(log: Json[]) {
   return [...by.values()].sort((x, y) => (x.date < y.date ? 1 : -1))
 }
 
+/** 策略調參 Agent：各演算法十年樣本外回測（主策略以年化 90% 為達標線）。 */
+function Scorecard({ card }: { card: Json }) {
+  if (!card?.algorithms?.length) return null
+  const pf = (v: number | null | undefined) => (v == null ? '—' : fmtRatio(v, 1, true))
+  return (
+    <Section title="演算法回測總表（策略調參 Agent）" aside={`更新 ${String(card.generated ?? '').replace('T', ' ')}`}>
+      <p className="mb-3 text-sm text-ink-2">
+        每週（與重大失誤時）自動用十年樣本外回測調參數：只用前半段挑參數，後半段不能變差才採用，避免「回測漂亮、實戰變差」。主策略達標線：年化 {fmtRatio(card.target_cagr, 0)}。
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-[0.95rem]">
+          <thead className="text-left text-sm text-muted"><tr className="border-b border-line"><th className="py-2 font-normal">演算法</th><th className="font-normal">指標</th><th className="text-right font-normal">回測結果</th><th className="font-normal pl-3">判定</th></tr></thead>
+          <tbody>
+            {card.algorithms.map((a: Json) => (
+              <tr key={a.name} className="border-b border-line/60 align-top">
+                <td className="py-1.5">{a.name}{a.changed && <span className="ml-1 text-xs text-warn">本次已調參</span>}</td>
+                <td className="text-sm text-ink-2">{a.error ? '—' : a.metric}</td>
+                <td className={`num text-right ${tone(a.value)}`}>
+                  {a.error ? '—' : a.metric?.includes('%') ? `${a.value > 0 ? '+' : ''}${a.value?.toFixed(2)}%` : pf(a.value)}
+                  {a.worst != null && <div className="text-xs text-muted">最差起始日 {pf(a.worst)}・回檔 {fmtRatio(a.max_dd, 0)}</div>}
+                </td>
+                <td className="pl-3 text-sm">
+                  {a.error ? <span className="text-warn">失敗：{a.error}</span>
+                    : a.meets_target != null ? (a.meets_target ? <span className="text-up">達標</span> : <span className="text-warn">未達 90%</span>)
+                    : a.has_edge ? <span className="text-up">有正報酬</span> : <span className="text-muted">{a.note}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  )
+}
+
 export default function Model() {
   const { data: m, isLoading, error } = useQuery<Json>({ queryKey: ['model'], queryFn: () => get('/api/model') })
   if (isLoading) return <Loading />
@@ -119,6 +154,7 @@ export default function Model() {
           </div>
         )}
       </Section>
+      <Scorecard card={m.strategy_scorecard} />
       <SystemHealth />
       <DataSources />
       <Section title="調整 Agent 紀錄">

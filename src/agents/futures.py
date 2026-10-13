@@ -23,7 +23,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.agents import futures_data as fd
 from src.agents import market_data
-from src.config import now_tw, rules, settings
+from src.config import now_tw, rules
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
@@ -36,7 +36,9 @@ FEATURE_NAMES = {"r1": "加權 1 日報酬", "r5": "加權 5 日報酬", "r20": 
 
 
 def cfg() -> dict:
-    return settings()["futures"]
+    from src.state import params  # 策略調參 Agent 寫入的覆寫值（config/learned_params.yaml）
+
+    return params.get("futures")
 
 
 # ---------------------------------------------------------------- 特徵

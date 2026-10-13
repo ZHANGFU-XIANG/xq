@@ -87,5 +87,30 @@
   "changes": [],
   "note": "無需調整",
   "checks": 1
+ },
+ {
+  "date": "2026-10-13",
+  "issues": [],
+  "changes": [
+   {
+    "param": "daytrade",
+    "before": {
+     "stop_atr": 0.5,
+     "reward_risk": 2.0,
+     "min_stop_pct": 0.8
+    },
+    "after": {
+     "stop_atr": 1.0,
+     "reward_risk": 1.0,
+     "min_stop_pct": 0.8
+    },
+    "metric_before": -0.657,
+    "metric_after": -0.575,
+    "reason": "策略調參 Agent：當沖做多每筆平均淨報酬 訓練段 -0.51% → -0.43%，驗證段（未參與挑選）-0.80% → -0.72%"
+   }
+  ],
+  "previous_learned": {},
+  "note": "策略調參 Agent 首次執行（十年樣本外回測）",
+  "checks": 1
  }
 ]

@@ -1,2 +1,5 @@
 # 由調整 Agent 自動產生；刪除此檔即回到 settings.yaml 預設值
-{}
+daytrade:
+  min_stop_pct: 0.8
+  reward_risk: 1.0
+  stop_atr: 1.0

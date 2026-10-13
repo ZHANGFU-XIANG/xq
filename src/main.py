@@ -22,7 +22,7 @@ import sys
 import pandas as pd
 
 from src import pipeline
-from src.agents import (alerts, alpha_model, holding_advice, attribution, compliance, filings, macro, market_data, news, recovery, sizer, tuner,
+from src.agents import (alerts, alpha_model, holding_advice, attribution, compliance, filings, macro, market_data, news, recovery, sizer, strategy_tuner, tuner,
                         writer)
 from src.config import DATA_DIR, FACTS_DIR, REPORT_DIR, is_trading_day, next_trading_day, now_tw, rules, stock_meta
 from src.llm.client import get_client
@@ -83,9 +83,15 @@ def run_tuner(ctx: dict, today: dt.date, target: dt.date, nav: float | None, tod
         if ch:
             ch["reason"] = "隔夜模型失準或例行調校：近 60 日命中率較佳的參數組合"
             changes.append(ch)
+    built: dict = {}
+
+    def build_data():  # 一個月模型與策略調參共用同一份特徵資料（只建一次）
+        if "v" not in built:
+            built["v"] = alpha_model.build_panel(ctx["panel"], ctx["codes"], ctx["taiex"].Close, target, ctx["etf"])
+        return built["v"]
+
     if full or "alpha" in types:
-        ch = tuner.tune_alpha(lambda: alpha_model.build_panel(ctx["panel"], ctx["codes"], ctx["taiex"].Close, target,
-                                                              ctx["etf"]))
+        ch = tuner.tune_alpha(build_data)
         if ch:
             ch["reason"] = "一個月模型失準或例行調校：滾動回測分數較佳的超參數"
             changes.append(ch)
@@ -96,6 +102,13 @@ def run_tuner(ctx: dict, today: dt.date, target: dt.date, nav: float | None, tod
         a = tuner.tune_allocation(ev)
         if a:
             changes.append(a)
+    if full or types & {"alpha", "drawdown", "big_loss"}:
+        # 策略調參 Agent：各演算法以十年樣本外回測報酬最大化（訓練段挑參數、驗證段不能輸才採用）
+        try:
+            st_changes, _ = strategy_tuner.run(ctx, target, build_data, extend=full)
+            changes += st_changes
+        except Exception as e:  # noqa: BLE001
+            log.warning("策略調參 Agent 失敗：%s", e)
     changes += tuner.tune_risk(issues)
     note = writer.postmortem({"issues": issues, "changes": [{k: v for k, v in c.items() if k != "trials"} for c in changes],
                               "stats": tuner.summary_stats(ev)}) if (issues or changes) else ""

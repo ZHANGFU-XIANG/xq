@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from src.agents import alerts, sizer
-from src.config import is_trading_day, now_tw, rules, settings, stock_meta
+from src.config import is_trading_day, now_tw, rules, stock_meta
 from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
@@ -31,7 +31,9 @@ SESSION_MIN = 270  # 09:00～13:30
 
 
 def cfg() -> dict:
-    return settings()["daytrade"]
+    from src.state import params  # 策略調參 Agent 寫入的覆寫值（config/learned_params.yaml）
+
+    return params.get("daytrade")
 
 
 def _hm(s: str) -> int:

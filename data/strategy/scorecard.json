@@ -1,0 +1,150 @@
+{
+ "generated": "2026-10-13T19:51:16",
+ "target_cagr": 0.9,
+ "algorithms": [
+  {
+   "name": "投資組合（綜合排名＋結單轉股）",
+   "metric": "年化報酬（5 種起始日中位數）",
+   "value": 1.1967,
+   "worst": 1.11,
+   "max_dd": -0.4953,
+   "target": 0.9,
+   "meets_target": true,
+   "period": "2021-11-01～2026-10-12",
+   "params": {
+    "max_positions": 5,
+    "min_hold_days": 10,
+    "swap_margin": 0.01,
+    "profit_swap_min_pnl": 0.1,
+    "profit_swap_margin": 0.02,
+    "expiry_days": 40
+   },
+   "detail": {
+    "current": {
+     "max_positions": 5,
+     "min_hold_days": 10,
+     "swap_margin": 0.01,
+     "profit_swap_min_pnl": 0.1,
+     "profit_swap_margin": 0.02,
+     "expiry_days": 40
+    },
+    "candidate": {
+     "max_positions": 8,
+     "min_hold_days": 10,
+     "swap_margin": 0.01,
+     "profit_swap_min_pnl": 0.1,
+     "profit_swap_margin": 0.02,
+     "expiry_days": 40
+    },
+    "cur_train": {
+     "median": 0.862,
+     "worst": 0.7414,
+     "max_dd": -0.3988,
+     "from": "2021-11-01",
+     "to": "2024-04-23"
+    },
+    "new_train": {
+     "median": 1.2489,
+     "worst": 0.9736,
+     "max_dd": -0.3042,
+     "from": "2021-11-01",
+     "to": "2024-04-23"
+    },
+    "cur_valid": {
+     "median": 1.6755,
+     "worst": 1.6134,
+     "max_dd": -0.4718,
+     "from": "2024-04-24",
+     "to": "2026-10-12"
+    },
+    "new_valid": {
+     "median": 1.3207,
+     "worst": 1.2302,
+     "max_dd": -0.4973,
+     "from": "2024-04-24",
+     "to": "2026-10-12"
+    },
+    "cur_full": {
+     "median": 1.1967,
+     "worst": 1.11,
+     "max_dd": -0.4953,
+     "from": "2021-11-01",
+     "to": "2026-10-12"
+    },
+    "new_full": {
+     "median": 1.2102,
+     "worst": 1.1332,
+     "max_dd": -0.5658,
+     "from": "2021-11-01",
+     "to": "2026-10-12"
+    },
+    "accepted": false
+   },
+   "changed": false
+  },
+  {
+   "name": "當沖（做多訊號）",
+   "metric": "每筆平均淨報酬 %",
+   "value": -0.5753,
+   "has_edge": false,
+   "params": {
+    "stop_atr": 1.0,
+    "reward_risk": 1.0,
+    "min_stop_pct": 0.8
+   },
+   "detail": {
+    "current": {
+     "stop_atr": 0.5,
+     "reward_risk": 2.0,
+     "min_stop_pct": 0.8
+    },
+    "candidate": {
+     "stop_atr": 1.0,
+     "reward_risk": 1.0,
+     "min_stop_pct": 0.8
+    },
+    "cur_train": -0.5132,
+    "new_train": -0.4328,
+    "cur_valid": -0.8042,
+    "new_valid": -0.7219,
+    "cur_full": -0.6566,
+    "new_full": -0.5753,
+    "unit": "每筆平均淨報酬 %",
+    "accepted": true
+   },
+   "changed": true,
+   "note": "沒有正報酬：不是主力策略，系統只當參考"
+  },
+  {
+   "name": "期貨方向擇時",
+   "metric": "每 5 日超越一直做多",
+   "value": -0.0023,
+   "has_edge": false,
+   "params": {
+    "p_long": 0.6,
+    "p_short": 0.4
+   },
+   "detail": {
+    "current": {
+     "p_long": 0.6,
+     "p_short": 0.4
+    },
+    "candidate": {
+     "p_long": 0.6,
+     "p_short": 0.45
+    },
+    "cur_train": 0.0018,
+    "new_train": 0.002,
+    "cur_valid": -0.0063,
+    "new_valid": -0.0057,
+    "cur_full": -0.0023,
+    "new_full": -0.0019,
+    "unit": "每期（5 日）平均報酬減一直做多",
+    "accepted": false
+   },
+   "changed": false,
+   "note": "沒有正報酬：不是主力策略，系統只當參考"
+  }
+ ],
+ "seconds": 16
+}
