@@ -60,6 +60,7 @@
   "intraday 11:40": "11:42",
   "intraday 12:20": "12:22",
   "intraday 13:00": "13:03",
+  "postclose": "15:59",
   "premarket": "07:09",
   "preopen": "08:23"
  }
