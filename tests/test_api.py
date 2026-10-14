@@ -212,6 +212,10 @@ def test_login_rate_limited_after_five_failures(client, monkeypatch):
 
 def test_potential_excludes_orders(client, monkeypatch):
     monkeypatch.delenv("APP_PASSWORD", raising=False)
+    from src.agents import on_demand
+
+    # 乾淨環境（GitHub Actions 部署前測試）沒有日 K 快取，context() 會下載全市場 10 年資料（實測卡 250 秒）；ETF 候補段落本來就會略過失敗
+    monkeypatch.setattr(on_demand, "context", lambda: (_ for _ in ()).throw(RuntimeError("測試不下載市場資料")))
     r = client.get("/api/potential")
     assert r.status_code == 200
     d = r.json()
