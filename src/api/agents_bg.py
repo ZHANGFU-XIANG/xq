@@ -58,6 +58,20 @@ def _due_send(now) -> str | None:
     return None
 
 
+def _log_forum(now) -> None:
+    """PTT 封鎖 GitHub Actions 的 IP（403），論壇熱度改由網站每天收盤後（14:00 起）記錄一次並寫回 GitHub。"""
+    tag = f"forum {now.date()}"
+    if tag in STATE["sent"] or now.hour < 14 or not is_trading_day(now.date()):
+        return
+    from src.agents import forum_sentiment
+    from src.api import sync
+
+    forum_sentiment._CACHE.clear()
+    forum_sentiment.run(_picks(), write_log=True)
+    sync.put_file("data/forum_log.csv", forum_sentiment.LOG.read_text(encoding="utf-8"), f"forum log {now.date()}")
+    STATE["sent"].add(tag)
+
+
 def tick() -> None:
     from src.agents import agents_catalog, alerts, briefing
     from src.reports import emailer
@@ -67,6 +81,10 @@ def tick() -> None:
     gap = 30 * 60 if trading else 60 * 60
     if not STATE["last_run"] or time.time() - STATE["last_run"] > gap:
         refresh(agents_catalog.FAST if trading else agents_catalog.ALL)
+    try:
+        _log_forum(now)
+    except Exception as e:  # noqa: BLE001
+        log.warning("論壇紀錄失敗：%s", e)
     tag = _due_send(now)
     if tag:
         b = briefing.LAST["v"] if STATE["last_run"] and time.time() - STATE["last_run"] < 40 * 60 else refresh()
