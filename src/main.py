@@ -363,10 +363,13 @@ def main(argv=None) -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["premarket", "preopen", "intraday", "postclose", "weekly", "tune", "record", "backfill"])
+    ap.add_argument("mode", choices=["premarket", "preopen", "intraday", "postclose", "weekly", "tune", "record", "backfill",
+                                       "fullbacktest"])
     ap.add_argument("--date")
     ap.add_argument("--force", action="store_true", help="非交易日也執行")
     ap.add_argument("--rollback", action="store_true", help="tune：回復上一次調整前的參數")
+    ap.add_argument("--tune", action="store_true", help="fullbacktest：另外在全歷史上調參（只報告，不寫入）")
+    ap.add_argument("--refresh", action="store_true", help="fullbacktest：重新下載歷史並重建預測")
     ap.add_argument("--code")
     ap.add_argument("--side", choices=["BUY", "SELL"])
     ap.add_argument("--shares", type=int)
@@ -397,6 +400,12 @@ def main(argv=None) -> None:
         return
     if a.mode == "weekly":
         run_weekly(today)
+        return
+    if a.mode == "fullbacktest":
+        from src.agents import full_backtest
+
+        r = full_backtest.run(tune=a.tune, refresh=a.refresh)
+        print(json.dumps({k: v for k, v in r.items() if k != "tuning"}, ensure_ascii=False, indent=1))
         return
     if a.mode == "backfill":
         from src.agents import backfill

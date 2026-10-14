@@ -7,3 +7,4 @@ data/cache/
 web/node_modules/
 web/dist/
 *.log
+data/strategy/wf_preds_full.csv.gz

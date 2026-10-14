@@ -71,3 +71,12 @@ def next_trading_day(d: dt.date, include_today: bool = False) -> dt.date:
     while not is_trading_day(cur):
         cur += dt.timedelta(days=1)
     return cur
+
+
+def last_closed_session(now: dt.datetime | None = None) -> dt.date:
+    """最近一個「已收盤」的交易日：交易日 14:00 以後算今天，否則往前找。日 K 快取至少要涵蓋到這一天。"""
+    now = now or now_tw()
+    d = now.date() if now.hour >= 14 else now.date() - dt.timedelta(days=1)
+    while not is_trading_day(d):
+        d -= dt.timedelta(days=1)
+    return d

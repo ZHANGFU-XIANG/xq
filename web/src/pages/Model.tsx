@@ -49,7 +49,7 @@ function Scorecard({ card }: { card: Json }) {
   return (
     <Section title="演算法回測總表（策略調參 Agent）" aside={`更新 ${String(card.generated ?? '').replace('T', ' ')}`}>
       <p className="mb-3 text-sm text-ink-2">
-        每週（與重大失誤時）自動用十年樣本外回測調參數：只用前半段挑參數，後半段不能變差才採用，避免「回測漂亮、實戰變差」。主策略達標線：年化 {fmtRatio(card.target_cagr, 0)}。
+        每週（與重大失誤時）用近 5 年樣本外回測檢查參數，模擬「盤後算預測、隔日開盤成交」（實戰做得到的方式）。當沖、期貨只在前半段挑參數、後半段不能變差才採用；投資組合參數因近 5 年模擬對參數太敏感，只列候選，須經下方全歷史回測確認才改。主策略達標線：年化 {fmtRatio(card.target_cagr, 0)}。
       </p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-[0.95rem]">
@@ -62,6 +62,7 @@ function Scorecard({ card }: { card: Json }) {
                 <td className={`num text-right ${tone(a.value)}`}>
                   {a.error ? '—' : a.metric?.includes('%') ? `${a.value > 0 ? '+' : ''}${a.value?.toFixed(2)}%` : pf(a.value)}
                   {a.worst != null && <div className="text-xs text-muted">最差起始日 {pf(a.worst)}・回檔 {fmtRatio(a.max_dd, 0)}</div>}
+                  {a.candidate && <div className="text-xs text-muted">候選（未採用）：{Object.entries(a.candidate).map(([k, v]) => `${k}=${v}`).join('、')}</div>}
                 </td>
                 <td className="pl-3 text-sm">
                   {a.error ? <span className="text-warn">失敗：{a.error}</span>
@@ -73,6 +74,57 @@ function Scorecard({ card }: { card: Json }) {
           </tbody>
         </table>
       </div>
+    </Section>
+  )
+}
+
+/** 全歷史回測：所有查得到的日 K（約 2002 年起樣本外），比較實戰可行的隔日開盤成交與舊的同日收盤假設。 */
+function FullHistory({ r }: { r: Json }) {
+  if (!r?.next_open) return null
+  const pf = (v: number | null | undefined, sign = true) => (v == null ? '—' : fmtRatio(v, 1, sign))
+  const rows: [string, Json][] = [['主策略・隔日開盤成交（實戰）', r.next_open], ['主策略・同日收盤成交（舊假設，做不到）', r.close_same_day],
+    ['加權指數（不含息）', r.next_open.taiex]]
+  if (r.next_open_tuned) rows.splice(1, 0, ['主策略・全歷史調參候選', r.next_open_tuned])
+  const years = Object.keys(r.next_open.yearly ?? {})
+  return (
+    <Section title="全歷史回測（所有查得到的時間）" aside={`${r.next_open.from}～${r.next_open.to}・${r.codes} 檔`}>
+      <p className="mb-3 text-sm text-ink-2">
+        樣本外預測（模型每年只用當時以前的資料重訓）＋當時的流動性篩選＋競賽來回成本 0.585%。「38 日」＝把歷史上每一段 38 個交易日（一次競賽長度）都算一次。{r.note}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-[0.95rem]">
+          <thead className="text-left text-sm text-muted"><tr className="border-b border-line">
+            <th className="py-2 font-normal">情境</th><th className="text-right font-normal">年化</th><th className="text-right font-normal">最大回檔</th>
+            <th className="text-right font-normal">38 日收正機率</th><th className="text-right font-normal">38 日中位</th><th className="text-right font-normal">38 日最差 10%</th></tr></thead>
+          <tbody>
+            {rows.map(([name, x]) => (
+              <tr key={name} className="border-b border-line/60">
+                <td className="py-1.5">{name}</td>
+                <td className={`num text-right ${tone(x.cagr)}`}>{pf(x.cagr)}</td>
+                <td className="num text-right">{pf(x.max_dd, false)}</td>
+                <td className="num text-right">{x.window?.p_positive != null ? fmtRatio(x.window.p_positive, 0) : '—'}</td>
+                <td className={`num text-right ${tone(x.window?.median)}`}>{pf(x.window?.median)}</td>
+                <td className={`num text-right ${tone(x.window?.p10)}`}>{pf(x.window?.p10)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {years.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead className="text-muted"><tr><th className="py-1 text-left font-normal">年度</th>
+              {years.map((y) => <th key={y} className="px-1 text-right font-normal">{String(y).slice(2)}</th>)}</tr></thead>
+            <tbody>
+              {([['策略', r.next_open.yearly], ['大盤', r.next_open.taiex?.yearly]] as [string, Json][]).map(([n, ys]) => (
+                <tr key={n}><td className="py-1">{n}</td>
+                  {years.map((y) => <td key={y} className={`num px-1 text-right ${tone(ys?.[y])}`}>{ys?.[y] == null ? '—' : Math.round(ys[y] * 100)}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1 text-xs text-muted">單位：%（年度報酬）</p>
+        </div>
+      )}
     </Section>
   )
 }
@@ -155,6 +207,7 @@ export default function Model() {
         )}
       </Section>
       <Scorecard card={m.strategy_scorecard} />
+      <FullHistory r={m.full_history} />
       <SystemHealth />
       <DataSources />
       <Section title="調整 Agent 紀錄">

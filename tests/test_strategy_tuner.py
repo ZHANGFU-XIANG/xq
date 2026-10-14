@@ -17,7 +17,7 @@ def _fake(n_days=300, n_codes=30, seed=1):
             for d in dates for i, c in enumerate(codes)]
     preds = pd.DataFrame(rows)
     preds["e_floor"] = preds.groupby("date")["e"].transform("min")
-    return st.Sim(preds, panel)
+    return st.Sim(preds, panel, execution="close")
 
 
 def test_sim_runs_and_respects_positions():
@@ -60,3 +60,10 @@ def test_apply_change_writes_strategy_and_basket():
     assert st.apply_change(cur, {"param": "daytrade", "after": {"stop_atr": 1.0}})
     assert cur["daytrade"] == {"stop_atr": 1.0}
     assert not st.apply_change(cur, {"param": "strategy.risk_per_trade", "after": 0.01})
+
+
+def test_next_open_uses_previous_day_prediction():
+    dates = pd.bdate_range("2022-01-03", periods=3)
+    preds = pd.DataFrame({"date": dates, "code": "1000", "e": [0.1, 0.2, 0.3], "p": 0.5})
+    lag = st.lag_preds(preds)
+    assert list(lag["date"]) == list(dates[1:]) and list(lag["e"]) == [0.1, 0.2]  # t 日預測在 t+1 日才用

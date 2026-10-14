@@ -17,7 +17,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from src.config import CACHE_DIR, settings
+from src.config import CACHE_DIR, last_closed_session, settings
 
 log = logging.getLogger(__name__)
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
@@ -187,6 +187,12 @@ def load_panel(codes: list[str] | None = None, refresh: bool = True) -> dict[str
         return panel
     codes = codes if codes is not None else candidate_codes()
     stale = not PANEL_PKL.exists() or time.time() - PANEL_PKL.stat().st_mtime > 3 * 3600
+    # 收盤後快取若還沒有今天的 K 棒就必須更新：10/08、10/12、10/13 盤後沿用 13:05 盤中快取（未滿 3 小時），
+    # 漲跌歸因整段空白，隔日預掛單也是用前一天的資料算的
+    if panel and not stale and time.time() - PANEL_PKL.stat().st_mtime > 20 * 60:  # Yahoo 還沒更新時最多每 20 分鐘重試
+        latest = pd.Timestamp(last_closed_session())
+        top = [df.index[-1] for df in panel.values() if len(df)]
+        stale = sum(d >= latest for d in top) < len(top) * 0.5
     # history_years 調長（例如 5 → 10 年）時，舊快取整批太短：全部重新下載完整歷史
     cutoff = pd.Timestamp.today() - pd.Timedelta(days=365 * cfg["history_years"] - 180)
     if panel and min(df.index[0] for df in panel.values()) > cutoff:

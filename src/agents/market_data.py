@@ -13,7 +13,7 @@ import time
 import pandas as pd
 import yfinance as yf
 
-from src.config import CACHE_DIR, settings, stock_meta, watchlist
+from src.config import CACHE_DIR, last_closed_session, settings, stock_meta, watchlist
 from src.data import providers
 
 log = logging.getLogger(__name__)
@@ -196,7 +196,34 @@ def taiex(years: int = 3) -> pd.DataFrame:
         return df[["Open", "High", "Low", "Close", "Volume"]]
 
     # 盤前時段 yfinance 最後一列可能是 NaN（10/06 盤前、開盤前更新因此失敗），一律去掉
-    return _cached(f"taiex_{years}y_{dt.date.today()}", fetch, 3).dropna(subset=["Close"])
+    key = f"taiex_{years}y_{dt.date.today()}"
+    df = _cached(key, fetch, 3).dropna(subset=["Close"])
+    latest = pd.Timestamp(last_closed_session())
+    if df.index[-1] < latest:
+        # 10/14 盤前報告的加權指數缺 10/13（歸因變成 10/12）：快取過期就重抓，Yahoo 仍缺就用證交所 MIS 最近一盤補上
+        path = CACHE_DIR / f"{key}.pkl"
+        if path.exists() and time.time() - path.stat().st_mtime > 20 * 60:
+            path.unlink()
+            df = _cached(key, fetch, 3).dropna(subset=["Close"])
+        if df.index[-1] < latest:
+            bar = _taiex_mis_bar()
+            if bar is not None and bar.name == latest:
+                df = pd.concat([df, bar.to_frame().T]).astype(float)
+    return df
+
+
+def _taiex_mis_bar() -> pd.Series | None:
+    """證交所 MIS 加權指數最近一個交易時段的開高低收（收盤後到隔日開盤前都是上一盤）。"""
+    try:
+        import requests
+
+        m = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
+                         params={"ex_ch": "tse_t00.tw", "json": 1, "delay": 0}, timeout=15).json()["msgArray"][0]
+        vals = {"Open": float(m["o"]), "High": float(m["h"]), "Low": float(m["l"]), "Close": float(m["z"]), "Volume": 0.0}
+        return pd.Series(vals, name=pd.Timestamp(m["d"]))
+    except Exception as e:  # noqa: BLE001
+        log.warning("MIS 加權指數補值失敗：%s", e)
+        return None
 
 
 def tw_revenue(code: str) -> dict:

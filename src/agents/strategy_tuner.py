@@ -108,13 +108,31 @@ def extend_preds(data: pd.DataFrame, min_new: int = 20, budget_sec: float = 900)
 
 
 # ---------------------------------------------------------------- 投資組合模擬
-class Sim:
-    """把預測與收盤價整理成陣列，模擬時不再碰 pandas。"""
+def lag_preds(preds: pd.DataFrame) -> pd.DataFrame:
+    """t 日收盤算出的預測移到下一個交易日才使用（實戰：盤後算完、隔日開盤前預掛單）。"""
+    ds = sorted(preds["date"].unique())
+    nxt = dict(zip(ds[:-1], ds[1:]))
+    out = preds[preds["date"].isin(nxt)].copy()
+    out["date"] = out["date"].map(nxt)
+    return out
 
-    def __init__(self, preds: pd.DataFrame, panel: dict[str, pd.DataFrame]):
+
+class Sim:
+    """把預測與價格整理成陣列，模擬時不再碰 pandas。
+
+    execution：
+    - "next_open"（預設，實戰可行）：t 日收盤的預測在 t+1 日開盤成交，持股也以開盤價計值
+    - "close"（舊假設，偏樂觀）：t 日收盤算出預測、同一個收盤價成交——實戰做不到
+      2026-10-14 檢查：同一組參數 close 年化 119.7%、next_open 約 67%、隔日收盤才成交只剩 26%
+    """
+
+    def __init__(self, preds: pd.DataFrame, panel: dict[str, pd.DataFrame], execution: str = "next_open"):
+        field = "Close"
+        if execution == "next_open":
+            preds, field = lag_preds(preds), "Open"
         dates = sorted(preds["date"].unique())
         codes = sorted(c for c in preds["code"].unique() if c in panel)
-        cl = pd.DataFrame({c: panel[c]["Close"] for c in codes})
+        cl = pd.DataFrame({c: panel[c][field] for c in codes})
         cl.index = pd.to_datetime(cl.index)
         cl = cl.reindex(pd.DatetimeIndex(dates))
         self.dates = list(pd.DatetimeIndex(dates))
@@ -352,15 +370,17 @@ def run(ctx: dict, target: dt.date, data_builder=None, extend: bool = True) -> t
     preds = load_preds()
     if len(preds):
         sim = Sim(preds, ctx["panel"])
-        ch, res = tune_portfolio(sim)
-        if ch:
-            changes.append(ch)
-        final = res["new_full"] if ch else res["cur_full"]
+        cand, res = tune_portfolio(sim)
+        # 2026-10-14 起只提候選、不自動寫入：近 5 年模擬對參數極度敏感（換股門檻 1%→2% 年化 75%→177%），
+        # 同方向在 2002～2026 全歷史回測反而變差；要改請先跑 `python -m src.main fullbacktest --tune` 確認
+        ch = None
+        final = res["cur_full"]
         card["algorithms"].append({
             "name": "投資組合（綜合排名＋結單轉股）", "metric": "年化報酬（5 種起始日中位數）", "value": round(final["median"], 4),
             "worst": round(final["worst"], 4), "max_dd": round(final["max_dd"], 4), "target": TARGET_CAGR,
             "meets_target": final["median"] >= TARGET_CAGR, "period": f"{final['from']}～{final['to']}",
-            "params": ch["after"] if ch else res["current"], "detail": _num(res), "changed": bool(ch)})
+            "params": ch["after"] if ch else res["current"], "detail": _num(res), "changed": False,
+            "candidate": cand["after"] if cand else None, "execution": "隔日開盤成交"})
     for name, fn, metric in (("當沖（做多訊號）", lambda: tune_daytrade(ctx, target), "每筆平均淨報酬 %"),
                              ("期貨方向擇時", tune_futures, "每 5 日超越一直做多")):
         try:

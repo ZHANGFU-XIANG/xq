@@ -491,7 +491,7 @@ def track_record() -> dict:
 
 
 def model_health() -> dict:
-    from src.agents import strategy_tuner, tuner
+    from src.agents import full_backtest, strategy_tuner, tuner
 
     r = load_report() or {}
     am = r.get("alpha_model", {})
@@ -500,7 +500,7 @@ def model_health() -> dict:
             "n_stocks": am.get("n_stocks"), "feature_ic": am.get("feature_ic"),
             "live": tr["stats"], "monthly": tr["monthly"], "backfill_note": tr["backfill_note"],
             "tuning_log": tuner.history()[-10:], "learned_params": params.learned(),
-            "strategy_scorecard": strategy_tuner.scorecard()}
+            "strategy_scorecard": strategy_tuner.scorecard(), "full_history": full_backtest.result()}
 
 
 def news(date: str | None = None) -> dict:
