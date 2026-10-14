@@ -3,7 +3,9 @@
 - 觸發：持股新進入「盡快賣出」或「低檔可望反彈」、新的「嚴重」警示（跌停、跌破停損、重大負面新聞等）、
   大盤黃燈／紅燈（撤資預警）、盤中加權指數跌破轉弱線（預判今天收盤變燈）
 - 防洗版：同一檔同一種狀況一天只寄一次；同一分鐘的多則合併成一封
-- 只在雲端模式、交易時段（09:00～13:35）執行；Space 不能連 SMTP，由 GitHub Actions send-email.yml 代寄（用 GitHub Secrets 的 SMTP 設定）
+- 隔夜（收盤後～隔日 09:00，2026-10-14 起）：台指期夜盤 ≤ −1%／≥ +1.5%、費半重挫、美股期貨／台積電 ADR 大跌、
+  VIX 升高、持股收盤後新的重大負面消息（overnight.py），同一種狀況一晚寄一次；夜盤再跌一級（−1% → −2%）會再寄
+- 只在雲端模式執行；Space 不能連 SMTP，由 GitHub Actions send-email.yml 代寄（用 GitHub Secrets 的 SMTP 設定）
 - 寄送失敗 10 分鐘後才重試，避免每分鐘重試洗版
 """
 from __future__ import annotations
@@ -48,19 +50,35 @@ def _events() -> list[tuple[str, str, str]]:
     return out
 
 
+def _overnight_events() -> list[tuple[str, str, str]]:
+    from src.agents import overnight
+
+    s = overnight.snapshot()
+    return [(f"night|{a['key']}", f"{'［' + a['level'] + '］' if a['level'] != '注意' else ''}{a['title']}", a["body"])
+            for a in s["alerts"]]
+
+
 def tick() -> int:
     global _retry_at
-    from src.agents import alerts
+    from src.agents import alerts, overnight
+    from src.config import next_trading_day
     from src.reports import emailer
 
-    if not alerts.is_trading_hours() or time.time() < _retry_at:
+    if time.time() < _retry_at:
         return 0
-    day = now_tw().date().isoformat()
-    new = [(k, t, b) for k, t, b in _events() if f"{day}|{k}" not in _sent]
+    if alerts.is_trading_hours():
+        day, events, where = now_tw().date().isoformat(), _events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
+    elif overnight.in_window():
+        n = now_tw()  # 一晚算到「下一個交易日」：同一種狀況整晚只寄一次
+        day = next_trading_day(n.date(), include_today=n.hour < 9).isoformat()
+        events, where = _overnight_events(), "隔夜即時通知・詳情請開網站「持股 → 隔夜／夜盤」"
+    else:
+        return 0
+    new = [(k, t, b) for k, t, b in events if f"{day}|{k}" not in _sent]
     if not new:
         return 0
     subject = f"[投資競賽] {new[0][1]}" + (f" 等 {len(new)} 則" if len(new) > 1 else "")
-    body = "\n\n".join(f"■ {t}\n{b}" for _, t, b in new) + f"\n\n{now_tw():%H:%M} 盤中即時通知・詳情請開網站「總覽 → 持股動向」"
+    body = "\n\n".join(f"■ {t}\n{b}" for _, t, b in new) + f"\n\n{now_tw():%H:%M} {where}"
     if emailer.send(subject, body, []):
         for k, _, _ in new:
             _sent.add(f"{day}|{k}")

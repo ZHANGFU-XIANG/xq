@@ -319,6 +319,13 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/overnight", dependencies=[api])
+def overnight_():
+    from src.agents import overnight
+
+    return overnight.snapshot()
+
+
 @app.get("/api/intraday", dependencies=[api])
 def intraday_(refresh: bool = False):
     return data.live_intraday(refresh)

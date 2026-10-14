@@ -6,6 +6,7 @@ import HoldingAdvice from '../components/HoldingAdvice'
 import AssetTabs, { useAssetTab } from '../components/AssetTabs'
 import DecisionBoard from '../components/DecisionBoard'
 import HoldingWatch from '../components/HoldingWatch'
+import OvernightWatch from '../components/OvernightWatch'
 import RotationAdvice from '../components/RotationAdvice'
 import Intraday from '../components/Intraday'
 import USShock from '../components/USShock'
@@ -100,6 +101,7 @@ export default function Portfolio() {
       </div>
 
       {tab !== 'holdings' ? <TradeWorkspace view={tab} seg={seg} /> : (<>
+      <OvernightWatch />
       <DecisionBoard />
       <RotationAdvice />
       <HoldingWatch />
