@@ -16,7 +16,7 @@ def _data_guard(**kw) -> dict:
     return data_guard.STATE.get("last") or on_demand.context().get("data_guard") or {"level": "ok", "issues": []}
 
 
-@register("risk", "風險實驗室：壓力測試、追繳點位、VaR、黑天鵝", timeout=120, required=("stress", "alerts"))
+@register("risk", "風險實驗室：壓力測試、追繳點位、VaR、黑天鵝", timeout=240, required=("stress", "alerts"))
 def _risk(**kw) -> dict:
     from src.agents import risk_lab
 
