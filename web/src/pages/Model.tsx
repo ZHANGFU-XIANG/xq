@@ -148,6 +148,35 @@ function FullHistory({ r }: { r: Json }) {
   )
 }
 
+const VNAME: Record<string, string> = { base: '只用價量（現行）', revenue: '＋月營收', chip: '＋三大法人', both: '＋月營收與法人' }
+
+/** 模型研究 Agent：新特徵的樣本外比較，前後兩段都變好且年化提升 ≥ 3 個百分點才採用。 */
+function Research({ r }: { r: Json }) {
+  if (!r?.variants) return null
+  return (
+    <Section title="模型研究（新特徵測試）" aside={`${String(r.generated).slice(0, 10)}・資料自 ${r.data_from}`}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] text-sm">
+          <thead className="text-left text-muted"><tr className="border-b border-line"><th className="py-1 font-normal">特徵</th>
+            <th className="text-right font-normal">組合年化</th><th className="text-right font-normal">前半段</th><th className="text-right font-normal">後半段</th>
+            <th className="text-right font-normal">前 5 名 20 日平均</th><th className="font-normal pl-3">結論</th></tr></thead>
+          <tbody>
+            {Object.entries(r.variants).map(([k, v]: [string, Json]) => (
+              <tr key={k} className="border-b border-line/60">
+                <td className="py-1">{VNAME[k] ?? k}</td>
+                <td className="num text-right">{fmtRatio(v.cagr, 1, true)}</td><td className="num text-right">{fmtRatio(v.first_half, 1, true)}</td>
+                <td className="num text-right">{fmtRatio(v.second_half, 1, true)}</td><td className="num text-right">{fmtRatio(v.top5_avg20, 2, true)}</td>
+                <td className="pl-3 text-xs">{k === 'base' ? '基準' : r.verdicts?.[k]?.adopt ? <span className="text-up">建議採用</span> : <span className="text-muted">{r.verdicts?.[k]?.text}</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-muted">同一段期間、同樣的訓練窗、每年重訓、隔日開盤成交；月營收只用公布後（次月 11 日起）的資料。採用條件：前後兩段都變好且全期年化提升 ≥ 3 個百分點。</p>
+    </Section>
+  )
+}
+
 export default function Model() {
   const { data: m, isLoading, error } = useQuery<Json>({ queryKey: ['model'], queryFn: () => get('/api/model') })
   if (isLoading) return <Loading />
@@ -227,6 +256,7 @@ export default function Model() {
       </Section>
       <Scorecard card={m.strategy_scorecard} />
       <FullHistory r={m.full_history} />
+      <Research r={m.research} />
       <SystemHealth />
       <DataSources />
       <Section title="調整 Agent 紀錄">

@@ -1,0 +1,77 @@
+{
+ "generated": "2026-10-14T20:50:18",
+ "data_from": "2016-01-04",
+ "coverage": {
+  "chip_rows": 4540625,
+  "rev_nonnull": 0.913,
+  "chip_nonnull": 0.992
+ },
+ "variants": {
+  "base": {
+   "cagr": 0.2765,
+   "first_half": 0.2027,
+   "second_half": 0.2503,
+   "max_dd": -0.6076,
+   "from": "2018-01-25",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0289,
+   "top5_win": 0.4852,
+   "features": 29,
+   "seconds": 36
+  },
+  "revenue": {
+   "cagr": 0.2274,
+   "first_half": 0.3747,
+   "second_half": 0.1651,
+   "max_dd": -0.6734,
+   "from": "2018-01-25",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0313,
+   "top5_win": 0.4887,
+   "features": 34,
+   "seconds": 40
+  },
+  "chip": {
+   "cagr": 0.038,
+   "first_half": 0.1676,
+   "second_half": 0.1826,
+   "max_dd": -0.8469,
+   "from": "2018-01-25",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0266,
+   "top5_win": 0.481,
+   "features": 34,
+   "seconds": 40
+  },
+  "both": {
+   "cagr": 0.3498,
+   "first_half": 0.6729,
+   "second_half": 0.1446,
+   "max_dd": -0.5784,
+   "from": "2018-01-25",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0275,
+   "top5_win": 0.489,
+   "features": 39,
+   "seconds": 44
+  }
+ },
+ "verdicts": {
+  "revenue": {
+   "adopt": false,
+   "delta_cagr": -0.0491,
+   "text": "已測試、無足夠優勢（全期年化 -4.9 個百分點；前半 +17.2、後半 -8.5）"
+  },
+  "chip": {
+   "adopt": false,
+   "delta_cagr": -0.2385,
+   "text": "已測試、無足夠優勢（全期年化 -23.9 個百分點；前半 -3.5、後半 -6.8）"
+  },
+  "both": {
+   "adopt": false,
+   "delta_cagr": 0.0733,
+   "text": "已測試、無足夠優勢（全期年化 +7.3 個百分點；前半 +47.0、後半 -10.6）"
+  }
+ },
+ "seconds": 237
+}
