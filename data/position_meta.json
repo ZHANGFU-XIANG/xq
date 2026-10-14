@@ -16,7 +16,7 @@
   "2845": {
     "stop": 12.6,
     "tp_stage": 0,
-    "high": 13.149999618530273,
+    "high": 13.199999809265137,
     "shares": 36071,
     "basket": "defense"
   },
@@ -58,14 +58,14 @@
   "6213": {
     "stop": 639.23,
     "tp_stage": 0,
-    "high": 806.0,
+    "high": 856.0,
     "shares": 1000,
     "basket": "offense"
   },
   "2103": {
     "stop": 27.7,
     "tp_stage": 0,
-    "high": 29.200000762939453,
+    "high": 29.950000762939453,
     "shares": 3000,
     "basket": "offense"
   },
@@ -79,14 +79,14 @@
   "6182": {
     "stop": 97.31,
     "tp_stage": 0,
-    "high": 116.0,
+    "high": 119.0,
     "shares": 1000,
     "basket": "offense"
   },
   "3037": {
     "stop": 1046.11,
     "tp_stage": 0,
-    "high": 1180.0,
+    "high": 1185.0,
     "shares": 570,
     "basket": "offense"
   }
