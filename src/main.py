@@ -17,6 +17,7 @@ import csv
 import datetime as dt
 import json
 import logging
+import os
 import sys
 
 import pandas as pd
@@ -311,6 +312,10 @@ def run_daily(mode: str, today: dt.date) -> dict:
 
 " + body
     emailer.send(f"[投資競賽] {TITLES[mode]} {today}", body, [docx_path, pptx_path, orders_csv])
+    if os.getenv("GITHUB_ACTIONS") and not os.getenv("DRY_RUN"):  # 網站啟動用的市場快照（src/snapshot.py）
+        from src import snapshot
+
+        snapshot.publish(ctx)
     log.info("完成：%s / %s（LLM 呼叫 %d 次，文字來源 %s）", docx_path.name, pptx_path.name, get_client().calls, text["source"])
     print(body)
     return facts

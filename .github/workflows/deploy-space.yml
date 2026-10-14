@@ -8,13 +8,14 @@ on:
     paths-ignore: ["data/**", "reports/**", "config/learned_params.yaml", "docs/**", "README.md"]
   workflow_dispatch:
 
-# 同時只部署一次：連續推送時排隊執行，避免兩個部署同時推到 Space 被拒絕（10/06 22:56 發生過）
+# 同時只部署一次；連續推送時取消舊的、只部署最新版（2026-10-15：原本排隊依序部署，連推 3 次要等 20 分鐘）
 concurrency:
   group: deploy-space
-  cancel-in-progress: false
+  cancel-in-progress: true
 
+# 測試與前端建置平行執行，兩者都成功才推到 Space（2026-10-15 由串行改平行，部署約快 2～3 分鐘）
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,14 +25,32 @@ jobs:
           cache: pip
       # Do not deploy if tests fail (on 10/09 a tuning change broke 2 tests and nothing caught it)
       - name: Test
-        run: pip install -r requirements.txt && python -m pytest -q
+        run: pip install -r requirements.txt && python -m pytest -q -x
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Build web
-        run: cd web && npm ci && npm run build
+        run: cd web && npm ci --prefer-offline --no-audit --no-fund && npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 1
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -52,8 +71,15 @@ jobs:
           git config user.name deploy-bot && git config user.email deploy-bot@users.noreply.github.com
           git add -A && git add -f web/dist && git commit -qm "deploy ${GITHUB_SHA::7}"
           git push -f "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main
+  notify:
+    needs: [test, build, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
       - name: Notify on failure
-        if: failure()
         env:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}

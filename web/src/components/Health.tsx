@@ -32,6 +32,7 @@ export function HealthDot() {
 /** 模型頁：每個雲端排程最後一次執行、資料新鮮度與處理方式。 */
 export default function SystemHealth() {
   const { data, isLoading } = useHealth()
+  const { data: sre } = useQuery<Json>({ queryKey: ['sre'], queryFn: () => get('/api/sre'), refetchInterval: 120_000 })
   return (
     <Section title="系統健康" aside={data ? `檢查時間 ${data.time}` : undefined}>
       <div id="health" />
@@ -52,6 +53,23 @@ export default function SystemHealth() {
             )
           })}
         </ul>
+      )}
+      {sre && (
+        <div className="mt-4">
+          <div className="mb-1 text-sm font-medium">工程師 Agent（每 5 分鐘自我檢查・最近 {sre.last ?? '尚未執行'}）</div>
+          {sre.events?.length ? (
+            <ul className="space-y-1 text-sm">
+              {sre.events.map((e: Json, i: number) => (
+                <li key={i}><span className="num mr-2 text-muted">{e.time}</span>
+                  <span className={e.level === '嚴重' ? 'font-medium text-up' : 'text-warn'}>{e.title}</span>
+                  {e.detail && <span className="ml-1 text-ink-2">{e.detail}</span>}
+                  {e.fixed && <span className="ml-1 text-down">→ {e.fixed}</span>}
+                  {(e.refs ?? []).slice(0, 2).map((r: Json) => <a key={r.url} href={r.url} target="_blank" rel="noreferrer" className="ml-2 text-xs text-link">參考：{r.title.slice(0, 30)}</a>)}
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-sm text-muted">沒有異常事件。</p>}
+        </div>
       )}
       <p className="mt-2 text-xs text-muted">排程失敗時會自動寄 Email 通知；GitHub 的排程可能延遲 5～30 分鐘屬正常。</p>
     </Section>

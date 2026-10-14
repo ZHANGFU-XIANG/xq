@@ -74,6 +74,7 @@ jobs:
       SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
       REPORT_TO: ${{ secrets.REPORT_TO }}
       DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # 上傳網站用的市場快照到 Release（src/snapshot.py）
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

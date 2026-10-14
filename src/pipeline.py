@@ -22,7 +22,17 @@ def market_context(target: dt.date, use_memory: bool = False) -> dict:
     if use_memory:
         with _LOCK:  # 伺服器多個請求同時進來時只算一次
             if target not in _CTX:
-                ctx = market_context(target, use_memory=False)
+                ctx = None
+                import os
+
+                if os.getenv("APP_MODE") == "cloud":  # 網站：先用 GitHub Actions 算好的快照（幾秒），沒有才自己算（約 2 分鐘）
+                    from src import snapshot
+
+                    ctx = snapshot.fetch(target)
+                    if ctx:
+                        market_data.set_panel(ctx["panel"])
+                        log.info("使用市場快照（%s 產生）", ctx["from_snapshot"])
+                ctx = ctx or market_context(target, use_memory=False)
                 _CTX.clear()
                 _CTX[target] = ctx
             return _CTX[target]

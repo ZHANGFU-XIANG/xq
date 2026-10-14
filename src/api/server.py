@@ -66,12 +66,20 @@ def _warm():
         log.exception("預載失敗")
 
 
+def _rewarm():
+    WARM.update(error=None, started=time.time())
+    _warm()
+
+
 @app.on_event("startup")
 def startup():
     sync.start_background()
     if sync.cloud():
         scheduler.start_background()
         notifier.start_background()
+        from src.api import sre
+
+        sre.start_background(WARM, _rewarm)  # EngineerAgent：每 5 分鐘自我檢查、安全的自動修復、異常寄信
     threading.Thread(target=_warm, daemon=True).start()
 
 
@@ -317,6 +325,15 @@ def regime_():
 @app.get("/api/holding-watch", dependencies=[api])
 def holding_watch_():
     return data.holding_watch()
+
+
+@app.get("/api/sre", dependencies=[api])
+def sre_(run: bool = False):
+    from src.api import sre
+
+    if run:
+        sre.tick(WARM, _rewarm)
+    return sre.status()
 
 
 @app.get("/api/risk", dependencies=[api])

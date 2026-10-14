@@ -4,6 +4,12 @@
 
 ## 2026-10-15
 
+**系統體檢 P1：雲端加速與工程師 Agent**
+- 市場快照（`src/snapshot.py`）：GitHub Actions 盤前／開盤前／盤後跑完後把全市場最近 520 日 K、一個月模型結果、加權與美股歷史打包（約 7 MB）上傳到 Release `market-snapshot`；網站啟動先下載快照（實測 3.2 秒），目標日不符才自己算（原本預載約 119 秒）。
+- 部署（`deploy-space.yml`）：測試與前端建置改平行，連續推送取消舊部署只部署最新版，失敗通知改獨立工作（測試失敗也會寄）。
+- EngineerAgent（`src/api/sre.py`、`/api/sre`、模型頁「系統健康」）：每 5 分鐘檢查 GitHub Actions 失敗、排程漏跑、預載與同步、DataGuard、LLM 可用性；自動重新預載、清除過期市場資料；嚴重事件寄信並附 SearchAgent 找到的可能原因。不自動改程式碼。
+- SearchAgent（`src/agents/search_agent.py`）：DuckDuckGo／Google 新聞／Firecrawl（有金鑰時），只回傳標題網址摘要，不經 LLM。
+
 **系統體檢 P0：資料正確與風險可見（計畫 ~/.claude/plans/cuddly-swimming-spark.md）**
 - DataGuardAgent（`src/agents/data_guard.py`）：每次建市場資料時檢查持股與選股池日 K 是否到最近交易日、收盤是否和證交所 MIS 一致（差 0.5% 以上以交易所為準），缺的自動補；持股仍缺價格 → 報告標「資料不完整，勿依此下單」、盤後不寫淨值紀錄。
 - Yahoo 統一存取層（`src/data/yahoo_gateway.py`）：所有 yfinance 呼叫經過同一把鎖限流，被限流時 2／5／12 秒退避，只重抓缺的代號。
