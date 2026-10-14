@@ -61,6 +61,11 @@ def _warm():
         from src.agents import daytrade
 
         daytrade.daily()  # 預先計算當沖日線分數與回測
+        from src.agents import agents_catalog, risk_lab
+        from src.api import agents_bg
+
+        risk_lab.snapshot()  # 風險儀表板（黑天鵝 26 年回測第一次約 2 分鐘）
+        agents_bg.refresh(agents_catalog.FAST)  # 總報告先有快速版，完整版（含 LLM）由背景每小時更新
     except Exception as e:  # noqa: BLE001
         WARM["error"] = str(e)[:200]
         log.exception("預載失敗")

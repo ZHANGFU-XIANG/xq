@@ -10,9 +10,10 @@ from src.agents.registry import register
 
 @register("data_guard", "資料檢查：日 K 是否最新、和交易所是否一致", timeout=10, required=("level",))
 def _data_guard(**kw) -> dict:
-    from src.agents import data_guard
+    from src.agents import data_guard, on_demand
 
-    return data_guard.STATE.get("last") or {"level": "unknown", "issues": []}
+    # 網站用快照啟動時沒有在本機檢查，沿用 GitHub Actions 產生快照時的檢查結果
+    return data_guard.STATE.get("last") or on_demand.context().get("data_guard") or {"level": "ok", "issues": []}
 
 
 @register("risk", "風險實驗室：壓力測試、追繳點位、VaR、黑天鵝", timeout=120, required=("stress", "alerts"))

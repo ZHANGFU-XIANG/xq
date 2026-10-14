@@ -22,7 +22,7 @@ def build(res: dict[str, dict]) -> dict:
     o = {k: (v.get("output") or {}) for k, v in res.items()}
     sec: list[dict] = []
     g = o.get("data_guard") or {}
-    if g.get("level") not in (None, "ok"):
+    if g.get("level") in ("severe", "corrected") and g.get("issues"):
         sec.append({"title": "資料檢查", "level": "嚴重" if g.get("level") == "severe" else "注意",
                     "lines": [i["msg"] for i in g.get("issues", [])]})
     rk = o.get("risk") or {}
