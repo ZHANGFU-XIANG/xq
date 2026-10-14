@@ -33,7 +33,7 @@ export default function ShadowCard() {
         </div>
         <div>
           {ex?.orders?.length > 0 && (<>
-            <div className="mb-1 text-sm font-medium">今天開盤預掛（{ex.source}）</div>
+            <div className="mb-1 text-sm font-medium">{ex.today?.slice(5).replace('-', '/')} 開盤預掛（{ex.source}）</div>
             <ul className="mb-3 space-y-1 text-sm">{ex.orders.map((o: Json) => <li key={o.code + o.action}>{o.text}</li>)}</ul>
           </>)}
           <div className="mb-1 text-sm font-medium">成交價比開盤價差最多的幾筆</div>

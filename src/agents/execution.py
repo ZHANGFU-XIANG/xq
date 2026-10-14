@@ -79,9 +79,13 @@ def preopen_alerts(now: dt.datetime | None = None) -> list[dict]:
 def run() -> dict:
     from src.agents import shadow
 
-    today = now_tw().date()
+    from src.config import next_trading_day
+
+    n = now_tw()
+    # 收盤後（13:30 起）或非交易日：顯示下一個交易日開盤要預掛的單
+    today = n.date() if is_trading_day(n.date()) and (n.hour, n.minute) < (13, 30) else next_trading_day(n.date())
     orders, src = todays_orders(today)
     sh = shadow.run()
-    return {"today": today.isoformat(), "source": src, "orders": open_limits(orders) if orders else [],
+    return {"today": today.isoformat(), "source": src, "orders": open_limits(orders, today) if orders else [],
             "timing_cost": next((b["amount"] for b in sh.get("breakdown", []) if b["name"].startswith("成交時機")), None),
             "worst_fills": sh.get("worst_fills", [])}
