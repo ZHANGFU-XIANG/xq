@@ -86,6 +86,16 @@ def build(res: dict[str, dict]) -> dict:
                   if d and d.get("flags")][:8]
         sec.append({"title": "財報", "level": "嚴重" if any(a["level"] == "嚴重" for a in fr.get("alerts", [])) else None,
                     "lines": lines})
+    cf = o.get("conference") or {}
+    if cf.get("held") or cf.get("picks") or cf.get("recent"):
+        lines = [f"［{a['level']}］{a['title']}：{a['body']}" for a in cf.get("alerts", [])]
+        lines += [f"持股 {x['code']} {x['name']}：{x['date'][5:].replace('-', '/')} {x['time']}（{x['react']}反應）" for x in cf.get("held", [])]
+        lines += [f"前 20 名 {x['code']} {x['name']}：{x['date'][5:].replace('-', '/')} {x['time']}" for x in cf.get("picks", [])[:8]]
+        lines += [f"剛開完 {x['code']} {x['name']}（{x['date'][5:].replace('-', '/')}）：反應日 {x['react_pct']:+.2f}%"
+                  for x in cf.get("recent", []) if x.get("react_pct") is not None][:6]
+        if cf.get("held") or cf.get("picks"):
+            lines.append(f"歷史統計：{cf['stats']['pre']}；{cf['stats']['chase']}")
+        sec.append({"title": "法說會", "level": "注意" if cf.get("alerts") else None, "lines": lines})
     sh = o.get("shadow") or {}
     if sh.get("series"):
         last = sh["series"][-1]

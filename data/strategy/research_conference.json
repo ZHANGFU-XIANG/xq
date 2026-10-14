@@ -1,0 +1,43 @@
+{
+ "generated": "2026-10-14T23:51:38",
+ "data_from": "2011-01-01",
+ "coverage": {
+  "chip_rows": 4540625,
+  "rev_nonnull": 0.838,
+  "chip_nonnull": 0.78
+ },
+ "variants": {
+  "base": {
+   "cagr": 0.3082,
+   "first_half": 0.1463,
+   "second_half": 0.3314,
+   "max_dd": -0.6352,
+   "from": "2013-01-11",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0254,
+   "top5_win": 0.4926,
+   "features": 29,
+   "seconds": 88
+  },
+  "conf": {
+   "cagr": 0.2546,
+   "first_half": 0.2206,
+   "second_half": 0.3481,
+   "max_dd": -0.8203,
+   "from": "2013-01-11",
+   "to": "2026-10-14",
+   "top5_avg20": 0.0243,
+   "top5_win": 0.4907,
+   "features": 32,
+   "seconds": 85
+  }
+ },
+ "verdicts": {
+  "conf": {
+   "adopt": false,
+   "delta_cagr": -0.0536,
+   "text": "已測試、無足夠優勢（全期年化 -5.4 個百分點；前半 +7.4、後半 +1.7）"
+  }
+ },
+ "seconds": 319
+}

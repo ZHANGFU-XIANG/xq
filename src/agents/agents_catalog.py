@@ -97,5 +97,12 @@ def _anomaly(**kw) -> dict:
     return market_anomaly.snapshot()
 
 
-ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "fin_report", "anomaly", "shadow", "debate"]
-FAST = ["data_guard", "risk", "calendar", "overnight", "global", "fact_check", "forum", "fin_report", "anomaly"]  # 不含 LLM 重的，網頁即時用
+@register("conference", "法說會：持股與前 20 名即將召開的法說會、剛開完的反應", timeout=90, required=("held", "picks", "alerts"))
+def _conference(picks: list[str] | None = None, **kw) -> dict:
+    from src.agents import conference
+
+    return conference.run(picks or [])
+
+
+ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "fin_report", "anomaly", "conference", "shadow", "debate"]
+FAST = ["data_guard", "risk", "calendar", "overnight", "global", "fact_check", "forum", "fin_report", "anomaly", "conference"]  # 不含 LLM 重的，網頁即時用

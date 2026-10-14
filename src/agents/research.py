@@ -3,6 +3,7 @@
 特徵（全部只用「當時已公布」的資料）：
 - 月營收：年增、月增、近 3 個月年增平均、營收創 12 個月新高、公布後經過天數（次月 11 日起才可用）
 - 法人：外資／投信 5、20 日買超占成交量比、投信連續買超天數（當天收盤後公布，用於隔日開盤交易）
+- 法說會（2011 年起）：距下次法說會天數（假設 14 天前已公告，超過 14 天視為未知）、距上次法說會天數、上次法說會的反應日漲跌
 驗證（和 full_backtest 相同的管線）：
 - 同一段期間（法人資料起點起）、同樣的訓練窗、每年重訓，比較「只有價量」vs「價量＋新特徵」
 - 指標：隔日開盤成交的組合年化（5 種起始日中位數）、每天前 5／前 20 名 20 日平均報酬
@@ -26,8 +27,48 @@ from src.state import params
 
 log = logging.getLogger(__name__)
 RESULT = st.DIR / "research.json"
+CONF_RESULT = st.DIR / "research_conference.json"
 REV_FEATS = ["rev_yoy", "rev_mom", "rev_yoy3", "rev_hi12", "rev_age"]
 CHIP_FEATS = ["f5", "f20", "t5", "t20", "t_streak"]
+CONF_FEATS = ["conf_next", "conf_since", "conf_react"]
+CONF_KNOWN_DAYS = 14   # 法說會通常 2～3 週前公告（2026-10 實際觀察）；超過這個天數的下一場視為還不知道
+
+
+def conference_features(data: pd.DataFrame, panel: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """法說會特徵：反應日＝下午 1:30 後召開的算隔一個交易日，盤中召開的算當天。"""
+    from src.data import history_store as hs
+
+    cf = hs.load_conference()
+    if cf.empty:
+        return data.assign(**{k: np.nan for k in CONF_FEATS})
+    cf = cf[cf["code"].isin(panel.keys())].copy()
+    react = {}
+    for x in cf.itertuples():
+        idx = panel[x.code].index
+        t = idx.searchsorted(x.date)
+        hh = str(x.time)[:2]
+        if t < len(idx) and idx[t] == x.date and (not hh.isdigit() or int(hh) >= 13):
+            t += 1
+        if 1 <= t < len(idx):
+            c = panel[x.code]["Close"]
+            react[x.Index] = (idx[t], float(c.iat[t] / c.iat[t - 1] - 1))
+    cf["rday"] = cf.index.map(lambda i: react.get(i, (pd.NaT, np.nan))[0])
+    cf["rret"] = cf.index.map(lambda i: react.get(i, (pd.NaT, np.nan))[1])
+    cf["date"], cf["rday"] = cf["date"].astype("datetime64[ns]"), cf["rday"].astype("datetime64[ns]")
+    left = data[["date", "code"]].reset_index().sort_values("date")
+    left["date"] = left["date"].astype("datetime64[ns]")
+    nxt = pd.merge_asof(left, cf[["code", "date"]].rename(columns={"date": "next_date"}).sort_values("next_date"),
+                        left_on="date", right_on="next_date", by="code", direction="forward")
+    prv = pd.merge_asof(left, cf.dropna(subset=["rday"])[["code", "rday", "rret"]].sort_values("rday"),
+                        left_on="date", right_on="rday", by="code", direction="backward")   # 反應日收盤後才知道漲跌
+    nxt, prv = nxt.set_index("index").reindex(data.index), prv.set_index("index").reindex(data.index)
+    out = data.copy()
+    dn = (nxt["next_date"] - nxt["date"]).dt.days
+    out["conf_next"] = dn.where(dn <= CONF_KNOWN_DAYS, CONF_KNOWN_DAYS + 1).fillna(CONF_KNOWN_DAYS + 1).astype("float32")
+    ds = (prv["date"] - prv["rday"]).dt.days
+    out["conf_since"] = ds.clip(upper=90).fillna(90).astype("float32")
+    out["conf_react"] = prv["rret"].where(ds <= 30, 0).fillna(0).clip(-0.2, 0.2).astype("float32")
+    return out
 
 
 def revenue_features(data: pd.DataFrame) -> pd.DataFrame:
@@ -114,19 +155,20 @@ def _score(preds: pd.DataFrame, panel: dict, mkt: pd.Series) -> dict:
             "top5_win": next((x["win"] for x in cal["buckets"] if x["rank"] == "1～5"), None)}
 
 
-def run(variants: tuple[str, ...] = ("base", "revenue", "chip", "both")) -> dict:
+def run(variants: tuple[str, ...] = ("base", "revenue", "chip", "both"), start: str | None = None) -> dict:
     t0 = time.time()
     mkt = fb.load_taiex_max()
     panel = {c: fb.clean_jumps(df) for c, df in fb.load_panel_max().items()}
     from src.data import history_store as hs
 
     ch = hs.load_chip()
-    start = pd.Timestamp(ch["date"].min()) if len(ch) else pd.Timestamp("2016-01-01")
+    start = pd.Timestamp(start) if start else pd.Timestamp(ch["date"].min()) if len(ch) else pd.Timestamp("2016-01-01")
     data = fb.build_data(panel, mkt)
     data = data[data["date"] >= start - pd.Timedelta(days=40)].reset_index(drop=True)
     data = revenue_features(data)
     data = chip_features(data, panel)
-    sets = {"base": am.FEATURES, "revenue": am.FEATURES + REV_FEATS, "chip": am.FEATURES + CHIP_FEATS,
+    data = conference_features(data, panel)
+    sets = {"conf": am.FEATURES + CONF_FEATS,"base": am.FEATURES, "revenue": am.FEATURES + REV_FEATS, "chip": am.FEATURES + CHIP_FEATS,
             "both": am.FEATURES + REV_FEATS + CHIP_FEATS}
     res = {"generated": dt.datetime.now().isoformat(timespec="seconds"), "data_from": str(start.date()),
            "coverage": {"chip_rows": int(len(ch)), "rev_nonnull": round(float(data["rev_yoy"].notna().mean()), 3),
@@ -149,6 +191,9 @@ def run(variants: tuple[str, ...] = ("base", "revenue", "chip", "both")) -> dict
                                 f"前半 {(r['first_half'] - base['first_half']) * 100:+.1f}、後半 {(r['second_half'] - base['second_half']) * 100:+.1f}）")}
     res["verdicts"] = verdicts
     res["seconds"] = round(time.time() - t0)
+    if variants == ("base", "conf"):   # 法說會研究另存，不覆蓋營收／法人研究
+        CONF_RESULT.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        return res
     RESULT.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     return res
 

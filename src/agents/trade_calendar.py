@@ -3,6 +3,7 @@
 - 期貨／選擇權結算日（第三個星期三，futures_data.settlement_date）：結算日前後波動大，持有部位要決定轉倉或平倉
 - 持股除權息（證交所 TWT48U、櫃買 tpex_exright_prepost）：除息當天股價扣掉股利，看起來下跌但不是虧損
 - 處置股（證交所 punish、櫃買 tpex_disposal_information）：分盤撮合、可能預收款，期間內流動性差
+- 持股法說會（公開資訊觀測站 t100sb02_1，conference.py）：反應日波動大
 - 競賽關鍵日（config/rules.yaml）：建倉期結束、每日交易標的數檢查開始、最後一天收盤規則
 """
 from __future__ import annotations
@@ -97,6 +98,15 @@ def events(codes: list[str], derivs: list[str], today: dt.date | None = None, n_
             if a and b and a <= end and b >= today:
                 add(max(a, today), "處置股", f"{code} {name} 處置中（{a:%m/%d}～{b:%m/%d}）",
                     "分盤撮合（約每 5～20 分鐘撮合一次）、可能要預收款；掛單要提早、價格要放寬", "重要", code)
+    # 持股的法說會（公開資訊觀測站）
+    try:
+        from src.agents import conference
+
+        for x in conference.upcoming(sorted(held), days=(end - today).days):
+            add(dt.date.fromisoformat(x["date"]), "法說會", f"{x['code']} {x['name']} 法說會 {x['time']}",
+                f"{x['react']}反應；{conference.STATS['pre']}；{conference.STATS['chase']}", "注意", x["code"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("法說會日曆失敗：%s", e)
     # 競賽關鍵日
     c = rules().get("competition", {})
     for key, title, note in (

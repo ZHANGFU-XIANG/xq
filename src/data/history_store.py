@@ -3,6 +3,7 @@
 - 三大法人（證交所 T86、櫃買 3itrade_hedge）：每日每檔外資、投信、自營商買賣超（股）
 - 月營收（公開資訊觀測站彙總表，上市 sii／上櫃 otc）：每月每家公司營收、年增、月增
   公布時間：法規為次月 10 日前 → 研究時一律當作「次月 11 日起才能用」（不偷看未來）
+- 法說會（公開資訊觀測站 t100sb02_1，上市／上櫃，2011 年起）：公司、召開日期與時間、簡報檔名（檔名內含上傳日期）
 存放：data/cache/hist/{chip_twse,chip_tpex,revenue}/…csv.gz（data/cache 不進 git）
 """
 from __future__ import annotations
@@ -20,7 +21,7 @@ from src.config import CACHE_DIR, is_trading_day
 log = logging.getLogger(__name__)
 ROOT = CACHE_DIR / "hist"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126 Safari/537.36"}
-GAP = {"chip_twse": 3.2, "chip_tpex": 2.2, "revenue": 1.5}  # 官方網站限速，太快會被暫時封鎖
+GAP = {"chip_twse": 3.2, "chip_tpex": 2.2, "revenue": 1.5, "conference": 2.0}  # 官方網站限速，太快會被暫時封鎖
 _last: dict[str, float] = {}
 
 
@@ -119,10 +120,59 @@ def revenue_month(y: int, m: int, market: str) -> pd.DataFrame:
     return df
 
 
+def conference_month(y: int, m: int, market: str, refresh: bool = False) -> pd.DataFrame:
+    """某月召開的法說會：code, date, time, summary, file_date（中文簡報檔上傳日，沒有檔案時空白）。
+    月份參數一定要補零（"03"），否則回「查無資料」。"""
+    p = _path("conference", f"{market}_{y}{m:02d}")
+    if p.exists() and not refresh:
+        return pd.read_csv(p, dtype={"code": str, "file_date": str})
+    _wait("conference")
+    r = requests.post("https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1", headers=UA, timeout=40,
+                      data={"encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1", "TYPEK": market,
+                            "year": str(y - 1911), "month": f"{m:02d}", "co_id": ""})
+    r.raise_for_status()
+    rows = []
+    if "查無" not in r.text[:3000]:
+        for t in pd.read_html(io.StringIO(r.text)):
+            if t.shape[1] < 7:
+                continue
+            for _, x in t.iterrows():
+                code, day = str(x.iloc[0]).strip(), str(x.iloc[2]).strip()
+                if not code[:4].isdigit() or day.count("/") != 2:
+                    continue
+                yy, mm, dd = (int(v) for v in day.split("/")[:3] if v.strip().isdigit()) if all(
+                    v.strip().isdigit() for v in day.split("/")) else (0, 0, 0)
+                if not yy:
+                    continue
+                f = str(x.iloc[6])
+                fd = f[len(code):len(code) + 8] if f[:len(code)] == code and f[len(code):len(code) + 8].isdigit() else ""
+                rows.append({"code": code, "date": dt.date(yy + 1911, mm, dd).isoformat(), "time": str(x.iloc[3]).strip(),
+                             "summary": str(x.iloc[5]).strip()[:120], "file_date": fd})
+            break
+    df = pd.DataFrame(rows, columns=["code", "date", "time", "summary", "file_date"])
+    # 當月或未來的月份還會新增，不寫快取以外的永久檔：只有已過完的月份才快取
+    if (y, m) < (dt.date.today().year, dt.date.today().month):
+        df.to_csv(p, index=False, compression="gzip")
+    return df
+
+
 def backfill(kind: str, start: dt.date, end: dt.date | None = None, budget_sec: float = 6 * 3600) -> int:
     """回補到 end（預設今天）；已有快取的跳過。回傳新抓的請求數。"""
     end = end or dt.date.today()
     t0, n = time.time(), 0
+    if kind == "conference":
+        y, m = start.year, start.month
+        while (y, m) <= (end.year, end.month):
+            for mk in ("sii", "otc"):
+                if not _path("conference", f"{mk}_{y}{m:02d}").exists():
+                    try:
+                        conference_month(y, m, mk)
+                        n += 1
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("法說會 %s %d/%d 失敗：%s", mk, y, m, e)
+                        time.sleep(20)
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        return n
     if kind == "revenue":
         y, m = start.year, start.month
         while (y, m) < (end.year, end.month):
@@ -176,3 +226,14 @@ def load_revenue() -> pd.DataFrame:
         frames.append(df)
     out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     return out.drop_duplicates(["code", "ym"], keep="last") if len(out) else out
+
+
+def load_conference() -> pd.DataFrame:
+    """所有已抓的法說會（同一公司同一天只留一筆）：code, date(Timestamp), time, summary, file_date。"""
+    frames = [pd.read_csv(p, dtype={"code": str, "file_date": str}) for p in sorted((ROOT / "conference").glob("*.csv.gz"))]
+    frames = [f for f in frames if len(f)]
+    if not frames:
+        return pd.DataFrame(columns=["code", "date", "time", "summary", "file_date"])
+    out = pd.concat(frames, ignore_index=True)
+    out["date"] = pd.to_datetime(out["date"])
+    return out.drop_duplicates(["code", "date"]).sort_values("date").reset_index(drop=True)

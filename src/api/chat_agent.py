@@ -68,6 +68,8 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
     不是當沖，不要寫「收盤前出場」「不可留倉」；使用者說「股價 200 以下」時帶 max_price，給預算時帶 budget；
     可信度低（只有單一來源、查無消息或公司澄清）要明講可能是傳聞；
     不要因為本隊持股、資金或籃子額度而改結論。
+5w. 問「哪些公司要開法說會／持股什麼時候法說會／法說會前要不要先買」時呼叫 get_conferences，
+    照工具的日期與歷史統計回答：法說會前平均只多約 0.4%（多數沒有動），法說會後隔天才追沒有優勢；不要說法說會一定會漲。
 5n. 問「今天有什麼消息面的股票／法說會利多／哪些因為消息大漲／能不能追」時呼叫 get_events，
     照分級回答買法（收盤前買或漲停排隊、隔天開盤買）、持有天數與歷史同類事件報酬，並用新聞標題說明可能原因（標註出處、不要自行推測）。
 5m. 問美股、費半、那斯達克跌了對台股或持股的影響、「電子股跌爛要抱多久」「要不要先跑」時呼叫 get_us_shock，
@@ -394,6 +396,8 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_fin_reports", "description": "財報：今天新公布財報的公司、持股與指定股票最新一季（年初至今累計）EPS、去年同期、營收年增、毛利率、轉虧／轉盈／財報利多／利空標記",
      "parameters": {"type": "object", "properties": {"codes": {"type": "string", "description": "逗號分隔的代號，可省略"}}}},
+    {"name": "get_conferences", "description": "法說會：持股與指定股票（或前 20 名）未來 14 天的法說會日期時間、反應日是當天或隔天、剛開完的反應日漲跌，以及 2011 年起 2.4 萬場法說會的歷史統計",
+     "parameters": {"type": "object", "properties": {"codes": {"type": "string", "description": "逗號分隔的代號，可省略"}}}},
     {"name": "get_market_anomaly", "description": "台股市場波動是否異常：加權今天相當於幾倍平常波動、波動率在近 10 年的百分位、上漲下跌與漲跌停家數、偏離大盤最多的產業、量價異常個股、歷史上類似情況之後 20 日的表現",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_presentation", "description": "決賽簡報（佔總分 50%）：最新版投影片與講稿檔案、每張講稿內容與秒數、Q&A 預備題與回答重點",
@@ -650,6 +654,11 @@ def call_tool(name: str, args: dict) -> dict:
             from src.agents import presentation
 
             return presentation.latest() or {"error": "還沒有產生簡報（每週五週報後自動產生）"}
+        if name == "get_conferences":
+            from src.agents import conference
+
+            codes = [c.strip() for c in str(args.get("codes") or "").split(",") if c.strip()]
+            return conference.run(codes)
         if name == "get_market_anomaly":
             from src.agents import market_anomaly
 

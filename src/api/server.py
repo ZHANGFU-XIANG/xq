@@ -352,6 +352,14 @@ def anomaly_():
     return out
 
 
+@app.get("/api/conference", dependencies=[api])
+def conference_():
+    from src.agents import conference
+    from src.api import agents_bg
+
+    return conference.run(agents_bg._picks())
+
+
 @app.get("/api/fin-reports", dependencies=[api])
 def fin_reports_():
     from src.agents import fin_report
