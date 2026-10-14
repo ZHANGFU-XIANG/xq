@@ -392,6 +392,10 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_debate", "description": "持股與前 5 名推薦的多空辯論：只引用程式事實的多方／空方論點、主要分歧、什麼情況會改變結論（結論以持股建議為準）",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_fin_reports", "description": "財報：今天新公布財報的公司、持股與指定股票最新一季（年初至今累計）EPS、去年同期、營收年增、毛利率、轉虧／轉盈／財報利多／利空標記",
+     "parameters": {"type": "object", "properties": {"codes": {"type": "string", "description": "逗號分隔的代號，可省略"}}}},
+    {"name": "get_market_anomaly", "description": "台股市場波動是否異常：加權今天相當於幾倍平常波動、波動率在近 10 年的百分位、上漲下跌與漲跌停家數、偏離大盤最多的產業、量價異常個股、歷史上類似情況之後 20 日的表現",
+     "parameters": {"type": "object", "properties": {}}},
 ]
 
 
@@ -640,6 +644,15 @@ def call_tool(name: str, args: dict) -> dict:
             return {"news": on_demand.search_news(args["query"], 10)}
         if name == "get_macro":
             return apidata.macro_latest()
+        if name == "get_market_anomaly":
+            from src.agents import market_anomaly
+
+            return market_anomaly.snapshot()
+        if name == "get_fin_reports":
+            from src.agents import fin_report
+
+            codes = [c.strip() for c in str(args.get("codes") or "").split(",") if c.strip()]
+            return fin_report.run(codes)
         if name == "calculate":
             from src.agents import calc
 

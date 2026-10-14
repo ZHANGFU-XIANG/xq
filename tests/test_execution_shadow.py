@@ -31,3 +31,14 @@ def test_open_limits_use_latest_close_before_open(monkeypatch):
 def test_preopen_only_in_window():
     assert execution.preopen_alerts(dt.datetime(2026, 10, 15, 8, 20, tzinfo=TW_TZ)) == []
     assert execution.preopen_alerts(dt.datetime(2026, 10, 18, 8, 45, tzinfo=TW_TZ)) == []  # 週日
+
+
+def test_fin_report_ytd_and_flags(monkeypatch):
+    from src.agents import fin_report
+
+    monkeypatch.setattr(fin_report, "_seen", lambda: {("9999", 2025, 2): {"eps": "2.0", "revenue": "1000"}})
+    d = fin_report.assess({"code": "9999", "year": 2026, "quarter": 2, "eps": 3.0, "revenue": 1200.0, "gross_profit": 300.0})
+    assert d["eps_yoy_pct"] == 50.0 and d["rev_yoy_pct"] == 20.0 and "財報利多" in d["flags"] and "上半年累計" in d["text"]
+    monkeypatch.setattr(fin_report, "_seen", lambda: {("9999", 2025, 2): {"eps": "1.0", "revenue": "1000"}})
+    d = fin_report.assess({"code": "9999", "year": 2026, "quarter": 2, "eps": -0.5, "revenue": 900.0})
+    assert "轉虧" in d["flags"] and "財報利空" in d["flags"]

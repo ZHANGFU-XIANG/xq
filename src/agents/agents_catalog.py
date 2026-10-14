@@ -83,5 +83,19 @@ def _shadow(**kw) -> dict:
     return shadow.run()
 
 
-ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "shadow", "debate"]
-FAST = ["data_guard", "risk", "calendar", "overnight", "global", "fact_check", "forum"]  # 不含 LLM 重的，網頁即時用
+@register("fin_report", "財報：每天檢查新公布財報、轉虧過濾、利多利空標記", timeout=240, required=("new", "focus", "alerts"))
+def _fin_report(picks: list[str] | None = None, write_log: bool = False, **kw) -> dict:
+    from src.agents import fin_report
+
+    return fin_report.run(picks or [], write=write_log)
+
+
+@register("anomaly", "市場異常：大盤波動百分位、市場寬度、產業偏離、個股異常量價", timeout=180, required=("level", "taiex", "alerts"))
+def _anomaly(**kw) -> dict:
+    from src.agents import market_anomaly
+
+    return market_anomaly.snapshot()
+
+
+ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "fin_report", "anomaly", "shadow", "debate"]
+FAST = ["data_guard", "risk", "calendar", "overnight", "global", "fact_check", "forum", "fin_report", "anomaly"]  # 不含 LLM 重的，網頁即時用

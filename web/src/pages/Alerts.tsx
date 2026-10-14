@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useChat } from '../components/Chat'
 import { Change, Empty, ErrorNote, Loading, PageTitle, Section } from '../components/ui'
+import MarketPulse from '../components/MarketPulse'
 import AssetTabs, { ASSET_LABEL, assetOf, useAssetTab, type Asset } from '../components/AssetTabs'
 import { get, type Json } from '../lib/api'
 import { fmtPct } from '../lib/format'
@@ -123,6 +124,7 @@ export default function Alerts() {
         <span className="text-ink-2">全市場漲停 <b className="text-up">{d.limit_up_count}</b>・跌停 <b className="text-down">{d.limit_down_count}</b></span>
         {d.taiex && <span className="text-ink-2">加權指數 <Change value={d.taiex.chg_pct} /></span>}
       </div>
+      <MarketPulse />
 
       <AssetTabs tab={tab} onChange={setTab} options={['STOCK', 'ETF', 'FUT', 'MARKET']}
         counts={{ STOCK: count('STOCK'), ETF: count('ETF'), FUT: count('FUT'), MARKET: count('MARKET') }} />

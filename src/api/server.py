@@ -335,6 +335,21 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/anomaly", dependencies=[api])
+def anomaly_():
+    from src.agents import market_anomaly
+
+    out = dict(market_anomaly.snapshot())
+    return out
+
+
+@app.get("/api/fin-reports", dependencies=[api])
+def fin_reports_():
+    from src.agents import fin_report
+
+    return fin_report.run()
+
+
 @app.get("/api/shadow", dependencies=[api])
 def shadow_():
     from src.agents import shadow

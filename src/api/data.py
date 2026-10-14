@@ -1616,6 +1616,15 @@ def high_return_picks(limit: int = 20, include_etf: bool = False, budget: float 
     al = ctx["alpha"]
     preds = al["predictions"]
     warn = alerts.attention_lists()
+    try:  # 財報 Agent：最新一季轉虧的不推薦
+        from src.agents import fin_report
+
+        fin_loss = fin_report.flags_for(list(ctx["alpha"]["predictions"]))
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("財報篩選失敗：%s", e)
+        fin_loss = {}
     pool = [c for c, a in preds.items() if include_etf or not (a.get("features") or {}).get("is_etf")]
     pool.sort(key=lambda c: -(preds[c].get("combo") or 0))
     rank_of = {c: i for i, c in enumerate(pool, 1)}
@@ -1691,7 +1700,10 @@ def high_return_picks(limit: int = 20, include_etf: bool = False, budget: float 
         atr = _atr14(df, ctx["target"]) if df is not None else None
         stop = sizer.round_tick(price - pc["stop_atr"] * atr, etf) if atr else None
         target = sizer.round_tick(price * (1 + max(score, 0) / 100), etf, up=True)
-        if (warn.get(c) or {}).get("type") == "處置":
+        if c in fin_loss:
+            verdict, conf = "先不要買", "低"
+            entry = f"最新財報轉虧：{fin_loss[c]['text']}（財報 Agent 風險過濾）"
+        elif (warn.get(c) or {}).get("type") == "處置":
             verdict, conf = "先不要買", "低"
             entry = ("處置股（分盤撮合約 5～20 分鐘一次、大量委託需預收款）：十年回測推薦名單中處置中的股票 40 日 +6.3%、"
                      "非處置 +8.3%，投資組合排除處置股年化 59% → 65%")

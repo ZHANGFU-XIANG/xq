@@ -312,7 +312,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
             from src.agents import agents_catalog, briefing, registry
 
             res = registry.run([n for n in agents_catalog.ALL if n != "debate"], picks=[s["code"] for s in ranked[:20]],
-                               write_log=mode == "premarket")
+                               write_log=True)  # 論壇熱度與財報紀錄每天盤前、盤後寫入
             b = briefing.build(res)
             if b.get("text"):
                 body += "

@@ -70,6 +70,22 @@ def build(res: dict[str, dict]) -> dict:
         sec.append({"title": f"PTT 論壇風向（{fo.get('label', '僅資訊')}）", "level": None,
                     "lines": [f"{s['code']} {s['name']}：提及 {s['mentions']} 次、推文 {s['push']}、多空 {s['direction']:+.1f}"
                               for s in fo["hot"][:6]]})
+    an = o.get("anomaly") or {}
+    if an.get("taiex"):
+        t, b = an["taiex"], an.get("breadth") or {}
+        lines = [f"狀態：{an['level']}（加權 {t['ret_pct']:+.2f}%、約 {t['z']:+.1f} 倍平常波動、20 日波動率 {t['vol20_pct']}%，近 10 年百分位 {t['vol_percentile']}）",
+                 f"市場寬度：上漲 {b.get('up')}／下跌 {b.get('down')} 家、漲停 {b.get('limit_up')}、跌停 {b.get('limit_down')}"]
+        lines += [f"產業偏離：{s2['sector']} {s2['median_pct']:+.2f}%（比大盤 {s2['vs_market']:+.2f}）" for s2 in an.get("sectors", [])[:3]]
+        lines += [f"異常個股：{x['code']} {x['name']} {x['chg_pct']:+.2f}%（{x['sigma']:+.1f} 倍波動、量 {x['volume_ratio']} 倍）" for x in an.get("stocks", [])[:4]]
+        sec.append({"title": "市場異常", "level": {"極端": "嚴重", "波動升高": "注意"}.get(an["level"]), "lines": lines})
+    fr = o.get("fin_report") or {}
+    if fr.get("focus") or fr.get("new"):
+        lines = [f"今天新公布財報 {fr.get('new_count', 0)} 家"]
+        lines += [f"［{a['level']}］{a['title']}：{a['body']}" for a in fr.get("alerts", [])]
+        lines += [f"{d['code']} {d['name']}：{'、'.join(d['flags'])}（{d['text']}）" for d in fr.get("new", [])
+                  if d and d.get("flags")][:8]
+        sec.append({"title": "財報", "level": "嚴重" if any(a["level"] == "嚴重" for a in fr.get("alerts", [])) else None,
+                    "lines": lines})
     sh = o.get("shadow") or {}
     if sh.get("series"):
         last = sh["series"][-1]

@@ -60,6 +60,8 @@ def test_notifier_sends_once_per_status_per_day(monkeypatch):
     monkeypatch.setattr(notifier, "_events", lambda: [("3591|盡快賣出", "盡快賣出：3591 艾笛森", "跌破停損")])
     monkeypatch.setattr(notifier, "_risk_events", lambda: [])
     monkeypatch.setattr(notifier, "_close_events", lambda: [])
+    monkeypatch.setattr(notifier, "_fin_events", lambda: [])
+    monkeypatch.setattr(notifier, "_anomaly_events", lambda: [])
     monkeypatch.setattr(emailer, "send", lambda s, b, a: sent.append(s) or True)
     monkeypatch.setattr(notifier, "_sent", set())
     assert notifier.tick() == 1 and notifier.tick() == 0

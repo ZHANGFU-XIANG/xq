@@ -64,6 +64,28 @@ def _close_events() -> list[tuple[str, str, str]]:
         return []
 
 
+def _anomaly_events() -> list[tuple[str, str, str]]:
+    from src.agents import market_anomaly
+
+    try:
+        return [(f"anom|{a['key']}", f"{'［嚴重］' if a['level'] == '嚴重' else ''}{a['title']}", a["body"])
+                for a in market_anomaly.snapshot().get("alerts", [])]
+    except Exception as e:  # noqa: BLE001
+        log.warning("市場異常提醒失敗：%s", e)
+        return []
+
+
+def _fin_events() -> list[tuple[str, str, str]]:
+    from src.agents import fin_report
+
+    try:
+        return [(f"fin|{a['key']}", f"{'［嚴重］' if a['level'] == '嚴重' else ''}{a['title']}", a["body"])
+                for a in fin_report.run().get("alerts", [])]
+    except Exception as e:  # noqa: BLE001
+        log.warning("財報提醒失敗：%s", e)
+        return []
+
+
 def _risk_events() -> list[tuple[str, str, str]]:
     """RiskLab 的提醒（追繳、壓力測試、黑天鵝）：盤中與隔夜都檢查，同一狀況一天一封。"""
     from src.agents import risk_lab
@@ -99,11 +121,11 @@ def tick() -> int:
     if time.time() < _retry_at:
         return 0
     if alerts.is_trading_hours():
-        day, events, where = now_tw().date().isoformat(), _events() + _risk_events() + _close_events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
+        day, events, where = now_tw().date().isoformat(), _events() + _risk_events() + _close_events() + _fin_events() + _anomaly_events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
     elif overnight.in_window():
         n = now_tw()  # 一晚算到「下一個交易日」：同一種狀況整晚只寄一次
         day = next_trading_day(n.date(), include_today=n.hour < 9).isoformat()
-        events, where = _overnight_events() + _risk_events(), "隔夜即時通知・詳情請開網站「持股 → 隔夜／夜盤」"
+        events, where = _overnight_events() + _risk_events() + _fin_events(), "隔夜即時通知・詳情請開網站「持股 → 隔夜／夜盤」"
     else:
         return 0
     new = [(k, t, b) for k, t, b in events if f"{day}|{k}" not in _sent]
