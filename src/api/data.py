@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 
 import pandas as pd
@@ -10,6 +11,8 @@ from src.agents import on_demand
 from src.config import FACTS_DIR, REPORT_DIR, now_tw, rules, stock_meta
 from src.state import params
 from src.state import portfolio as pfm
+
+log = logging.getLogger(__name__)
 
 
 def report_files() -> list[dict]:
@@ -730,7 +733,7 @@ def live_regime() -> dict:
     try:
         live = (live_quotes([]).get("indices") or {}).get("TAIEX", {}).get("price")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("TAIEX 即時價讀取失敗", exc_info=True)
     r = load_report() or {}
     out = regime.assess(tx, ctx.get("us_hist"), live_price=live, events=r.get("macro"))
     out["live_taiex"] = live
@@ -854,24 +857,23 @@ def holding_watch() -> dict:
 
 
 _QUOTES: dict = {}
+_INDICES: dict = {"t": 0.0, "v": None}
 INDEX_CHANNELS = {"TAIEX": ("tse_t00.tw", "加權指數"), "OTC": ("otc_o00.tw", "櫃買指數")}
 
 
-def live_quotes(codes: list[str]) -> dict:
-    """即時報價（證交所 MIS，8 秒快取）＋加權、櫃買指數。"""
+def _live_indices() -> dict:
+    """加權、櫃買指數即時值。與個股 codes 無關，獨立快取（盤中 4 秒、盤後 60 秒），
+    讓所有呼叫者共用同一次抓取，不再每個 code 清單各抓一次指數。"""
     import time
 
     import requests
 
     from src.agents import alerts
 
-    codes = sorted({c for c in codes if c})[:60]
-    key = ",".join(codes)
-    hit = _QUOTES.get(key)
-    if hit and time.time() - hit[0] < 4:
-        return hit[1]
-    quotes = alerts.realtime(codes) if codes else {}
-    idx = {}
+    ttl = 4 if alerts.is_trading_hours() else 60
+    if _INDICES["v"] is not None and time.time() - _INDICES["t"] < ttl:
+        return _INDICES["v"]
+    idx: dict = {}
     try:
         r = requests.get("https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
                          params={"ex_ch": "|".join(c for c, _ in INDEX_CHANNELS.values()), "json": 1, "delay": 0}, timeout=10).json()
@@ -884,8 +886,28 @@ def live_quotes(codes: list[str]) -> dict:
                 idx[k] = {"name": n, "price": round(last, 2), "change": round(last - prev, 2),
                           "chg_pct": round((last / prev - 1) * 100, 2), "time": m.get("t")}
     except Exception:  # noqa: BLE001
-        pass
-    out = {"quotes": quotes, "indices": idx, "trading": alerts.is_trading_hours()}
+        log.debug("指數即時解析失敗", exc_info=True)
+    if idx or _INDICES["v"] is None:
+        _INDICES.update(t=time.time(), v=idx)
+    return _INDICES["v"]
+
+
+def live_quotes(codes: list[str]) -> dict:
+    """即時報價（證交所 MIS，4 秒快取）＋加權、櫃買指數。
+
+    指數改由 _live_indices() 獨立快取，所有呼叫者共用一次抓取；個股報價由 alerts.realtime
+    做 per-symbol 快取與批次抓取，重疊的 codes 會自動共用。"""
+    import time
+
+    from src.agents import alerts
+
+    codes = sorted({c for c in codes if c})[:60]
+    key = ",".join(codes)
+    hit = _QUOTES.get(key)
+    if hit and time.time() - hit[0] < 4:
+        return hit[1]
+    quotes = alerts.realtime(codes) if codes else {}
+    out = {"quotes": quotes, "indices": _live_indices(), "trading": alerts.is_trading_hours()}
     _QUOTES[key] = (time.time(), out)
     return out
 
@@ -1812,7 +1834,7 @@ def exit_plan(code: str, entry_date: str | None = None, entry_price: float | Non
     try:
         rg = live_regime()
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("regime 讀取失敗", exc_info=True)
     shock, sx = {}, {}
     try:
         from src.agents import us_shock
@@ -1820,7 +1842,7 @@ def exit_plan(code: str, entry_date: str | None = None, entry_price: float | Non
         shock = us_shock.assess()
         sx = us_shock.exposure([code]).get(code) or {}
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("美股衝擊/曝險評估失敗", exc_info=True)
     if shock.get("level") == "嚴重" and sx.get("linked"):
         verdict, why = "先出場、之後買回", (f"{shock['headline']}，這檔與費半連動 β {sx['beta']}：{shock['advice']}")
     elif held_days >= pc["hold_days"]:

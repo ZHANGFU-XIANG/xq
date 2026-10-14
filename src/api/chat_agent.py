@@ -573,14 +573,14 @@ def _market_now() -> dict:
         rg = apidata.live_regime()
         out["regime"] = rg.get("headline")
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("regime 摘要失敗", exc_info=True)
     try:
         from src.agents import us_shock
 
         sh = us_shock.assess()
         out["us_shock"] = {k: sh.get(k) for k in ("level", "headline", "advice")}
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("美股衝擊評估失敗", exc_info=True)
     try:
         from src.agents import events
 
@@ -590,7 +590,7 @@ def _market_now() -> dict:
                                for e in ev["items"][:6]]
         out["events_time"] = ev["time"]
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("事件時間軸失敗", exc_info=True)
     return out
 
 
@@ -604,7 +604,7 @@ def _daytrade_live(code: str = "", max_price: float | None = None) -> dict:
         try:
             r["news"] = [{k: n.get(k) for k in ("title", "date", "source")} for n in events._headlines(code, r.get("name") or code)[:4]]
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("個股新聞附帶失敗", exc_info=True)
         try:
             ev = next((e for e in events.scan()["items"] if e["code"] == code), None)
         except Exception:  # noqa: BLE001
@@ -1090,7 +1090,7 @@ def _run(messages: list[dict], emit, loop, loops: list, user_text: str) -> dict:
             else:
                 text = text2
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("文字驗證重試失敗", exc_info=True)
     text = _style(text)
     text = _fix_daytrade_verdict(text, outputs)
     text, uncited = _flag_uncited(text) if outputs else (text, 0)

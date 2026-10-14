@@ -45,8 +45,8 @@ export default function RegimeBanner({ compact = false }: { compact?: boolean })
       {open && (
         <p className="mt-2 text-xs leading-relaxed text-ink-2">
           {r.backtest.period}：{r.backtest.adopted.name} 年化 {r.backtest.adopted.cagr}%、最大回檔 {r.backtest.adopted.max_dd}%、
-          38 日平均 {r.backtest.adopted.avg38}%；{r.backtest.baseline.name} 年化 {r.backtest.baseline.cagr}%、最大回檔 {r.backtest.baseline.max_dd}%、
-          38 日平均 {r.backtest.baseline.avg38}%。代價：38 日收正機率 {r.backtest.adopted.pos38}%（固定配置 {r.backtest.baseline.pos38}%）。
+          38 日最差 {r.backtest.adopted.worst38}%、收正機率 {r.backtest.adopted.pos38}%；{r.backtest.baseline.name} 年化 {r.backtest.baseline.cagr}%、最大回檔 {r.backtest.baseline.max_dd}%、
+          38 日最差 {r.backtest.baseline.worst38}%、收正機率 {r.backtest.baseline.pos38}%。降檔同時改善報酬、收正機率與左尾。
           黃燈訊號（VIX&gt;25、費半前一晚跌&gt;3%、逼近季線且月線下彎）之後 20 日內跌逾 5% 的機率 31～41%（平常約 20%），但平均報酬沒有變差，所以只暫停追高、不急著賣。
         </p>
       )}

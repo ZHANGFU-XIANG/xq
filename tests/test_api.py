@@ -344,3 +344,36 @@ def test_decision_word():
 def test_uncited_judgement_becomes_inference():
     t, n = chat_agent._flag_uncited("結論。\n1. 未依此減碼則可能面臨成交困難，建議執行減碼\n2. 其他來源也沒有公布")
     assert n == 1 and "1. 推論：未依此減碼" in t and "2. 其他來源也沒有公布〔未附出處〕" in t
+
+
+def test_live_indices_shared_cache(monkeypatch):
+    """回歸：指數抓取共用 TTL 快取——不同 code 清單的 live_quotes 不應各自重抓指數。"""
+    import requests as _rq
+
+    from src.agents import alerts
+    from src.api import data
+
+    calls = {"n": 0}
+
+    class _R:
+        def json(self):
+            return {"msgArray": [{"c": "t00", "z": "18000", "y": "17900", "t": "13:30"},
+                                 {"c": "o00", "z": "200", "y": "199", "t": "13:30"}]}
+
+    def _get(url, **k):
+        calls["n"] += 1
+        return _R()
+
+    monkeypatch.setattr(_rq, "get", _get)
+    monkeypatch.setattr(alerts, "is_trading_hours", lambda: True)
+    monkeypatch.setattr(alerts, "realtime", lambda codes: {})
+    data._INDICES.update(t=0.0, v=None)
+    data._QUOTES.clear()
+
+    a = data._live_indices()
+    b = data._live_indices()               # TTL 內 → 不再抓
+    assert a["TAIEX"]["price"] == 18000 and calls["n"] == 1 and a is b
+    # 不同 code 清單共用同一份指數快取
+    data.live_quotes(["2330"])
+    data.live_quotes(["2317", "2454"])
+    assert calls["n"] == 1                  # 指數仍只抓了一次

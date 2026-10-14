@@ -37,7 +37,7 @@ def _mark(ok: bool, msg: str = "") -> None:
 
         providers._mark(SOURCE, ok, msg)
     except Exception:  # noqa: BLE001
-        pass
+        log.warning("provider 狀態標記失敗", exc_info=True)
 
 
 def _limited(e: Exception) -> bool:

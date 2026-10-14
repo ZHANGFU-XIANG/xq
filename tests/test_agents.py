@@ -145,19 +145,33 @@ def test_allocation_reacts_to_regime_drawdown_and_endgame():
     calm = _taiex_series([0.0005, -0.0004] * 60)
     t = calm.index[-1] + pd.Timedelta(days=1)
     base = allocation.decide(calm, t, [], 10_000_000, 10_000_000, 30, [])
-    # 2026-10-12 報酬率第一：各燈號全部進攻、不配置 ETF、取消回撤減碼
-    assert base["stock_split"]["offense"] == 1.0 and base["etf"] == 0.0
+    # 2026-10-15 重新啟用 regime 降檔（灰燈 80%）：全歷史樣本外實驗顯示永遠滿倉是競賽窗勝率最差設定
+    assert base["stock_split"]["offense"] == 0.8 and base["etf"] == 0.0
     assert abs(base["offense"] + base["defense"] + base["etf"] - 1) < 0.01  # 三籃合計 100%
     hot = _taiex_series([0.0] * 80 + [0.01] * 25)
     r = allocation.decide(hot, hot.index[-1] + pd.Timedelta(days=1), [], 10_000_000, 10_000_000, 30, [])
-    assert r["stock_split"]["offense"] == 1.0 and any("綠燈" in x for x in r["reasons"]) and r["etf"] == 0.0
+    assert r["stock_split"]["offense"] == 1.0 and any("綠燈" in x for x in r["reasons"]) and r["etf"] == 0.0  # 綠燈仍全進攻
     hist = [{"date": "d", "nav": 10_500_000}]
-    r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%：不再減碼
-    assert r["stock_split"]["offense"] == 1.0
-    r = allocation.decide(calm, t, [], 10_000_000, 10_300_000, 10, [])  # 尾聲且為正報酬 → 保住晉級
+    r = allocation.decide(calm, t, hist, 10_000_000, 9_600_000, 30, [])  # 回撤 8.6%：drawdown_steps 空 → 不加碼減碼，維持灰燈 80%
+    assert r["stock_split"]["offense"] == 0.8
+    r = allocation.decide(calm, t, [], 10_000_000, 10_300_000, 10, [])  # 尾聲且為正報酬 → 進攻 −10% 保住晉級
+    assert r["stock_split"]["offense"] == 0.70
+    r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 進攻 +10% 爭取轉正
     assert r["stock_split"]["offense"] == 0.90
-    r = allocation.decide(calm, t, [], 10_000_000, 9_900_000, 10, [])  # 尾聲但虧損 → 爭取轉正（已達上限 100%）
-    assert r["stock_split"]["offense"] == 1.0
+
+
+def test_regime_offense_scaling_enabled():
+    """回歸：regime 部位控管必須有效（綠>灰>紅），不可再被改回「全部 1.0 永遠滿倉」。
+
+    依 exp_regime_overlay 全歷史樣本外實驗（分前後兩段一致）採用；守住 base_offense==OFFENSE["中性"]
+    的恆等式，否則 tilt 會讓各燈號比例失真。"""
+    from src.agents import regime
+    from src.state import params
+    off = regime.OFFENSE
+    assert off["強勢"] > off["中性"] > off["轉弱"], "燈號必須有梯度（進攻降檔）"
+    assert off["轉弱"] <= 0.5, "紅燈需實質降檔以收斂左尾"
+    assert abs(params.allocation()["base_offense"] - off["中性"]) < 1e-9, \
+        "base_offense 必須等於 OFFENSE['中性']，否則 allocation 的 tilt 會錯位"
 
 
 def test_overheated_stock_not_bought_in_offense():

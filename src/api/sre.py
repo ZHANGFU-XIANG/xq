@@ -110,7 +110,7 @@ def run_checks(warm: dict | None = None, rewarm=None) -> list[dict]:
         if not get_client().available():
             found.append({"key": "llm", "level": "警告", "title": "LLM 全部不可用（文字改用模板，數字不受影響）"})
     except Exception:  # noqa: BLE001
-        pass
+        log.warning("LLM 可用性檢查失敗", exc_info=True)
     return found
 
 

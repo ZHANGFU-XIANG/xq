@@ -41,7 +41,7 @@ def _events() -> list[tuple[str, str, str]]:
         if rg["warnings"] and rg["warnings"][0].startswith("盤中加權指數"):
             out.append((f"regime-live|{rg['warnings'][0][:30]}", "大盤可能變燈：" + rg["warnings"][0][:40], rg["warnings"][0]))
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("regime 通知組裝失敗", exc_info=True)
     al = data.live_alerts()
     for a in al.get("alerts", []):
         if a.get("level") == "嚴重" and a.get("scope") in ("持股", "部位", "規則"):  # 買進前、全市場的警示不寄

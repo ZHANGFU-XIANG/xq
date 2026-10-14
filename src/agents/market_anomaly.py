@@ -81,7 +81,7 @@ def snapshot() -> dict:
 
         live = _taiex_rt()
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("TAIEX 即時讀取失敗", exc_info=True)
     today_ret = (live["chg_pct"] / 100) if live and trading else float(r.iloc[-1])
     z_today = today_ret / sd60 if sd60 else 0.0
     vol_pct = float(cs["vol_pct_series"].dropna().iloc[-1])

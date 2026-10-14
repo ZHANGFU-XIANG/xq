@@ -290,7 +290,7 @@ def snapshot() -> dict:
         hist = pfm.load_history()
         nav = hist[-1]["nav"] if hist else None
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("NAV 歷史讀取失敗", exc_info=True)
     try:
         hn = _cached("holding_news", 600, _holding_news) or []
     except Exception:  # noqa: BLE001

@@ -409,7 +409,7 @@ def sample_sizing(sig: dict, nav: float, margins: dict, ym: str, price: float, t
             put = {"contract": best["contract"], "strike": best["strike"], "price": best["price"],
                    "premium": round(best["price"] * 50), "protect_from": best["strike"]}
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("TXO put hedge 試算失敗", exc_info=True)
     return {"note": "僅供參考，不是建議：系統目前判斷沒有優勢，若自行操作請先確認風險",
             "stop_rule": f"停損以加權 ATR14 的 {c['atr_mult']} 倍 ≈ {stop_pts:,} 點估算", "futures": rows, "put": put}
 
