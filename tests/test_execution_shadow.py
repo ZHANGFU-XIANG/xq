@@ -61,3 +61,17 @@ def test_presentation_script_fits_six_minutes():
     assert "+3.00%" in joined and "最低 75.0%" in joined and "50%" in joined
     f["min_ratio"] = 0.65
     assert "最低曾到 65.0%" in "".join(x["text"] for x in presentation.script(f))  # 有違規就不能說「都在 70% 以上」
+
+
+def test_research_revenue_only_after_publication(monkeypatch):
+    from src.agents import research
+    from src.data import history_store as hs
+
+    rv = pd.DataFrame({"code": ["1111", "1111"], "ym": ["2024-08", "2024-09"], "revenue": [100.0, 150.0],
+                       "yoy": [10.0, 50.0], "mom": [1.0, 50.0],
+                       "available": [pd.Timestamp("2024-09-11"), pd.Timestamp("2024-10-11")]})
+    monkeypatch.setattr(hs, "load_revenue", lambda: rv)
+    data = pd.DataFrame({"date": pd.to_datetime(["2024-10-10", "2024-10-11", "2024-09-10"]), "code": "1111"})
+    out = research.revenue_features(data)
+    assert out["rev_yoy"].tolist()[:2] == [10.0, 50.0]   # 10/10 還看不到 9 月營收，10/11 才看得到
+    assert pd.isna(out["rev_yoy"].iloc[2])                # 9/10 連 8 月營收都還沒公布

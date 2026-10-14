@@ -399,12 +399,13 @@ def main(argv=None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["premarket", "preopen", "intraday", "postclose", "weekly", "tune", "record", "backfill",
-                                       "fullbacktest"])
+                                       "fullbacktest", "research"])
     ap.add_argument("--date")
     ap.add_argument("--force", action="store_true", help="非交易日也執行")
     ap.add_argument("--rollback", action="store_true", help="tune：回復上一次調整前的參數")
     ap.add_argument("--tune", action="store_true", help="fullbacktest：另外在全歷史上調參（只報告，不寫入）")
     ap.add_argument("--refresh", action="store_true", help="fullbacktest：重新下載歷史並重建預測")
+    ap.add_argument("--backfill", action="store_true", help="research：先回補法人與月營收歷史（官方網站限速，首次約 2 小時）")
     ap.add_argument("--code")
     ap.add_argument("--side", choices=["BUY", "SELL"])
     ap.add_argument("--shares", type=int)
@@ -435,6 +436,16 @@ def main(argv=None) -> None:
         return
     if a.mode == "weekly":
         run_weekly(today)
+        return
+    if a.mode == "research":
+        from src.agents import research
+        from src.data import history_store as hs
+
+        if a.backfill:
+            for k, start in (("revenue", "2013-01-01"), ("chip_twse", "2016-01-01"), ("chip_tpex", "2016-01-01")):
+                print(k, "新抓", hs.backfill(k, dt.date.fromisoformat(start)), "筆")
+        r = research.run()
+        print(json.dumps({k: v for k, v in r.items()}, ensure_ascii=False, indent=1, default=str))
         return
     if a.mode == "fullbacktest":
         from src.agents import full_backtest
