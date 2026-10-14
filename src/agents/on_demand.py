@@ -148,7 +148,7 @@ def _yf_minutes(code: str, minutes: int) -> pd.DataFrame:
     """Yahoo 分 K（台灣時間），30 秒快取；最後一根由 MIS 即時價補上（Yahoo 台股分 K 有延遲）。"""
     import time as _t
 
-    import yfinance as yf
+    from src.data import yahoo_gateway as yg
 
     interval, period = MINUTE_SRC[minutes]
     key = (code, interval)
@@ -157,7 +157,7 @@ def _yf_minutes(code: str, minutes: int) -> pd.DataFrame:
         df = hit[1]
     else:
         sym = code + (".TWO" if stock_meta(code).get("market") == "TPEx" else ".TW")
-        df = yf.Ticker(sym).history(period=period, interval=interval, auto_adjust=False)
+        df = yg.history(sym, period=period, interval=interval, auto_adjust=False)
         if not df.empty:
             df.index = df.index.tz_convert("Asia/Taipei").tz_localize(None)
             df = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])

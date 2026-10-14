@@ -50,6 +50,18 @@ def _events() -> list[tuple[str, str, str]]:
     return out
 
 
+def _risk_events() -> list[tuple[str, str, str]]:
+    """RiskLab 的提醒（追繳、壓力測試、黑天鵝）：盤中與隔夜都檢查，同一狀況一天一封。"""
+    from src.agents import risk_lab
+
+    try:
+        return [(f"risk|{a['key']}", f"{'［' + a['level'] + '］' if a['level'] == '嚴重' else ''}{a['title']}", a["body"])
+                for a in risk_lab.snapshot()["alerts"]]
+    except Exception as e:  # noqa: BLE001
+        log.warning("風險提醒失敗：%s", e)
+        return []
+
+
 def _overnight_events() -> list[tuple[str, str, str]]:
     from src.agents import overnight
 
@@ -67,11 +79,11 @@ def tick() -> int:
     if time.time() < _retry_at:
         return 0
     if alerts.is_trading_hours():
-        day, events, where = now_tw().date().isoformat(), _events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
+        day, events, where = now_tw().date().isoformat(), _events() + _risk_events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
     elif overnight.in_window():
         n = now_tw()  # 一晚算到「下一個交易日」：同一種狀況整晚只寄一次
         day = next_trading_day(n.date(), include_today=n.hour < 9).isoformat()
-        events, where = _overnight_events(), "隔夜即時通知・詳情請開網站「持股 → 隔夜／夜盤」"
+        events, where = _overnight_events() + _risk_events(), "隔夜即時通知・詳情請開網站「持股 → 隔夜／夜盤」"
     else:
         return 0
     new = [(k, t, b) for k, t, b in events if f"{day}|{k}" not in _sent]

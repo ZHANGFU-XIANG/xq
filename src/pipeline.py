@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import threading
 
 import pandas as pd
@@ -11,6 +12,7 @@ from src.agents import allocation, alpha_model, compliance, etf, market_data, pr
 from src.config import rules, stock_meta
 from src.state import portfolio as pfm
 
+log = logging.getLogger(__name__)
 _CTX: dict[dt.date, dict] = {}
 _LOCK = threading.Lock()
 
@@ -27,9 +29,17 @@ def market_context(target: dt.date, use_memory: bool = False) -> dict:
     us_hist = market_data.us_history()
     panel = universe.load_panel()
     market_data.set_panel(panel)
+    tx = market_data.taiex(3)
+    try:  # DataGuard：資料過期或和交易所不一致就先補正（10/08～10/14 盤後用了前一天價格才加上）
+        from src.agents import data_guard
+
+        pf0 = pfm.build_portfolio()
+        guard = data_guard.check(panel, sorted(panel), list(pf0.positions), tx, list(pf0.derivs))
+    except Exception as e:  # noqa: BLE001
+        log.warning("DataGuard 失敗：%s", e)
+        guard = {"level": "unknown", "issues": [{"level": "警告", "msg": f"資料檢查失敗：{str(e)[:100]}"}]}
     codes = universe.liquid_universe(panel, target)
     etf = {c for c in codes if stock_meta(c)["is_etf"]}
-    tx = market_data.taiex(3)
     # 手上的持股就算變成處置股（被排除在選股池外）也要有預測，結單轉股才能比較（例：10/12 聯茂）
     try:
         held = [c for c in pfm.build_portfolio().positions if c not in codes and len(panel.get(c, [])) >= 300]
@@ -37,7 +47,7 @@ def market_context(target: dt.date, use_memory: bool = False) -> dict:
         held = []
     alpha_out = alpha_model.run(panel, codes + held, tx.Close, target, etf)
     return {"us_hist": us_hist, "panel": panel, "codes": codes, "etf": etf, "taiex": tx, "alpha": alpha_out,
-            "target": target}
+            "target": target, "data_guard": guard}
 
 
 def score_codes(codes: list[str], ctx: dict, target: dt.date, senti_by_code: dict | None = None) -> dict:

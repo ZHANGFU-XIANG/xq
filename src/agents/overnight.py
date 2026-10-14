@@ -105,12 +105,10 @@ def tx_night() -> dict | None:
 # ---------------------------------------------------------------- 美股
 def us_live() -> list[dict]:
     def fetch():
-        import yfinance as yf
+        from src.data import yahoo_gateway as yg
 
-        intra = yf.download(list(US), period="2d", interval="5m", prepost=True, group_by="ticker",
-                            progress=False, auto_adjust=False, threads=True)
-        daily = yf.download(list(US), period="10d", interval="1d", group_by="ticker", progress=False,
-                            auto_adjust=False, threads=True)
+        intra = yg.download(list(US), period="2d", interval="5m", prepost=True)
+        daily = yg.download(list(US), period="10d", interval="1d")
         out = []
         for t, name in US.items():
             try:

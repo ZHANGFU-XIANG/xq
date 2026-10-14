@@ -185,7 +185,10 @@ def run_daily(mode: str, today: dt.date) -> dict:
                   "shares": p.shares, "avg_cost": round(p.avg_cost, 2),
                   "price": prices.get(c, 0), "pnl_pct": round((prices.get(c, p.avg_cost) / p.avg_cost - 1) * 100, 2),
                   "weight_pct": round(p.shares * prices.get(c, 0) / nav * 100, 2)} for c, p in pf.positions.items()]
-    if mode == "postclose":
+    guard = ctx.get("data_guard") or {}
+    if mode == "postclose" and guard.get("level") == "severe":
+        log.error("DataGuard 判定持股缺最新價格，本次不寫入淨值紀錄（避免 10/12～10/14 那種錯誤紀錄）")
+    elif mode == "postclose":
         # 走勢紀錄用競賽 App 口徑（初始 ＋ 未實現 ＋ 已實現），與 App 投資報酬率一致
         pfm.record_history(today.isoformat(), pfm.app_total(pf, pipeline.with_marks(pf, prices)), pf.holding_ratio(prices),
                            {c: p.shares for c, p in pf.positions.items()})
@@ -231,6 +234,7 @@ def run_daily(mode: str, today: dt.date) -> dict:
         "attribution": att, "recovery": {k: rec[k] for k in ("items", "summary", "portfolio_exp_ret")},
         "macro": macro_imp, "macro_sens": sens,
         "orders": orders, "compliance": checks, "tuner": tune, "alerts": alert_out, "holding_advice": advice,
+        "data_guard": guard,
         "derivatives": deriv,
         "funding": {"transfer_from_futures": buys["transfer_from_futures"], "futures_reserve": buys["futures_reserve"],
                     "cash_after": buys["cash_after"], "loan_capacity_left": buys["loan_capacity_left"]},
@@ -300,6 +304,12 @@ def run_daily(mode: str, today: dt.date) -> dict:
                       + (f"+{o['odd']} 股" if o["odd"] else "") + f" 限價 {o['limit_price']}" for o in orders] +
                      ["", "規則檢查："] + [f"- [{c['status']}] {c['item']}：{c['detail']}" for c in checks] +
                      (["", "調整 Agent：" + tune["note"]] if tune.get("note") else []))
+    from src.agents import data_guard
+
+    if data_guard.banner(guard):
+        body = data_guard.banner(guard) + "
+
+" + body
     emailer.send(f"[投資競賽] {TITLES[mode]} {today}", body, [docx_path, pptx_path, orders_csv])
     log.info("完成：%s / %s（LLM 呼叫 %d 次，文字來源 %s）", docx_path.name, pptx_path.name, get_client().calls, text["source"])
     print(body)

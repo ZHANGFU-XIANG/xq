@@ -119,7 +119,13 @@ def build(pf: Portfolio, prices: dict, scores: dict, alpha_preds: dict, meta: di
         if a and a.get("hi252") and basket == "offense" and verdict in ("續抱", "加碼"):
             conditions.append(f"突破 52 週高點 {a['hi252']} → 確認創新高，續抱讓獲利奔跑")
 
+        # 零碎部位（市值 < 2 萬或權重 < 1%）：每筆最低手續費 20 元、結單轉股難發揮，只提醒不強制賣
+        fragment = verdict != "全部出清" and (mv < 20_000 or (nav and mv / nav < 0.01))
+        if fragment:
+            conditions.append(f"零碎部位（市值約 {mv:,.0f} 元、占總資產 {mv / nav * 100 if nav else 0:.1f}%）："
+                              "下次結單轉股或賣出時一併處理；不要再分批加碼零股（每筆最低手續費 20 元）")
         items.append({
+            "fragment": bool(fragment),
             "code": code, "name": stock_meta(code)["name"], "basket": basket, "basket_name": bcfg["name"],
             "shares": pos.shares, "avg_cost": round(pos.avg_cost, 2), "price": round(price, 2),
             "pnl": round(pnl), "pnl_pct": round(pnl / pos.cost_basis * 100, 2) if pos.cost_basis else 0,

@@ -7,6 +7,7 @@ competition:
   end: 2026-11-27
   trading_days: 38
   build_period_end: 2026-10-16      # 建倉期：此日(含)之前不罰持股率
+  symbols_check_start: 2026-10-19   # 第 3 週起每日追蹤「交易過的標的數 ≥ 5」（簡章 PDF，2026-10-04 核對）
   presentation_upload_deadline: 2026-12-16
   final_date: 2026-12-19
 

@@ -319,6 +319,22 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/risk", dependencies=[api])
+def risk_():
+    """風險儀表板：壓力測試、追繳點位、VaR、到競賽結束的模擬、黑天鵝指標、未來 5 個交易日注意事項、資料檢查。"""
+    from src.agents import data_guard, risk_lab, trade_calendar
+    from src.state import portfolio as pfm
+
+    out = dict(risk_lab.snapshot())
+    pf = pfm.build_portfolio()
+    try:
+        out["calendar"] = trade_calendar.events(list(pf.positions), list(pf.derivs))
+    except Exception as e:  # noqa: BLE001
+        out["calendar"], out["calendar_error"] = [], str(e)[:120]
+    out["data_guard"] = data_guard.STATE.get("last")
+    return out
+
+
 @app.get("/api/overnight", dependencies=[api])
 def overnight_():
     from src.agents import overnight

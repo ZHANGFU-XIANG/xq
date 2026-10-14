@@ -11,10 +11,10 @@ import pickle
 import time
 
 import pandas as pd
-import yfinance as yf
 
 from src.config import CACHE_DIR, last_closed_session, settings, stock_meta, watchlist
 from src.data import providers
+from src.data import yahoo_gateway as yg
 
 log = logging.getLogger(__name__)
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
@@ -54,7 +54,7 @@ def us_history(years: int = 2, max_age_hours: float = 2) -> dict[str, pd.DataFra
         for t in us_tickers():
             for attempt in range(3):
                 try:
-                    df = yf.Ticker(t).history(period=f"{years}y", auto_adjust=False)
+                    df = yg.history(t, period=f"{years}y", auto_adjust=False)
                     if not df.empty:
                         df.index = pd.to_datetime(df.index.date)
                         out[t] = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])  # 美股盤中／剛收盤時最後一列可能是 NaN
@@ -94,8 +94,8 @@ def us_snapshot(hist: dict[str, pd.DataFrame], before: dt.date) -> list[dict]:
 def nq_live() -> dict | None:
     """那斯達克期貨即時報價（盤前更新用，僅供參考不進模型）。"""
     try:
-        df = yf.Ticker("NQ=F").history(period="2d", interval="5m")
-        daily = yf.Ticker("NQ=F").history(period="5d")
+        df = yg.history("NQ=F", period="2d", interval="5m")
+        daily = yg.history("NQ=F", period="5d")
         if df.empty or len(daily) < 2:
             return None
         last = float(df.Close.iloc[-1])
@@ -123,7 +123,7 @@ OFFICIAL = "證交所／櫃買中心官方資料"
 
 def _yf_tw(code: str, years: int) -> pd.DataFrame:
     suffix = ".TWO" if stock_meta(code).get("market") == "TPEx" else ".TW"
-    df = yf.Ticker(code + suffix).history(period=f"{years}y", auto_adjust=False)
+    df = yg.history(code + suffix, period=f"{years}y", auto_adjust=False)
     if df.empty:
         return df
     df.index = pd.to_datetime(df.index.date)
@@ -191,7 +191,7 @@ def taiex(years: int = 3) -> pd.DataFrame:
     """加權指數日 K。"""
 
     def fetch():
-        df = yf.Ticker("^TWII").history(period=f"{years}y", auto_adjust=False)
+        df = yg.history("^TWII", period=f"{years}y", auto_adjust=False)
         df.index = pd.to_datetime(df.index.date)
         return df[["Open", "High", "Low", "Close", "Volume"]]
 

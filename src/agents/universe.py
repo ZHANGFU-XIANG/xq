@@ -15,7 +15,6 @@ import time
 
 import pandas as pd
 import requests
-import yfinance as yf
 
 from src.config import CACHE_DIR, last_closed_session, settings
 
@@ -154,28 +153,22 @@ def _yf_symbol(code: str) -> str:
 
 
 def _download(codes: list[str], period: str) -> dict[str, pd.DataFrame]:
+    """經 yahoo_gateway 批次下載（限流＋被限流時只重抓缺的代號）。"""
+    from src.data import yahoo_gateway as yg
+
     out: dict[str, pd.DataFrame] = {}
     for i in range(0, len(codes), 150):
         chunk = codes[i:i + 150]
-        syms = [_yf_symbol(c) for c in chunk]
-        for attempt in range(2):
+        sym_of = {_yf_symbol(c): c for c in chunk}
+        for s, df in yg.download(list(sym_of), period=period).items():
             try:
-                d = yf.download(syms, period=period, group_by="ticker", threads=True, progress=False, auto_adjust=False)
-                break
-            except Exception as e:  # noqa: BLE001
-                log.warning("批次下載失敗(%s)：%s", attempt, e)
-                time.sleep(5)
-        else:
-            continue
-        for c, s in zip(chunk, syms):
-            try:
-                df = d[s][["Open", "High", "Low", "Close", "Volume"]].dropna()
+                df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
             except KeyError:
                 continue
             df = df[df.Volume > 0]
             if not df.empty:
                 df.index = pd.to_datetime(df.index.date)
-                out[c] = df.astype(float)
+                out[sym_of[s]] = df.astype(float)
     return out
 
 

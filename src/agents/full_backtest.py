@@ -27,11 +27,11 @@ import time
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 from src.agents import alpha_model as am
 from src.agents import strategy_tuner as st
 from src.config import CACHE_DIR, settings
+from src.data import yahoo_gateway as yg
 from src.state import params
 
 log = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def load_panel_max(refresh: bool = False) -> dict[str, pd.DataFrame]:
 def load_taiex_max() -> pd.Series:
     if TAIEX_MAX.exists() and time.time() - TAIEX_MAX.stat().st_mtime < 7 * 86400:
         return pickle.loads(TAIEX_MAX.read_bytes())
-    df = yf.Ticker("^TWII").history(period="max", auto_adjust=False)
+    df = yg.history("^TWII", period="max", auto_adjust=False)
     df.index = pd.to_datetime(df.index.date)
     s = df["Close"].dropna()
     TAIEX_MAX.write_bytes(pickle.dumps(s))
