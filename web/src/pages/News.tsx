@@ -22,7 +22,7 @@ export default function News() {
       first.current = false
       return r
     },
-    refetchInterval: liveEvery(120_000, 300_000),
+    refetchInterval: liveEvery(60_000, 300_000),
     staleTime: 0,
   })
   const [src, setSrc] = useState('')

@@ -114,7 +114,7 @@ function ThemeToggle() {
 export default function Layout() {
   const chat = useChat()
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => get('/api/status'), refetchInterval: 60_000 })
-  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(60_000, 300_000), enabled: !!status?.warm })
+  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => get('/api/alerts'), refetchInterval: liveEvery(15_000, 300_000), enabled: !!status?.warm })
   const urgent = alerts && !alerts.from_report ? (alerts.counts?.['嚴重'] ?? 0) + (alerts.counts?.['警告'] ?? 0) : 0
   const [menu, setMenu] = useState(false)
   const onChatPage = useLocation().pathname === '/chat'

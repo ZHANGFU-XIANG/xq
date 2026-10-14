@@ -328,7 +328,7 @@ def test_matches_competition_app_20261008():
     assert round(pfm.app_total(pf, prices)) == 9_979_013
     assert round(pf.holding_ratio(prices) * 100, 2) == 83.73
     margin = 2 * 701_000
-    assert abs(round(pf.cash + pf.futures_equity(prices) - margin) - 392_815) <= 1  # 尚差 1 元，原因待更多賣出資料確認
+    assert round(pf.cash + pf.futures_equity(prices) - margin) == 392_815  # 賣出交割價金無條件進位（已實現仍四捨五入）
 
 
 def test_mass_delete_needs_confirm(ledger):

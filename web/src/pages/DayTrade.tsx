@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Fragment, useState } from 'react'
 import { useChat } from '../components/Chat'
+import KLine from '../components/KLine'
 import { Bullets, Change, Empty, ErrorNote, Loading, PageTitle, Section, Stat, StockLink, Tabs } from '../components/ui'
 import { get, type Json } from '../lib/api'
 import { fmtInt, fmtPct, tone } from '../lib/format'
@@ -33,7 +34,7 @@ function Rows({ rows }: { rows: Json[] }) {
             <th className="py-2 font-normal">排名</th><th className="font-normal">股票</th><th className="font-normal">結論</th>
             <th className="text-right font-normal">現價</th><th className="text-right font-normal">漲跌</th><th className="text-right font-normal">距開盤</th>
             <th className="text-right font-normal">量比</th><th className="text-right font-normal">日均波動</th><th className="text-right font-normal">均成交值</th>
-            <th className="text-right font-normal">進場／停損／目標</th><th className="text-right font-normal">張數</th><th className="text-right font-normal">到目標／觸停損</th>
+            <th className="text-right font-normal">買入／停損／目標</th><th className="text-right font-normal">張數</th><th className="text-right font-normal">到目標／觸停損</th>
           </tr>
         </thead>
         <tbody>
@@ -49,19 +50,21 @@ function Rows({ rows }: { rows: Json[] }) {
                 <td className="num text-right">{r.volume_ratio ?? '—'}</td>
                 <td className="num text-right">{r.atr_pct == null ? '—' : `${r.atr_pct.toFixed(1)}%`}</td>
                 <td className="num text-right">{r.val20_e8 == null ? '—' : `${fmtInt(r.val20_e8)} 億`}</td>
-                <td className="num text-right text-sm">{r.entry ? `${r.entry}／${r.stop}／${r.target}` : r.trigger ? `突破 ${r.trigger}` : '—'}</td>
-                <td className="text-right text-sm">{r.shares ? r.qty_text.replace(/（.*）/, '') : '—'}</td>
-                <td className="num text-right text-sm">{r.shares ? <><span className="text-up">{fmtInt(r.profit_at_target)}</span>／<span className="text-down">{fmtInt(r.loss_at_stop)}</span></> : '—'}</td>
+                <td className="num text-right text-sm">{r.buy_price ? <><span className="font-medium text-link">{r.buy_price}</span>／<span className="text-down">{r.stop_price}</span>／<span className="text-up">{r.target_price}</span></> : '—'}</td>
+                <td className="text-right text-sm">{(r.shares ? r.qty_text : r.plan_qty_text ?? '').replace(/（.*）/, '') || '—'}</td>
+                <td className="num text-right text-sm">{r.shares || r.plan_shares ? <><span className="text-up">{fmtInt(r.shares ? r.profit_at_target : r.plan_profit)}</span>／<span className="text-down">{fmtInt(r.shares ? r.loss_at_stop : r.plan_loss)}</span></> : '—'}</td>
               </tr>
               {open === r.code && (
                 <tr className="border-b border-line/60 bg-mist/60">
                   <td />
                   <td colSpan={11} className="py-2 pr-2 text-sm leading-relaxed text-ink-2">
+                    {r.price_text && <div className="mb-1 rounded-md bg-paper px-3 py-1.5 font-medium text-ink">{r.price_text}</div>}
                     {r.plan && <div className="mb-1 font-medium text-ink">{r.plan}</div>}
                     <div>{(r.reasons ?? []).join('；')}</div>
                     {r.levels && <div className="mt-1"><span className="font-medium text-ink">技術價位：</span>{r.levels.text}</div>}
                     {r.size_note && <div className="mt-1 text-warn">{r.size_note}</div>}
                     {r.net_reward_pct != null && <div className="mt-1 text-muted">到目標扣成本 +{r.net_reward_pct}%、觸停損含成本 −{r.net_risk_pct}%{r.short_ok ? '' : '；此股暫停先賣後買，只能先買後賣'}</div>}
+                    <div className="mt-2 rounded-lg border border-line bg-paper p-2" onClick={(e) => e.stopPropagation()}><KLine code={r.code} height={320} defaultPeriod="5" /></div>
                   </td>
                 </tr>
               )}
@@ -69,7 +72,7 @@ function Rows({ rows }: { rows: Json[] }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-muted">點一下列可展開理由、操作計畫與技術價位（買點、賣點、停損）；損益已扣手續費與證交稅。
+      <p className="mt-2 text-xs text-muted">藍＝買入價、綠＝停損價、紅＝目標價（訊號成立用現價；等突破用突破價；開盤前用第一買點）。點一下列可展開完整計畫、理由與 5 分 K 線；損益已扣手續費與證交稅。
         技術價位未經分鐘資料驗證：日 K 回測掛支撐價買進後抱到收盤平均是虧的，買到就要在賣點或收盤前出場。</p>
     </div>
   )
@@ -125,10 +128,12 @@ function Lookup() {
         <div className="mt-3 rounded-lg border border-line p-3 text-sm leading-relaxed">
           <div className="mb-1 flex flex-wrap items-center gap-2"><StockLink code={data.code} name={data.name} /><Verdict v={data.verdict} />
             {data.daily_rank && <span className="text-muted">當沖適合度第 {data.daily_rank}／{data.daily_total} 名</span>}</div>
+          {data.price_text && <div className="mb-1 rounded-md bg-mist px-3 py-1.5 font-medium">{data.price_text}</div>}
           {data.plan && <div className="font-medium">{data.plan}</div>}
           <div className="text-ink-2">{(data.reasons ?? []).join('；')}</div>
           {data.levels && <div className="mt-1"><span className="font-medium">技術價位：</span>{data.levels.text}</div>}
           {data.levels && <div className="mt-1 text-xs text-muted">{data.levels.note}</div>}
+          <div className="mt-2"><KLine code={data.code} height={320} defaultPeriod="5" /></div>
         </div>
       )}
     </div>
@@ -142,7 +147,7 @@ export default function DayTrade() {
   const pickCap = (v: number) => { setCap(v); try { localStorage.setItem('daytrade_cap', String(v)) } catch { /* 無法記住也沒關係 */ } }
   const { data: d, isLoading, error } = useQuery<Json>({
     queryKey: ['daytrade', 'board', cap], queryFn: () => get(`/api/daytrade${cap ? `?max_price=${cap}` : ''}`),
-    refetchInterval: liveEvery(15_000, 300_000), placeholderData: (prev: Json) => prev,
+    refetchInterval: liveEvery(5_000, 300_000), placeholderData: (prev: Json) => prev,
   })
   const rows: Json[] = d?.rows ?? []
   const lists: Record<Tab, Json[]> = {
@@ -171,7 +176,7 @@ export default function DayTrade() {
             <Stat label="等突破再進" value={lists.wait.length} sub="站上觸發價再看" />
             <Stat label="今日可當沖標的" value={fmtInt(d.eligible_count)} sub={d.source} />
           </div>
-          <Section title="當沖建議排行" aside="盤中每 15 秒更新" className="[&>div:last-child]:p-0">
+          <Section title="當沖建議排行" aside="盤中每 5 秒更新" className="[&>div:last-child]:p-0">
             <Tabs<Tab> value={tab} onChange={setTab} tabs={[
               { key: 'all', label: '全部排行', count: lists.all.length },
               { key: 'go', label: '可以當沖', count: lists.go.length, tone: 'text-up' },

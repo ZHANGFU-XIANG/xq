@@ -8,7 +8,7 @@ const RULE: Record<string, string> = { 獲利結單: '獲利 ≥10%，今天就�
 
 /** 結單轉股：全部賣出 A、同日買進綜合排名更好的 B（與「庫存怎麼處理」同一份資料，結論一致）。 */
 export default function RotationAdvice() {
-  const { data: d } = useQuery<Json>({ queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: liveEvery(60_000, 300_000) })
+  const { data: d } = useQuery<Json>({ queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: liveEvery(10_000, 300_000) })
   if (!d) return null
   const swaps: Json[] = d.items.filter((i: Json) => i.swap)
   return (

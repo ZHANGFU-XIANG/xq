@@ -79,7 +79,7 @@ function Row({ x, q, open, onToggle }: { x: Json; q?: Json; open: boolean; onTog
 /** 買賣決策總表：直接告訴使用者哪些可以買、哪些先不要買、持股為什麼續抱（看盤網站式的分頁表格）。 */
 export default function DecisionBoard() {
   const { data: d, isLoading } = useQuery<Json>({
-    queryKey: ['decisions'], queryFn: () => get('/api/decisions'), refetchInterval: liveEvery(60_000, 600_000),
+    queryKey: ['decisions'], queryFn: () => get('/api/decisions'), refetchInterval: liveEvery(10_000, 600_000),
   })
   const [tab, setTab] = useState<TabKey | null>(null)
   const [open, setOpen] = useState<string | null>(null)

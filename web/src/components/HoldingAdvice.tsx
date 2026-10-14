@@ -11,7 +11,7 @@ import { liveEvery } from '../lib/live'
 export default function HoldingAdvice({ compact = false, asset }: { compact?: boolean; asset?: 'STOCK' | 'ETF' }) {
   const qc = useQueryClient()
   const { data: d, isLoading, isFetching } = useQuery<Json>({
-    queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: liveEvery(60_000, 300_000),
+    queryKey: ['holding-advice'], queryFn: () => get('/api/holding-advice'), refetchInterval: liveEvery(10_000, 300_000),
   })
   if (isLoading) return <p className="py-4 text-muted">計算持股建議中（首次約 30 秒）</p>
   if (!d) return null

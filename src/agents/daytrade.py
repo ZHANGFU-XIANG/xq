@@ -319,6 +319,54 @@ def levels(d: dict) -> dict | None:
 
 
 def evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cash: float, bt: dict | None = None) -> dict:
+    """單檔當沖判斷＋每一檔都附「買入價／停損價／目標價」（使用者 2026-10-14：要直接算出買入與停損價格顯示在內文）。"""
+    row = _evaluate(d, q, ph, now, nav, cash, bt)
+    row.update(_prices(d, row, nav, cash))
+    return row
+
+
+def _prices(d: dict, row: dict, nav: float, cash: float) -> dict:
+    """訊號成立用現價；等突破／等回檔用觸發價；開盤前或其他情況用第一買點（S1／前日低點）。
+    停損距離＝max(stop_atr × ATR, 進場價 × min_stop_pct%)，目標＝reward_risk 倍停損（與訊號成立時相同算法）。"""
+    if row.get("verdict") == "準備平倉":
+        return {"buy_price": None, "stop_price": None, "target_price": None,
+                "price_text": "收盤前不開新倉，已有部位依原停損／目標或收盤前平倉"}
+    c, etf = cfg(), d["is_etf"]
+    lv = row.get("levels") or {}
+    if row.get("entry"):
+        buy, how = row["entry"], "訊號成立，現價進場"
+    elif row.get("trigger"):
+        buy, how = row["trigger"], ("突破後進場" if row.get("verdict") == "等突破再進" else "等價格回到這裡再進場")
+    elif lv.get("buy_zone"):
+        buy, how = lv["buy_zone"][1], "回檔到第一買點（S1／前日低點）進場"
+    else:
+        buy, how = row.get("price") or d.get("close"), "參考現價"
+    if not buy:
+        return {"buy_price": None, "stop_price": None, "target_price": None, "price_text": ""}
+    if row.get("entry"):
+        stop, target = row["stop"], row["target"]
+    else:
+        dist = max(c["stop_atr"] * (d.get("atr") or 0), buy * c["min_stop_pct"] / 100)
+        stop = sizer.round_tick(buy - dist, etf)
+        target = sizer.round_tick(buy + c["reward_risk"] * (buy - stop), etf, up=True)
+    side = "short" if row.get("direction") == "short" else "long"
+    risk = abs(buy - stop) / buy * 100
+    reward = abs(target - buy) / buy * 100
+    sz = _size(d["code"], buy, stop, nav, cash)
+    out = {"buy_price": buy, "stop_price": stop, "target_price": target, "price_basis": how, "price_side": side,
+           "stop_pct": round(risk, 2), "target_pct": round(reward, 2)}
+    if sz["shares"]:
+        out.update(plan_shares=sz["shares"], plan_qty_text=sz["qty_text"],
+                   plan_profit=_pnl(d["code"], sz["shares"], buy, target, side),
+                   plan_loss=_pnl(d["code"], sz["shares"], buy, stop, side))
+    verb = "先賣（放空）" if side == "short" else "買入"
+    out["price_text"] = (f"{verb} {buy}（{how}）、停損 {stop}（{risk:.1f}%）、目標 {target}（{reward:.1f}%）"
+                         + (f"；{sz['qty_text']}，到目標約 {out['plan_profit']:+,} 元、停損約 {out['plan_loss']:+,} 元（已扣成本）"
+                            if sz["shares"] else ""))
+    return out
+
+
+def _evaluate(d: dict, q: dict | None, ph: str, now: dt.datetime, nav: float, cash: float, bt: dict | None = None) -> dict:
     """單檔當沖判斷。d：日線列；q：即時報價；bt：日線回測（require_edge 時，訊號的同規則回測沒有優勢就不給進場）。"""
     c = cfg()
     etf = d["is_etf"]
@@ -432,7 +480,7 @@ ORDER = {"可以當沖做多": 0, "可以當沖做空": 1, "等突破再進": 2,
 
 def board(refresh: bool = False, max_price: float | None = None) -> dict:
     """當沖排行（盤中 15 秒快取、盤後 5 分鐘）。max_price：股價上限（元／股，依前一日收盤價），先篩價格再取前 prefilter_n 名。"""
-    ttl = 15 if alerts.is_trading_hours() else 300
+    ttl = 5 if alerts.is_trading_hours() else 300  # 盤中 5 秒（報價本身 4 秒快取）
     cache = _BOARD.get(max_price)
     if cache and not refresh and time.time() - cache["t"] < ttl:
         return cache["v"]

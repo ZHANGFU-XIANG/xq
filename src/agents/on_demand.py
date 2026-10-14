@@ -133,6 +133,105 @@ def kline(code: str, days: int = 260) -> dict:
             "live": bool(live)}
 
 
+MINUTE_SRC = {1: ("1m", "5d"), 3: ("1m", "5d"), 5: ("5m", "1mo"), 10: ("5m", "1mo"), 15: ("15m", "1mo"),
+              30: ("30m", "1mo"), 60: ("60m", "3mo")}  # 3 分由 1 分、10 分由 5 分合成（Yahoo 沒有這兩種）
+_MIN_CACHE: dict = {}
+
+
+def _with_ma(df: pd.DataFrame) -> pd.DataFrame:
+    for n in (5, 20, 60):
+        df[f"ma{n}"] = df.Close.rolling(n).mean()
+    return df
+
+
+def _yf_minutes(code: str, minutes: int) -> pd.DataFrame:
+    """Yahoo 分 K（台灣時間），30 秒快取；最後一根由 MIS 即時價補上（Yahoo 台股分 K 有延遲）。"""
+    import time as _t
+
+    import yfinance as yf
+
+    interval, period = MINUTE_SRC[minutes]
+    key = (code, interval)
+    hit = _MIN_CACHE.get(key)
+    if hit and _t.time() - hit[0] < 30:
+        df = hit[1]
+    else:
+        sym = code + (".TWO" if stock_meta(code).get("market") == "TPEx" else ".TW")
+        df = yf.Ticker(sym).history(period=period, interval=interval, auto_adjust=False)
+        if not df.empty:
+            df.index = df.index.tz_convert("Asia/Taipei").tz_localize(None)
+            df = df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
+        _MIN_CACHE[key] = (_t.time(), df)
+    if df.empty:
+        return df
+    if minutes in (3, 10):
+        df = df.resample(f"{minutes}min", label="left", closed="left").agg(
+            {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna(subset=["Close"])
+    return df.copy()
+
+
+def _patch_live_minute(code: str, df: pd.DataFrame, minutes: int) -> pd.DataFrame:
+    """用證交所 MIS 最新成交（含 13:30 收盤集合競價，Yahoo 分 K 常缺這一根）更新或新增最後一根。"""
+    from src.agents import alerts
+
+    q = alerts.realtime([code]).get(code) or {}
+    d, t = q.get("date") or "", q.get("time") or ""
+    if not q.get("price") or len(d) != 8 or len(t) < 5:
+        return df
+    ts = pd.Timestamp(f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:5]}")
+    if len(df) and ts.date() != df.index[-1].date() and ts < df.index[-1]:
+        return df
+    start = ts.floor(f"{minutes}min") if minutes < 60 else ts.floor("60min")
+    p = float(q["price"])
+    if len(df) and df.index[-1] == start:
+        r = df.iloc[-1]
+        df.iloc[-1, df.columns.get_loc("High")] = max(r.High, p)
+        df.iloc[-1, df.columns.get_loc("Low")] = min(r.Low, p)
+        df.iloc[-1, df.columns.get_loc("Close")] = p
+    elif not len(df) or df.index[-1] < start:
+        df.loc[start] = {"Open": p, "High": p, "Low": p, "Close": p, "Volume": 0.0}
+    return df
+
+
+def kline_period(code: str, period: str) -> dict:
+    """K 線：D（日，近 3 年）、W（週）、M（月）、或分 K（1/3/5/10/15/30/60）。分 K 的 time 為「台灣時間當作 UTC」的秒數。"""
+    period = str(period).upper()
+    if period == "D":
+        return kline(code, 750)
+    base = kline(code, 750)
+    out = {"code": code, "name": base.get("name"), "markers": [], "lines": base.get("lines", []), "period": period}
+    if period in ("W", "M"):
+        df = price_df(code)
+        if df.empty:
+            return {**out, "candles": []}
+        live = next((c for c in base.get("candles", [])[-1:] if c.get("live")), None)
+        if live:
+            df = df.copy()
+            df.loc[pd.Timestamp(live["time"])] = {"Open": live["open"], "High": live["high"], "Low": live["low"],
+                                                  "Close": live["close"], "Volume": live["volume"] * 1000}
+        rule = "W-FRI" if period == "W" else "ME"
+        g = df.resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
+        g = _with_ma(g.dropna(subset=["Close"]))
+        # 以該週／月第一個交易日標示
+        first = df.index.to_series().resample(rule).first().reindex(g.index)
+        candles = [{"time": first[d].strftime("%Y-%m-%d"), "open": _f(r.Open), "high": _f(r.High), "low": _f(r.Low),
+                    "close": _f(r.Close), "volume": int(r.Volume / 1000), "ma5": _f(r.ma5), "ma20": _f(r.ma20),
+                    "ma60": _f(r.ma60), "inst": None} for d, r in g.iterrows()]
+        return {**out, "candles": candles}
+    minutes = int(period)
+    if minutes not in MINUTE_SRC:
+        raise ValueError("period 只支援 M、W、D、1、3、5、10、15、30、60")
+    df = _patch_live_minute(code, _yf_minutes(code, minutes), minutes)
+    if df.empty:
+        return {**out, "candles": []}
+    df = _with_ma(df)
+    epoch = pd.Timestamp("1970-01-01")
+    candles = [{"time": int((d - epoch).total_seconds()), "open": _f(r.Open), "high": _f(r.High), "low": _f(r.Low),
+                "close": _f(r.Close), "volume": int(r.Volume / 1000), "ma5": _f(r.ma5), "ma20": _f(r.ma20),
+                "ma60": _f(r.ma60), "inst": None} for d, r in df.iterrows()]
+    return {**out, "candles": candles, "intraday": True, "note": "分 K 來源 Yahoo（可能延遲），盤中最後一根以證交所即時價更新"}
+
+
 def _live_candle(code: str, candles: list[dict]) -> dict | None:
     """今天的盤中 K 棒（證交所 MIS 即時開高低收與累計成交量）；日 K 資料已有今天就不重複。"""
     from src.agents import alerts
@@ -480,7 +579,7 @@ def _recommend(o: dict, rt: dict, prices: dict, alpha_preds: dict | None = None)
 
 
 def portfolio_plan(refresh: bool = False) -> dict:
-    """即時持股建議：依目前庫存（XQ 同步後立即反映）與即時價，每檔給 加碼／續抱／減碼／全部出清。5 分鐘快取。"""
+    """即時持股建議：依目前庫存（XQ 同步後立即反映）與即時價，每檔給 加碼／續抱／減碼／全部出清。盤中 30 秒、盤後 5 分鐘快取。"""
     import time
 
     pf = pfm.build_portfolio()
@@ -488,7 +587,7 @@ def portfolio_plan(refresh: bool = False) -> dict:
     from src.agents import alerts
     from src.api import data as apidata
 
-    ttl = 120 if alerts.is_trading_hours() else 300
+    ttl = 30 if alerts.is_trading_hours() else 300  # 盤中 30 秒（多半直接沿用每分鐘重算的盤中建議）
     if not refresh and _PLAN["v"] is not None and _PLAN["key"] == key and time.time() - _PLAN["t"] < ttl:
         return _PLAN["v"]
     if not refresh and apidata._INTRA_LOCK.locked():  # 盤中建議正在重算：等它算完直接沿用，不要同時再算一份

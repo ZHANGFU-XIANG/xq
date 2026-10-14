@@ -14,7 +14,7 @@ import { liveEvery } from '../lib/live'
 
 /** 當沖排行前 5 名（完整的在當沖頁）。 */
 function DayTradeMini() {
-  const { data: d } = useQuery<Json>({ queryKey: ['daytrade'], queryFn: () => get('/api/daytrade'), refetchInterval: liveEvery(15_000, 300_000) })
+  const { data: d } = useQuery<Json>({ queryKey: ['daytrade'], queryFn: () => get('/api/daytrade'), refetchInterval: liveEvery(5_000, 300_000) })
   const rows: Json[] = (d?.rows ?? []).slice(0, 5)
   return (
     <Section title="當沖排行" aside={<Link to="/daytrade">看全部</Link>}>
@@ -39,7 +39,7 @@ export default function Overview() {
   const pickCap = (v: number) => { setCap(v); try { localStorage.setItem('picks_cap', String(v)) } catch { /* 無法記住也沒關係 */ } }
   const qs = cap ? `?max_price=${cap}` : ''
   const { data: d, isLoading, error } = useQuery<Json>({
-    queryKey: ['picks', qs], queryFn: () => get(`/api/picks${qs}`), refetchInterval: liveEvery(20_000, 300_000),
+    queryKey: ['picks', qs], queryFn: () => get(`/api/picks${qs}`), refetchInterval: liveEvery(10_000, 300_000),
     placeholderData: (prev: Json) => prev,
   })
   const bt = d?.backtest ?? {}
@@ -79,7 +79,8 @@ export default function Overview() {
                 </div>
                 <div className="p-4"><TopPicks items={d.items} /></div>
               </Section>
-              <p className="-mt-3 mb-6 text-sm leading-relaxed text-muted">{d.method}</p>
+              <p className="-mt-3 mb-2 text-sm leading-relaxed text-muted">{d.method}</p>
+              <p className="mb-6 text-sm leading-relaxed text-warn">實際勝率（2002～2026 樣本外，隔日開盤買、20 天後賣、扣成本）：單一推薦賺錢機率約 50%、平均 +1.5～2.5%；前 5 名分散買約 56%。優勢來自「賺的時候賺比較多」，所以請分散買 5 檔以上、照停損，不要只押一檔。</p>
             </div>
             <div className="min-w-0 lg:sticky lg:top-4">
               <RegimeBanner compact />

@@ -13,7 +13,7 @@ const STYLE: Record<string, { box: string; dot: string }> = {
 
 /** 大盤攻守燈號與撤資預警（/api/regime）。綠＝積極進攻、灰＝中性、黃＝預警先暫停追高、紅＝轉弱提早撤資。 */
 export default function RegimeBanner({ compact = false }: { compact?: boolean }) {
-  const { data: r } = useQuery<Json>({ queryKey: ['regime'], queryFn: () => get('/api/regime'), refetchInterval: liveEvery(60_000, 300_000) })
+  const { data: r } = useQuery<Json>({ queryKey: ['regime'], queryFn: () => get('/api/regime'), refetchInterval: liveEvery(10_000, 300_000) })
   const [open, setOpen] = useState(false)
   if (!r) return null
   const st = STYLE[r.level] ?? STYLE['灰燈']

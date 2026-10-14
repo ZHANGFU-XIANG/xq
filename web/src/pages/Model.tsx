@@ -110,6 +110,25 @@ function FullHistory({ r }: { r: Json }) {
           </tbody>
         </table>
       </div>
+      {r.calibration?.buckets && (
+        <div className="mt-4 overflow-x-auto">
+          <div className="mb-1 text-sm font-medium">推薦的真實勝率（每天依模型排名分組，隔日開盤買、{r.calibration.horizon} 天後賣、扣成本）</div>
+          <table className="w-full min-w-[520px] text-sm">
+            <thead className="text-left text-muted"><tr className="border-b border-line"><th className="py-1 font-normal">當天排名</th><th className="text-right font-normal">筆數</th>
+              <th className="text-right font-normal">賺錢機率</th><th className="text-right font-normal">平均報酬</th><th className="text-right font-normal">中位數</th><th className="text-right font-normal">贏大盤機率</th></tr></thead>
+            <tbody>
+              {r.calibration.buckets.map((b: Json) => (
+                <tr key={b.rank} className="border-b border-line/60">
+                  <td className="py-1">第 {b.rank} 名</td><td className="num text-right">{b.n.toLocaleString()}</td>
+                  <td className="num text-right">{fmtRatio(b.win, 1)}</td><td className={`num text-right ${tone(b.avg)}`}>{fmtRatio(b.avg, 2, true)}</td>
+                  <td className={`num text-right ${tone(b.median)}`}>{fmtRatio(b.median, 2, true)}</td><td className="num text-right">{fmtRatio(b.beat_market, 1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-1 text-xs text-muted">對照：大盤 {r.calibration.horizon} 天上漲機率 {fmtRatio(r.calibration.market_win, 1)}；前 5 名分散買 {fmtRatio(r.calibration.top5_portfolio_win, 1)}；「創新高機率 ≥ 90%」的推薦實際賺錢 {fmtRatio(r.calibration.high_p_newhigh_win, 1)}。{r.calibration.note}</p>
+        </div>
+      )}
       {years.length > 0 && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">

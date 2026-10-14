@@ -564,7 +564,7 @@ def _live_alerts(refresh: bool = False) -> dict:
 
     from src.agents import alerts
 
-    ttl = 60 if alerts.is_trading_hours() else 300  # 盤中每分鐘（跌停、跌破停損要即時）；新聞判讀與注意股名單另有快取
+    ttl = 15 if alerts.is_trading_hours() else 300  # 盤中每 15 秒（跌停、跌破停損要即時）；新聞判讀與注意股名單另有快取
     if not refresh and _ALERTS["v"] is not None and time.time() - _ALERTS["t"] < ttl:
         return _ALERTS["v"]
     r = load_report() or {}
@@ -714,7 +714,7 @@ def live_regime() -> dict:
 
     from src.agents import regime
 
-    if _REGIME["v"] is not None and time.time() - _REGIME["t"] < 60:
+    if _REGIME["v"] is not None and time.time() - _REGIME["t"] < 15:
         return _REGIME["v"]
     ctx = on_demand.context()
     tx = ctx["taiex"]
@@ -895,7 +895,7 @@ def live_news(refresh: bool = False) -> dict:
     from src.config import now_tw
 
     age = time.time() - _NEWS["t"]
-    ttl = 120 if alerts.is_trading_hours() else 300
+    ttl = 60 if alerts.is_trading_hours() else 300
     if _NEWS["v"] is None or age > ttl or (refresh and age > 30):
         items = news_agent.fetch_news(now_tw())
         _NEWS.update(t=time.time(), v={"news": [{k: n[k] for k in ("id", "source", "title", "url", "time", "category")}

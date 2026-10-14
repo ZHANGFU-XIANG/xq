@@ -18,6 +18,21 @@ from src.config import settings
 log = logging.getLogger(__name__)
 
 
+def html_body(subject: str, body: str) -> str | None:
+    """scripts/mail_html.py（代寄端也用同一份）把純文字轉成 HTML 版面；失敗就只寄純文字。"""
+    try:
+        import importlib.util
+
+        path = Path(__file__).resolve().parents[2] / "scripts" / "mail_html.py"
+        spec = importlib.util.spec_from_file_location("mail_html", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.render(subject, body)
+    except Exception as e:  # noqa: BLE001
+        log.warning("HTML 信件版面失敗，改寄純文字：%s", e)
+        return None
+
+
 def _via_github(subject: str, body: str) -> bool:
     repo, tok = os.environ["GITHUB_REPO"], os.environ["GITHUB_TOKEN"]
     if len(body) > 20000:  # workflow_dispatch 輸入有長度上限
@@ -52,6 +67,9 @@ def send(subject: str, body: str, attachments: list[Path]) -> bool:
     msg = EmailMessage()
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to)
     msg.set_content(body)
+    h = html_body(subject, body)
+    if h:
+        msg.add_alternative(h, subtype="html")
     for p in attachments:
         if p and p.exists():
             msg.add_attachment(p.read_bytes(), maintype="application", subtype="octet-stream", filename=p.name)

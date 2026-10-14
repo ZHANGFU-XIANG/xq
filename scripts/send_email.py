@@ -18,6 +18,13 @@ def main() -> int:
     msg["Subject"] = os.getenv("MAIL_SUBJECT") or "[投資競賽] 通知"
     msg["From"], msg["To"] = user, ", ".join(to)
     msg.set_content(os.getenv("MAIL_BODY") or "")
+    try:  # 好讀的 HTML 版面（同資料夾 mail_html.py）；失敗就只寄純文字
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import mail_html
+
+        msg.add_alternative(mail_html.render(msg["Subject"], os.getenv("MAIL_BODY") or ""), subtype="html")
+    except Exception as e:  # noqa: BLE001
+        print(f"HTML 版面失敗，只寄純文字：{e}")
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
         s.login(user, pwd)
         s.send_message(msg)

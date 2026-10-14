@@ -51,7 +51,7 @@ type Tab = 'holdings' | 'trades' | 'stats'
 const TABS: [Tab, string][] = [['holdings', '持股'], ['trades', '交易紀錄'], ['stats', '統計分析']]
 
 export default function Portfolio() {
-  const { data: p, isLoading, error } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(15_000, 120_000) })
+  const { data: p, isLoading, error } = useQuery<Json>({ queryKey: ['portfolio'], queryFn: () => get('/api/portfolio'), refetchInterval: liveEvery(5_000, 120_000) })
   const { data: r } = useQuery<Json>({ queryKey: ['report', 'latest'], queryFn: () => get('/api/report') })
   const loc = useLocation()
   const nav = useNavigate()

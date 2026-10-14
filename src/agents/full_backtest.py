@@ -187,6 +187,36 @@ def evaluate(sim: st.Sim, p: dict, mkt: pd.Series) -> dict:
     return res
 
 
+def calibration(preds: pd.DataFrame, panel: dict[str, pd.DataFrame], mkt: pd.Series, h: int = 20) -> dict:
+    """推薦的真實勝率（2026-10-14 使用者問「準確率能否 90% 以上」）：依當天排名分組，
+    隔日開盤買、h 個交易日後開盤賣、扣來回成本，算賺錢機率、平均報酬、贏大盤機率。"""
+    dates = sorted(preds["date"].unique())
+    codes = sorted(set(preds["code"]) & set(panel))
+    op = pd.DataFrame({c: panel[c]["Open"] for c in codes}).reindex(pd.DatetimeIndex(dates))
+    fwd = op.shift(-(h + 1)) / op.shift(-1) - 1 - st.COST
+    m = mkt.reindex(pd.DatetimeIndex(dates)).ffill()
+    mret = m.shift(-(h + 1)) / m.shift(-1) - 1
+    p = preds[preds["code"].isin(codes)].copy()
+    p["rank"] = p.groupby("date")["e"].rank(ascending=False)
+    long = fwd.stack().rename("ret").reset_index()
+    long.columns = ["date", "code", "ret"]
+    p = p.merge(long, on=["date", "code"], how="inner").dropna(subset=["ret"])
+    p["beat"] = p["ret"].to_numpy() - mret.reindex(p["date"]).to_numpy() > 0
+    out = []
+    for a, b in ((1, 1), (1, 5), (6, 20), (21, 50), (51, 150)):
+        x = p[(p["rank"] >= a) & (p["rank"] <= b)]
+        out.append({"rank": f"{a}" if a == b else f"{a}～{b}", "n": int(len(x)), "win": round(float((x["ret"] > 0).mean()), 4),
+                    "avg": round(float(x["ret"].mean()), 4), "median": round(float(x["ret"].median()), 4),
+                    "beat_market": round(float(x["beat"].mean()), 4)})
+    top5 = p[p["rank"] <= 5].groupby("date")["ret"].mean()
+    hi = p[(p["rank"] <= 20) & (p["p"] >= 0.9)]
+    return {"horizon": h, "buckets": out, "market_win": round(float((mret.dropna() > 0).mean()), 4),
+            "top5_portfolio_win": round(float((top5 > 0).mean()), 4), "top5_portfolio_avg": round(float(top5.mean()), 4),
+            "high_p_newhigh_win": round(float((hi["ret"] > 0).mean()), 4),
+            "note": ("單一推薦 20 天後賺錢的機率約五成，平均報酬為正是因為賺的時候賺比較多；"
+                     "「創新高機率」是「20 天內碰到 52 週新高」的機率，不是賺錢機率。股票沒有 90% 以上的準確率，宣稱有的多半是偷看答案或過度擬合。")}
+
+
 def run(tune: bool = False, refresh: bool = False) -> dict:
     t0 = time.time()
     mkt = load_taiex_max()
@@ -209,6 +239,7 @@ def run(tune: bool = False, refresh: bool = False) -> dict:
     sim = st.Sim(preds, panel, execution="next_open")
     out["next_open"] = evaluate(sim, cur, mkt)
     out["close_same_day"] = evaluate(st.Sim(preds, panel, execution="close"), cur, mkt)
+    out["calibration"] = calibration(preds, panel, mkt)
     if tune:
         ch, res = st.tune_portfolio(sim)
         out["tuning"] = st._num(res)

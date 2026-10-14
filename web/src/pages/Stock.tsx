@@ -221,6 +221,9 @@ export default function Stock() {
               ))}
             </dl>
           )}
+          {p.model && (
+            <p className="mt-1 text-xs text-muted">「創新高機率」＝20 天內碰到 52 週新高的機率，不是賺錢機率。2002～2026 樣本外：排名第 1 的推薦 20 天後賺錢約 50%、平均 +2.5%（賺的時候賺較多）；前 5 名分散買約 56%。沒有任何模型能有 90% 以上準確率。</p>
+          )}
         </div>
       </section>
 

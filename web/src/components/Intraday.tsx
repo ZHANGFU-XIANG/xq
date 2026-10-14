@@ -19,7 +19,7 @@ const ORDER_ACTION = /^【(建倉|買進|賣出|預掛)】/
 export function useIntraday() {
   // 拿到的是上一份（stale）時每 10 秒問一次，背景算好就換上；盤中每 30 秒（伺服器每 1 分鐘重算），盤後每 2 分鐘
   return useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'),
-    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 10_000 : isTradingNow() ? 30_000 : 120_000) })
+    refetchInterval: (q) => ((q.state.data as Json)?.stale ? 10_000 : isTradingNow() ? 10_000 : 120_000) })
 }
 
 /** 盤中建議：網站盤中每 1 分鐘以即時價重新計算（雲端排程與 Email 每 40 分鐘）（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */

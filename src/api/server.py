@@ -452,7 +452,12 @@ def profile(code: str):
 
 
 @app.get("/api/stock/{code}/kline", dependencies=[api])
-def kline(code: str, days: int = 260):
+def kline(code: str, days: int = 260, period: str = ""):
+    if period:  # 月／週／日／分 K（1、3、5、10、15、30、60）
+        try:
+            return on_demand.kline_period(code, period)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
     return on_demand.kline(code, min(max(days, 30), 750))
 
 

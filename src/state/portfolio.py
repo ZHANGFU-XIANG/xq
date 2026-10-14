@@ -268,7 +268,9 @@ def build_portfolio(trades: list[dict] | None = None) -> Portfolio:
             repay = pos.margin_loan * frac
             basis = _consume_fifo(pos, shares, is_odd_fill(t))
             proceeds = amount - cost
-            pf.cash += proceeds - repay
+            # 交割金額的賣出價金是「無條件進位」（XQ 成交 CSV：10/12 潤泰全 172 股 × 58.6 = 10,079.2 → 10,080），
+            # 已實現損益卻用四捨五入；10/08 App 持有現金 392,815、已實現 −582 只有這個組合同時吻合（原本現金差 1 元）
+            pf.cash += math.ceil(shares * price - 1e-6) - amount + proceeds - repay
             pf.realized_pnl += proceeds - basis
             pos.shares -= shares
             pos.cost_basis -= basis
