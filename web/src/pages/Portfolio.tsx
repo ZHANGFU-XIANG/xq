@@ -9,6 +9,7 @@ import HoldingWatch from '../components/HoldingWatch'
 import OvernightWatch from '../components/OvernightWatch'
 import RiskDashboard from '../components/RiskDashboard'
 import Standing from '../components/Standing'
+import ShadowCard from '../components/ShadowCard'
 import RotationAdvice from '../components/RotationAdvice'
 import Intraday from '../components/Intraday'
 import USShock from '../components/USShock'
@@ -106,6 +107,7 @@ export default function Portfolio() {
       <OvernightWatch />
       <Standing />
       <RiskDashboard />
+      <ShadowCard />
       <DecisionBoard />
       <RotationAdvice />
       <HoldingWatch />

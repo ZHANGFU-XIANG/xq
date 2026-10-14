@@ -335,6 +335,20 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/shadow", dependencies=[api])
+def shadow_():
+    from src.agents import shadow
+
+    return shadow.run()
+
+
+@app.get("/api/execution", dependencies=[api])
+def execution_():
+    from src.agents import execution
+
+    return execution.run()
+
+
 @app.get("/api/close-check", dependencies=[api])
 def close_check_():
     from src.agents import compliance

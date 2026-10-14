@@ -77,10 +77,16 @@ def _risk_events() -> list[tuple[str, str, str]]:
 
 
 def _overnight_events() -> list[tuple[str, str, str]]:
-    from src.agents import overnight
+    from src.agents import execution, overnight
+
+    pre = []
+    try:  # 08:40～08:58 開盤前預掛提醒
+        pre = [(f"exec|{a['key']}", a["title"], a["body"]) for a in execution.preopen_alerts()]
+    except Exception as e:  # noqa: BLE001
+        log.warning("開盤前提醒失敗：%s", e)
 
     s = overnight.snapshot()
-    return [(f"night|{a['key']}", f"{'［' + a['level'] + '］' if a['level'] != '注意' else ''}{a['title']}", a["body"])
+    return pre + [(f"night|{a['key']}", f"{'［' + a['level'] + '］' if a['level'] != '注意' else ''}{a['title']}", a["body"])
             for a in s["alerts"]]
 
 

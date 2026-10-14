@@ -70,6 +70,12 @@ def build(res: dict[str, dict]) -> dict:
         sec.append({"title": f"PTT 論壇風向（{fo.get('label', '僅資訊')}）", "level": None,
                     "lines": [f"{s['code']} {s['name']}：提及 {s['mentions']} 次、推文 {s['push']}、多空 {s['direction']:+.1f}"
                               for s in fo["hot"][:6]]})
+    sh = o.get("shadow") or {}
+    if sh.get("series"):
+        last = sh["series"][-1]
+        sec.append({"title": "影子組合（照策略、開盤成交）", "level": None,
+                    "lines": [f"實際 {last['actual_ret']:+.2f}% vs 影子 {last['shadow_ret']:+.2f}%，差 {_fmt(sh['diff'])} 元"]
+                    + [f"{b['name']}：{_fmt(b['amount'])} 元" for b in sh.get("breakdown", [])]})
     db = o.get("debate") or {}
     if db.get("items"):
         sec.append({"title": "持股多空辯論（結論以系統持股建議為準）", "level": None,

@@ -76,5 +76,12 @@ def _debate(**kw) -> dict:
     return debate.run()
 
 
-ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "debate"]
+@register("shadow", "影子組合：完全照策略、開盤成交的帳戶與差距拆解", timeout=180, required=("series", "breakdown"))
+def _shadow(**kw) -> dict:
+    from src.agents import shadow
+
+    return shadow.run()
+
+
+ALL = ["data_guard", "risk", "calendar", "overnight", "global", "industry", "fact_check", "forum", "shadow", "debate"]
 FAST = ["data_guard", "risk", "calendar", "overnight", "global", "fact_check", "forum"]  # 不含 LLM 重的，網頁即時用
