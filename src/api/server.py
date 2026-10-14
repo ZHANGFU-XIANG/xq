@@ -335,6 +335,39 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/close-check", dependencies=[api])
+def close_check_():
+    from src.agents import compliance
+
+    return compliance.close_check()
+
+
+@app.get("/api/standing", dependencies=[api])
+def standing_():
+    from src.agents import standing
+
+    return standing.summary()
+
+
+class ImageBody(BaseModel):
+    image: str
+
+
+@app.post("/api/standing/screenshot", dependencies=[api])
+def standing_shot_(body: ImageBody):
+    import base64
+
+    from src.agents import standing
+
+    raw = body.image.split(",", 1)[1] if body.image.startswith("data:") else body.image
+    if len(raw) > 14_000_000:
+        raise HTTPException(413, "圖片太大（上限約 10MB）")
+    try:
+        return standing.ingest(base64.b64decode(raw))
+    except RuntimeError as e:
+        raise HTTPException(502, f"讀不出排名：{e}") from e
+
+
 @app.get("/api/agents", dependencies=[api])
 def agents_():
     from src.agents import registry

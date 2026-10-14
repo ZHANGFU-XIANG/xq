@@ -93,3 +93,53 @@ def check(pf: Portfolio, prices: dict, orders: list[dict], today: dt.date, nav: 
     ret = nav / r["capital"]["initial"] - 1
     add("累積報酬為正（才列入排名）", ret > 0, f"目前累積報酬 {ret * 100:+.2f}%", warn=True)
     return out
+
+
+# ---------------------------------------------------------------- 收盤前倒數（使用者 2026-10-15：避免每次扣 0.2% 或最後一天被取消排名）
+def close_check(now: dt.datetime | None = None, buffer: float = 0.02) -> dict:
+    """用即時價估算「如果現在收盤」的持股率、交易標的數與最後一日規定，不足時算出 13:30 前要補多少。
+    buffer：持股率目標多抓 2%（收盤價波動、手續費、零股未成交）。"""
+    from src import pipeline
+    from src.agents import alerts
+    from src.config import now_tw
+    from src.state import portfolio as pfm
+
+    now = now or now_tw()
+    today = now.date()
+    r = rules()
+    req = r["requirements"]
+    pf = pfm.build_portfolio()
+    rt = alerts.realtime(list(pf.positions)) if pf.positions else {}
+    prices = {c: (rt.get(c) or {}).get("price") or p.avg_cost for c, p in pf.positions.items()}
+    marked = pipeline.with_marks(pf, prices)
+    ratio = pf.holding_ratio(marked)
+    mv = pf.market_value(marked)
+    denom = mv / ratio if ratio else pf.nav(marked)
+    build_end = dt.date.fromisoformat(str(r["competition"]["build_period_end"]))
+    sym_start = dt.date.fromisoformat(str(req.get("symbols_rule_start", build_end)))
+    min_ratio = req["min_holding_ratio"]
+    items = []
+    ratio_active = today > build_end
+    need = max(0.0, (min_ratio + buffer) * denom - mv)  # 用現金買股票：分母幾乎不變
+    items.append({"key": "ratio", "ok": ratio >= min_ratio + buffer or not ratio_active, "active": ratio_active,
+                  "value": round(ratio, 4), "need_amount": round(need),
+                  "text": (f"估計收盤持股率 {ratio * 100:.1f}%" + ("" if ratio >= min_ratio + buffer else
+                           f"，低於安全線 {(min_ratio + buffer) * 100:.0f}%：13:30 前再買約 {need:,.0f} 元股票")
+                           + ("" if ratio_active else "（建倉期不罰）"))})
+    n_sym = len(pf.traded_symbols)
+    sym_active = today >= sym_start
+    items.append({"key": "symbols", "ok": n_sym >= req["min_symbols"] or not sym_active, "active": sym_active,
+                  "value": n_sym, "text": f"交易過的標的 {n_sym} 檔（需 ≥ {req['min_symbols']}）"
+                  + ("" if sym_active else f"，{sym_start:%m/%d} 起每天檢查")})
+    left = remaining_trading_days(today)
+    fd = req.get("final_day") or {}
+    if fd and left <= 5:
+        held = len([p for p in pf.positions.values() if p.shares > 0])
+        cash_ratio = max(0.0, pf.cash + pf.futures_cash) / pf.nav(marked) if pf.nav(marked) else 1
+        items.append({"key": "final_held", "ok": held >= fd["min_held_symbols"], "active": True, "value": held,
+                      "text": f"最後一天（剩 {left} 個交易日）收盤須持有 ≥ {fd['min_held_symbols']} 檔：目前 {held} 檔"})
+        items.append({"key": "final_cash", "ok": cash_ratio < fd["max_cash_ratio"], "active": True, "value": round(cash_ratio, 4),
+                      "text": f"最後一天現金須 < {fd['max_cash_ratio'] * 100:.0f}%：目前 {cash_ratio * 100:.1f}%"})
+    bad = [i for i in items if not i["ok"]]
+    return {"time": now.strftime("%H:%M"), "items": items, "ok": not bad, "days_left": left,
+            "alerts": [{"key": f"rule-{i['key']}", "level": "嚴重", "title": "收盤前規則檢查未通過", "body": i["text"]} for i in bad]}

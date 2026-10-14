@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 REPO_DIR = Path(os.getenv("REPO_CACHE_DIR", "/tmp/invest-repo"))
 SYNC_PATHS = ["data/facts", "data/intraday", "data/trades.csv", "data/position_meta.json", "data/nav_history.json",
               "data/pending_orders.json", "data/prediction_log.csv", "data/tuning_log.json", "data/schedule_log.json",
-              "data/strategy/scorecard.json", "data/strategy/full_history.json",
+              "data/strategy/scorecard.json", "data/strategy/full_history.json", "data/standing.json", "data/forum_log.csv",
               "config/learned_params.yaml", "reports"]
 _lock = threading.Lock()
 state = {"last_sync": None, "error": None}
@@ -107,6 +107,23 @@ def record_trades(rows: list[dict], message: str | None = None) -> str:
     requests.put(api, headers=_gh_headers(), json=body, timeout=30).raise_for_status()
     pfm.append_trades(rows)  # 本機副本立即反映，下次 pull 會與 repo 一致
     return f"已提交到 GitHub（{repo} data/trades.csv）"
+
+
+def put_file(rel_path: str, text: str, message: str) -> str:
+    """把一個資料檔寫回 GitHub（雲端）或本機；用於排名紀錄等小檔案。"""
+    local = Path(__file__).resolve().parents[2] / rel_path
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_text(text, encoding="utf-8")
+    if not cloud():
+        return f"已寫入本機 {rel_path}"
+    repo = os.environ["GITHUB_REPO"]
+    api = f"https://api.github.com/repos/{repo}/contents/{rel_path}"
+    r = requests.get(api, headers=_gh_headers(), timeout=30)
+    body = {"message": message, "content": base64.b64encode(text.encode("utf-8")).decode()}
+    if r.status_code == 200:
+        body["sha"] = r.json()["sha"]
+    requests.put(api, headers=_gh_headers(), json=body, timeout=30).raise_for_status()
+    return f"已提交到 GitHub（{repo} {rel_path}）"
 
 
 def replace_trades(rows: list[dict], message: str, base_version: str) -> str:

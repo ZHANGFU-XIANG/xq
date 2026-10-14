@@ -8,6 +8,7 @@ import DecisionBoard from '../components/DecisionBoard'
 import HoldingWatch from '../components/HoldingWatch'
 import OvernightWatch from '../components/OvernightWatch'
 import RiskDashboard from '../components/RiskDashboard'
+import Standing from '../components/Standing'
 import RotationAdvice from '../components/RotationAdvice'
 import Intraday from '../components/Intraday'
 import USShock from '../components/USShock'
@@ -103,6 +104,7 @@ export default function Portfolio() {
 
       {tab !== 'holdings' ? <TradeWorkspace view={tab} seg={seg} /> : (<>
       <OvernightWatch />
+      <Standing />
       <RiskDashboard />
       <DecisionBoard />
       <RotationAdvice />

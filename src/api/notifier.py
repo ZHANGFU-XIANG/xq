@@ -50,6 +50,20 @@ def _events() -> list[tuple[str, str, str]]:
     return out
 
 
+def _close_events() -> list[tuple[str, str, str]]:
+    """12:50～13:28 收盤前規則倒數：持股率、交易標的數、最後一日規定（未通過才寄）。"""
+    n = now_tw()
+    if not ((12, 50) <= (n.hour, n.minute) <= (13, 28)):
+        return []
+    from src.agents import compliance
+
+    try:
+        return [(f"close|{a['key']}", f"［嚴重］{a['title']}", a["body"]) for a in compliance.close_check()["alerts"]]
+    except Exception as e:  # noqa: BLE001
+        log.warning("收盤前規則檢查失敗：%s", e)
+        return []
+
+
 def _risk_events() -> list[tuple[str, str, str]]:
     """RiskLab 的提醒（追繳、壓力測試、黑天鵝）：盤中與隔夜都檢查，同一狀況一天一封。"""
     from src.agents import risk_lab
@@ -79,7 +93,7 @@ def tick() -> int:
     if time.time() < _retry_at:
         return 0
     if alerts.is_trading_hours():
-        day, events, where = now_tw().date().isoformat(), _events() + _risk_events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
+        day, events, where = now_tw().date().isoformat(), _events() + _risk_events() + _close_events(), "盤中即時通知・詳情請開網站「總覽 → 持股動向」"
     elif overnight.in_window():
         n = now_tw()  # 一晚算到「下一個交易日」：同一種狀況整晚只寄一次
         day = next_trading_day(n.date(), include_today=n.hour < 9).isoformat()

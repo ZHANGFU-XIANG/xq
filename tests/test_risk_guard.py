@@ -59,3 +59,18 @@ def test_swan_backtest_needs_lagged_edge():
 def test_roc_dates():
     assert trade_calendar.roc("1151015") == dt.date(2026, 10, 15)
     assert trade_calendar.roc("115/10/19") == dt.date(2026, 10, 19)
+
+
+def test_close_check_says_how_much_to_buy(monkeypatch):
+    from src.agents import compliance
+    from src.state import portfolio as pfm
+
+    fake = SimpleNamespace(positions={}, derivs={}, traded_symbols={"1", "2", "3", "4"}, cash=320_000, futures_cash=0,
+                           holding_ratio=lambda p: 0.68, market_value=lambda p: 680_000, nav=lambda p: 1_000_000)
+    monkeypatch.setattr(pfm, "build_portfolio", lambda *a, **k: fake)
+    monkeypatch.setattr(alerts, "realtime", lambda codes: {})
+    r = compliance.close_check(dt.datetime(2026, 10, 20, 13, 0, tzinfo=TW_TZ))
+    ratio = next(i for i in r["items"] if i["key"] == "ratio")
+    assert not ratio["ok"] and ratio["need_amount"] == 40_000  # (70% + 2% 緩衝) × 100 萬 − 68 萬
+    sym = next(i for i in r["items"] if i["key"] == "symbols")
+    assert not sym["ok"] and len(r["alerts"]) == 2

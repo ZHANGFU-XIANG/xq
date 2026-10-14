@@ -4,6 +4,10 @@
 
 ## 2026-10-15
 
+**第二批 Agent（1）：規則倒數＋排名監控**
+- `compliance.close_check`（`/api/close-check`、持股頁「規則倒數與排名」）：用即時價估算收盤持股率（含 2% 緩衝）、交易標的數、最後一日規定；12:50～13:28 未通過就推播並寄信「13:30 前要再買多少元」。
+- StandingAgent（`src/agents/standing.py`）：上傳每週排名截圖 → 視覺模型讀名次、報酬、第 20 名報酬（看不到填空不猜）→ `data/standing.json`（雲端寫回 GitHub），算出距前 20 名與距正報酬的差距。`sync.put_file` 通用寫回。
+
 **系統體檢 P2：多 Agent 分工（`src/agents/registry.py`＋`agents_catalog.py`）**
 - AgentRegistry：每個 Agent 宣告說明、逾時、是否用 LLM、必要輸出欄位；統一平行執行、逾時與錯誤降級、狀態記錄（`/api/agents`）；contract test `tests/test_agents_contract.py`。
 - GlobalMarketsAgent：美日韓陸港歐股、台股 ADR、AI 半導體、商品匯率利率；超過 1.5 倍平常波動才列重點；因子 β 估計持股影響金額。
