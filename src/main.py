@@ -315,16 +315,11 @@ def run_daily(mode: str, today: dt.date) -> dict:
                                write_log=True)  # 論壇熱度與財報紀錄每天盤前、盤後寫入
             b = briefing.build(res)
             if b.get("text"):
-                body += "
-
-【總報告】
-" + b["text"]
+                body += "\n\n【總報告】\n" + b["text"]
         except Exception as e:  # noqa: BLE001
             log.warning("總報告失敗：%s", e)
     if data_guard.banner(guard):
-        body = data_guard.banner(guard) + "
-
-" + body
+        body = data_guard.banner(guard) + "\n\n" + body
     emailer.send(f"[投資競賽] {TITLES[mode]} {today}", body, [docx_path, pptx_path, orders_csv])
     if os.getenv("GITHUB_ACTIONS") and not os.getenv("DRY_RUN"):  # 網站啟動用的市場快照（src/snapshot.py）
         from src import snapshot
