@@ -19,11 +19,13 @@ const ICON: Record<string, string> = {
   '/portfolio': 'M4 7h16v12H4zM9 7V5h6v2M4 12h16',
   '/model': 'M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5',
   '/chat': 'M5 5h14v10H9l-4 4V5z',
+  '/briefing': 'M6 3h9l3 3v15H6zM9 9h6M9 13h6M9 17h4',
 }
 
 const NAV = [
   { to: '/', label: '高報酬推薦', end: true },
   { to: '/daily', label: '每日建議' },
+  { to: '/briefing', label: '總報告' },
   { to: '/alerts', label: '警示提醒' },
   { to: '/stock', label: '個股' },
   { to: '/daytrade', label: '當沖' },

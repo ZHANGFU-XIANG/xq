@@ -80,6 +80,9 @@ def startup():
         from src.api import sre
 
         sre.start_background(WARM, _rewarm)  # EngineerAgent：每 5 分鐘自我檢查、安全的自動修復、異常寄信
+        from src.api import agents_bg
+
+        agents_bg.start_background()  # 輔助 Agent 每小時更新、06:40／21:30 寄總報告
     threading.Thread(target=_warm, daemon=True).start()
 
 
@@ -325,6 +328,35 @@ def regime_():
 @app.get("/api/holding-watch", dependencies=[api])
 def holding_watch_():
     return data.holding_watch()
+
+
+@app.get("/api/agents", dependencies=[api])
+def agents_():
+    from src.agents import registry
+    from src.api import agents_bg
+
+    return {"agents": registry.status(), "running": agents_bg.STATE["running"], "error": agents_bg.STATE["error"]}
+
+
+@app.get("/api/briefing", dependencies=[api])
+def briefing_(refresh: bool = False):
+    """總報告：背景每小時更新；refresh=true 時立即重跑快速 Agent（不含多空辯論與產業新聞 LLM）。"""
+    from src.agents import agents_catalog, briefing
+    from src.api import agents_bg
+
+    if refresh or briefing.LAST["v"] is None:
+        out = agents_bg.refresh(agents_catalog.FAST)
+        if briefing.LAST["v"] and not refresh:
+            threading.Thread(target=agents_bg.refresh, daemon=True).start()  # 完整版（含 LLM）在背景補上
+        return out or briefing.LAST["v"] or {}
+    return briefing.LAST["v"]
+
+
+@app.get("/api/debate", dependencies=[api])
+def debate_():
+    from src.agents import debate
+
+    return debate.run()
 
 
 @app.get("/api/sre", dependencies=[api])

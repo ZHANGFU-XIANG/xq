@@ -142,7 +142,7 @@ jobs:
           git config user.name "invest-agent-bot"
           git config user.email "invest-agent-bot@users.noreply.github.com"
           for f in data/trades.csv data/position_meta.json data/nav_history.json data/pending_orders.json \
-                   data/prediction_log.csv data/tuning_log.json data/schedule_log.json config/learned_params.yaml data/strategy data/facts data/intraday reports; do
+                   data/prediction_log.csv data/tuning_log.json data/schedule_log.json data/forum_log.csv config/learned_params.yaml data/strategy data/facts data/intraday reports; do
             if [ -e "$f" ]; then git add "$f"; fi
           done
           git diff --cached --quiet || (git commit -m "chore: ${{ steps.mode.outputs.mode }} $(date +%F)" && git pull --rebase && git push)

@@ -307,6 +307,20 @@ def run_daily(mode: str, today: dt.date) -> dict:
                      (["", "調整 Agent：" + tune["note"]] if tune.get("note") else []))
     from src.agents import data_guard
 
+    if mode in ("premarket", "postclose"):  # 總報告（國際、風險、日曆、產業、論壇…）附在報告後面；盤前順便記錄論壇熱度
+        try:
+            from src.agents import agents_catalog, briefing, registry
+
+            res = registry.run([n for n in agents_catalog.ALL if n != "debate"], picks=[s["code"] for s in ranked[:20]],
+                               write_log=mode == "premarket")
+            b = briefing.build(res)
+            if b.get("text"):
+                body += "
+
+【總報告】
+" + b["text"]
+        except Exception as e:  # noqa: BLE001
+            log.warning("總報告失敗：%s", e)
     if data_guard.banner(guard):
         body = data_guard.banner(guard) + "
 

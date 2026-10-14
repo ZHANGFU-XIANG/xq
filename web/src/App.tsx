@@ -6,6 +6,7 @@ import Layout from './components/Layout'
 import { Loading, PageTitle } from './components/ui'
 import { get } from './lib/api'
 import Alerts from './pages/Alerts'
+import Briefing from './pages/Briefing'
 import Daily from './pages/Daily'
 import Login from './pages/Login'
 import Model from './pages/Model'
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="futures" element={<Futures />} />
             <Route path="futures/:root" element={<Futures />} />
             <Route path="alerts" element={<Alerts />} />
+            <Route path="briefing" element={<Briefing />} />
             <Route path="news" element={<News />} />
             <Route path="portfolio" element={<Portfolio />} />
             <Route path="trades" element={<Navigate to="/portfolio#trades" replace />} />

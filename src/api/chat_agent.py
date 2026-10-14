@@ -76,6 +76,12 @@ E. 資料不足、互相矛盾或無法證實的部分，獨立一行以「無�
     兩筆委託、競賽規則檢查）；沒有 swap 就說明原因（持有未滿 10 個交易日且獲利未達 10%，或綜合排名最佳股票扣成本後優勢不足）。
     10 個交易日、1%、10%、2% 這些門檻來自十年回測（避免來回換股付成本），不是競賽規則；競賽規則只有持股率 70%、持有與交易檔數、最後一日規定。
     換股一律全部賣出、同日買進。
+5p. 所有金額（手續費、稅、損益、能買幾股、打平價）一律用 calculate 計算，不可自己乘除。
+5q. 問風險、「大盤跌會虧多少」「會不會被追繳」「黑天鵝」「最近要注意什麼（結算、除權息、處置）」時呼叫 get_risk；
+    問國際股市、日股韓股、ADR、匯率時呼叫 get_global_markets；問「今天整體狀況／總報告」時呼叫 get_briefing；
+    問「這檔多空理由／為什麼還抱」時呼叫 get_debate（結論仍以 get_holding_advice 為準）。
+5r. 準確率要誠實：2002～2026 樣本外，排名第 1 的推薦 20 天後賺錢機率約 50%、前 5 名分散約 56%，優勢來自賺多賠少；
+    「創新高機率」是 20 天內碰到 52 週新高的機率，不是賺錢機率。使用者問準確率時照這個說，不可宣稱 90% 以上。
 5l. 問某檔「什麼時候賣／退場／出場／獲利了要不要跑／抱到什麼時候」時呼叫 get_exit_plan，第一句照 verdict（續抱／出場），
     講退場日、移動停利線與理由。
 5j. 問「我的持股要不要抱／要不要換股／手上的股票今天怎麼做」這類持股問題時，先呼叫 get_decision_board，
@@ -373,6 +379,19 @@ TOOLS = [
     {"name": "run_analysis", "description": "重新執行分析並產生報告（建立待確認動作）",
      "parameters": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["premarket", "postclose", "weekly", "tune"]}},
                     "required": ["mode"]}},
+    {"name": "calculate", "description": "交易計算（與競賽 App 相同的進位規則）：op=cost 一筆成交的價金／手續費／證交稅／淨收付；op=pnl 買到賣的淨損益；op=shares_for_budget 預算可買幾股；op=breakeven 打平價。所有金額都要用這個算，不可心算",
+     "parameters": {"type": "object", "properties": {"op": {"type": "string", "enum": ["cost", "pnl", "shares_for_budget", "breakeven"]},
+                    "code": {"type": "string"}, "side": {"type": "string", "enum": ["BUY", "SELL"]}, "shares": {"type": "integer"},
+                    "price": {"type": "number"}, "buy_price": {"type": "number"}, "sell_price": {"type": "number"},
+                    "budget": {"type": "number"}}, "required": ["op", "code"]}},
+    {"name": "get_risk", "description": "風險儀表板：壓力測試（大盤 −3～−20%、費半 −8%、台幣急貶）損益、期貨追繳點位、單日 VaR、到 11/27 收正機率模擬、黑天鵝指標（附 26 年回測是否有預測力）、未來 5 個交易日注意事項（結算、除權息、處置股、競賽關鍵日）、資料檢查",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_global_markets", "description": "美日韓陸港歐股、台股 ADR、AI 半導體、商品、匯率、利率最新收盤與漲跌、異常波動重點、對持股的估計影響金額",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_briefing", "description": "總報告：統整資料檢查、風險、日曆、夜盤與國際、產業新聞、假消息過濾、PTT 論壇風向、持股多空辯論",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_debate", "description": "持股與前 5 名推薦的多空辯論：只引用程式事實的多方／空方論點、主要分歧、什麼情況會改變結論（結論以持股建議為準）",
+     "parameters": {"type": "object", "properties": {}}},
 ]
 
 
@@ -621,6 +640,36 @@ def call_tool(name: str, args: dict) -> dict:
             return {"news": on_demand.search_news(args["query"], 10)}
         if name == "get_macro":
             return apidata.macro_latest()
+        if name == "calculate":
+            from src.agents import calc
+
+            kw = {k: v for k, v in args.items() if k != "op" and v is not None}
+            return calc.calculate(args["op"], **kw)
+        if name == "get_risk":
+            from src.agents import risk_lab, trade_calendar
+            from src.state import portfolio as pfm2
+
+            r = dict(risk_lab.snapshot())
+            pf2 = pfm2.build_portfolio()
+            r["calendar"] = trade_calendar.events(list(pf2.positions), list(pf2.derivs))
+            r["black_swan"] = {"items": [{k: b[k] for k in ("name", "active", "label", "text")} for b in r["black_swan"]["items"]]}
+            return r
+        if name == "get_global_markets":
+            from src.agents import global_markets
+
+            return global_markets.run()
+        if name == "get_briefing":
+            from src.agents import agents_catalog, briefing
+            from src.api import agents_bg
+
+            b = briefing.LAST["v"] or agents_bg.refresh(agents_catalog.FAST)
+            return {"time": b.get("time"), "sections": b.get("sections"), "failed": b.get("failed")}
+        if name == "get_debate":
+            from src.agents import debate
+
+            d = debate.run()
+            return {"time": d["time"], "note": d["note"], "items": [{k: x[k] for k in ("code", "name", "verdict", "lean", "bull", "bear",
+                                                                                       "key_dispute", "what_changes")} for x in d["items"]]}
         if name == "get_rules":
             return rules()
         if name == "get_holding_advice":

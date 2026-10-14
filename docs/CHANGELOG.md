@@ -4,6 +4,16 @@
 
 ## 2026-10-15
 
+**系統體檢 P2：多 Agent 分工（`src/agents/registry.py`＋`agents_catalog.py`）**
+- AgentRegistry：每個 Agent 宣告說明、逾時、是否用 LLM、必要輸出欄位；統一平行執行、逾時與錯誤降級、狀態記錄（`/api/agents`）；contract test `tests/test_agents_contract.py`。
+- GlobalMarketsAgent：美日韓陸港歐股、台股 ADR、AI 半導體、商品匯率利率；超過 1.5 倍平常波動才列重點；因子 β 估計持股影響金額。
+- IndustryNewsAgent：持股與前 20 名所屬產業新聞（Google 新聞），LLM 只判讀相關標題且必須引用編號、經 Verifier；失敗改關鍵字規則。
+- FactCheckAgent：來源分級（官方／主流／一般／論壇）、多來源證實（用標題尾端實際媒體判斷）、對到重大訊息、誇大用語扣分、澄清標記。
+- ForumSentimentAgent：PTT Stock 版近 2 天提及、推文、多空方向（名稱比對排除「南亞」落在「南亞科」這類誤判），每天盤前記錄到 `data/forum_log.csv`，累積 60 個交易日前一律「僅資訊」；Yahoo 股市討論區改版暫不可讀。
+- DebateAgent：持股與前 5 名推薦，LLM 只能引用程式事實編號寫多空論點；規則評審，系統結論權重最高，不與持股建議矛盾；約 3 分鐘，背景每小時算。
+- BriefingAgent：統整成總報告（網站「總報告」頁、盤前／盤後報告附錄、每天 06:40 與 21:30 Email）。
+- CalcAgent：成本、損益、預算股數、打平價（與 App 同規則；10/12 潤泰全淨收付 10,030 驗證）；AI 助理新增 calculate、get_risk、get_global_markets、get_briefing、get_debate，系統提示加上真實勝率規則。
+
 **系統體檢 P1：雲端加速與工程師 Agent**
 - 市場快照（`src/snapshot.py`）：GitHub Actions 盤前／開盤前／盤後跑完後把全市場最近 520 日 K、一個月模型結果、加權與美股歷史打包（約 7 MB）上傳到 Release `market-snapshot`；網站啟動先下載快照（實測 3.2 秒），目標日不符才自己算（原本預載約 119 秒）。
 - 部署（`deploy-space.yml`）：測試與前端建置改平行，連續推送取消舊部署只部署最新版，失敗通知改獨立工作（測試失敗也會寄）。
