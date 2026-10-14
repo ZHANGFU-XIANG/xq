@@ -42,3 +42,22 @@ def test_fin_report_ytd_and_flags(monkeypatch):
     monkeypatch.setattr(fin_report, "_seen", lambda: {("9999", 2025, 2): {"eps": "1.0", "revenue": "1000"}})
     d = fin_report.assess({"code": "9999", "year": 2026, "quarter": 2, "eps": -0.5, "revenue": 900.0})
     assert "轉虧" in d["flags"] and "財報利空" in d["flags"]
+
+
+def test_presentation_script_fits_six_minutes():
+    from src.agents import presentation
+
+    f = {"nav": 10_300_000, "ret": 3.0, "taiex_ret": 1.0, "trades": 40, "symbols": 9, "min_ratio": 0.75,
+         "params": {"max_positions": 5, "min_hold_days": 10, "expiry_days": 40},
+         "backtest": {"from": "2002-05-03", "to": "2026-10-14", "open_cagr": 0.24, "close_cagr": 0.47, "taiex_cagr": 0.09,
+                      "calibration": {"buckets": [{"rank": "1", "win": 0.50}], "top5_portfolio_win": 0.56}},
+         "agents": [{"name": "x", "title": "x", "llm": False}] * 12,
+         "stress": [{"scenario": "加權指數 −5%", "total": -1_000_000, "pct_nav": -9.7}],
+         "margin": {"pct_to_call": 4.0}, "contrib": [{"name": "A", "pnl": 100}, {"name": "B", "pnl": -50}],
+         "shadow": {"diff": -1000, "breakdown": [{"name": "期貨部位（影子沒有期貨）", "amount": -500}]}}
+    sc = presentation.script(f)
+    assert sum(x["seconds"] for x in sc) <= presentation.LIMIT_SEC
+    joined = "".join(x["text"] for x in sc)
+    assert "+3.00%" in joined and "最低 75.0%" in joined and "50%" in joined
+    f["min_ratio"] = 0.65
+    assert "最低曾到 65.0%" in "".join(x["text"] for x in presentation.script(f))  # 有違規就不能說「都在 70% 以上」

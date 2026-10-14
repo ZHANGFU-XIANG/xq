@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Empty, Loading, PageTitle, Section } from '../components/ui'
-import { get, type Json } from '../lib/api'
+import { fileUrl, get, type Json } from '../lib/api'
 import { liveEvery } from '../lib/live'
 
 const LEVEL: Record<string, string> = { 嚴重: 'border-up', 注意: 'border-warn' }
@@ -56,6 +56,21 @@ function Debate() {
   )
 }
 
+function Presentation() {
+  const { data: p } = useQuery<Json>({ queryKey: ['presentation'], queryFn: () => get('/api/presentation'), staleTime: 600_000 })
+  if (!p?.pptx) return null
+  return (
+    <Section title="決賽簡報（佔總分 50%）" aside={`${p.date}・${p.slides} 段講稿・約 ${Math.floor(p.seconds / 60)} 分 ${p.seconds % 60} 秒`}>
+      <div className="mb-2 flex flex-wrap gap-2 text-sm">
+        <a className="rounded-md bg-link px-3 py-1.5 font-medium text-white no-underline" href={fileUrl(p.pptx)}>下載投影片 pptx</a>
+        <a className="rounded-md border border-line px-3 py-1.5 no-underline" href={fileUrl(p.script)}>下載講稿</a>
+      </div>
+      <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">{p.sections.map((x: Json) => <li key={x.title}><b>{x.title}</b>（{x.seconds} 秒）{x.text}</li>)}</ol>
+      <p className="mt-2 text-xs text-muted">每週五週報後自動更新，數字全部由系統產生；講稿約 3 分鐘，留時間補充你們的操作心得。11/27 後產生最終版。</p>
+    </Section>
+  )
+}
+
 export default function Briefing() {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -86,6 +101,7 @@ export default function Briefing() {
           <p className="mt-3 text-xs text-muted">每天 06:40、21:30 寄出 Email；數字全部由程式計算，LLM 只負責新聞分類與辯論措辭並經過核對。</p>
         </Section>
       )}
+      <Presentation />
       <Debate />
       <AgentStatus />
     </>

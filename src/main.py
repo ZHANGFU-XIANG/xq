@@ -339,6 +339,12 @@ def run_weekly(today: dt.date) -> None:
     target = next_trading_day(today)
     ctx = _market_context(target)
     tune = run_tuner(ctx, today, target, None, {}, full=True)
+    try:  # 決賽簡報（佔總分 50%）：每週五更新，競賽結束日後產生最終版
+        from src.agents import presentation
+
+        presentation.build(final=today >= dt.date.fromisoformat(str(rules()["competition"]["end"])))
+    except Exception as e:  # noqa: BLE001
+        log.warning("簡報產生失敗：%s", e)
     history = pfm.load_history()
     pf = pfm.build_portfolio()
     week_start = today - dt.timedelta(days=today.weekday())

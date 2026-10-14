@@ -335,6 +335,15 @@ def holding_watch_():
     return data.holding_watch()
 
 
+@app.get("/api/presentation", dependencies=[api])
+def presentation_(rebuild: bool = False):
+    from src.agents import presentation
+
+    if rebuild:
+        presentation.build()
+    return presentation.latest()
+
+
 @app.get("/api/anomaly", dependencies=[api])
 def anomaly_():
     from src.agents import market_anomaly

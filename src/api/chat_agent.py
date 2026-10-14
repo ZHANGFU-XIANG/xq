@@ -396,6 +396,8 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"codes": {"type": "string", "description": "逗號分隔的代號，可省略"}}}},
     {"name": "get_market_anomaly", "description": "台股市場波動是否異常：加權今天相當於幾倍平常波動、波動率在近 10 年的百分位、上漲下跌與漲跌停家數、偏離大盤最多的產業、量價異常個股、歷史上類似情況之後 20 日的表現",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_presentation", "description": "決賽簡報（佔總分 50%）：最新版投影片與講稿檔案、每張講稿內容與秒數、Q&A 預備題與回答重點",
+     "parameters": {"type": "object", "properties": {}}},
 ]
 
 
@@ -644,6 +646,10 @@ def call_tool(name: str, args: dict) -> dict:
             return {"news": on_demand.search_news(args["query"], 10)}
         if name == "get_macro":
             return apidata.macro_latest()
+        if name == "get_presentation":
+            from src.agents import presentation
+
+            return presentation.latest() or {"error": "還沒有產生簡報（每週五週報後自動產生）"}
         if name == "get_market_anomaly":
             from src.agents import market_anomaly
 
