@@ -119,5 +119,38 @@
   "changes": [],
   "note": "無需調整",
   "checks": 2
+ },
+ {
+  "date": "2026-10-15",
+  "issues": [
+   {
+    "type": "drawdown",
+    "severity": "高",
+    "detail": "總資產自高點 10,198,741 回落 8.7%，超過 8%"
+   }
+  ],
+  "changes": [
+   {
+    "param": "strategy.risk_per_trade",
+    "before": 0.015,
+    "after": 0.012,
+    "reason": "回撤或重大虧損 → 降低單筆風險與集中度"
+   },
+   {
+    "param": "strategy.max_weight",
+    "before": 0.25,
+    "after": 0.2,
+    "reason": "回撤或重大虧損 → 降低單筆風險與集中度"
+   }
+  ],
+  "previous_learned": {
+   "daytrade": {
+    "min_stop_pct": 0.8,
+    "reward_risk": 1.0,
+    "stop_atr": 1.0
+   }
+  },
+  "note": "偵測結果：總資產自高點 10,198,741 回落 8.7%，超過 8%。修正：strategy.risk_per_trade：回撤或重大虧損 → 降低單筆風險與集中度（回測指標 — → —）；strategy.max_weight：回撤或重大虧損 → 降低單筆風險與集中度（回測指標 — → —）。",
+  "checks": 1
  }
 ]

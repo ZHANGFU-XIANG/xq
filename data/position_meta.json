@@ -2,7 +2,7 @@
   "5880": {
     "stop": 25.28,
     "tp_stage": 0,
-    "high": 27.200000762939453,
+    "high": 27.5,
     "shares": 24000,
     "basket": "defense"
   },
@@ -16,7 +16,7 @@
   "2845": {
     "stop": 12.6,
     "tp_stage": 0,
-    "high": 13.199999809265137,
+    "high": 13.25,
     "shares": 36071,
     "basket": "defense"
   },
