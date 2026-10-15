@@ -338,3 +338,38 @@ def test_rotation_blocked_when_holding_ratio_would_drop(monkeypatch):
     res = recovery.plan(pf, {"2303": 101.0}, _S, _A, _M, [], 10_000_000, 10_000_000, {}, alts=_alt(4.0))
     it = res["items"][0]
     assert "2303" not in res["actions"] and not it["swap"]["compliance_ok"] and "70%" in it["why"]
+
+
+def test_weekly_review_fixes_lookahead_news_and_conflicts(monkeypatch):
+    """檢查 Agent：盤後報告不可當當天成交理由、未來新聞與無出處事件要移除、理由與方向矛盾要修正、AI 文字誤寫融資要刪除。"""
+    from src.agents import weekly, weekly_review
+
+    monkeypatch.setattr(weekly_review, "_avg_cost_before", lambda code, day: 100.0)
+    facts = [{"generated_at": "2026-10-12 15:46", "date": "2026-10-12", "title": "盤後",
+              "orders": [{"code": "2915", "action": "SELL", "why_sell": "盤後才出現的理由"}]},
+             {"generated_at": "2026-10-12 08:21", "date": "2026-10-12", "title": "開盤前",
+              "orders": [{"code": "2915", "action": "SELL", "why_sell": "開盤前的理由"}]}]
+    t = {"date": "2026-10-12", "code": "2915", "side": "SELL", "note": ""}
+    assert weekly._reason_for(t, facts, [])["reasons"] == ["開盤前的理由"]
+
+    ok_news = [{"title": "a", "url": "https://x/1", "time": "10/12 07:00"}]
+    mkt = {"date": "2026-10-12", "weekday": "一", "trading": True, "nav": 99, "taiex_chg_pct": -1.0,
+           "events": [{"event": "有出處", "news": ok_news}, {"event": "沒出處", "news": []},
+                      {"event": "未來新聞", "news": [{"title": "b", "url": "https://x/2", "time": "10/14 07:00"}]}],
+           "macro": []}
+    sell = {"date": "2026-10-12", "weekday": "一", "code": "2915", "name": "潤泰全", "asset": "STOCK", "side": "SELL",
+            "qty": 1000, "price": 90.0, "amount": 90000, "market": mkt,
+            "reason": {"source": "x", "generated_at": "2026-10-12 08:21", "reasons": ["布局長線", "停利出場"]}}
+    w = {"nav_start": 100, "nav_end": 99, "week_ret_pct": -1.0, "daily": [mkt], "trades": [sell], "holdings": [],
+         "holding_ratio": 0.8, "taiex_week_pct": -1.0, "contrib_total": -1}
+    rep = weekly_review.check_data(w)
+    assert [e["event"] for e in mkt["events"]] == ["有出處"]
+    assert [n["event"] for n in rep["news"]] == ["有出處"]
+    assert sell["reason"]["reasons"][0].startswith("停利出場（成交價")  # 「布局」與賣出矛盾被移除；停利卻虧損被加註
+    text = weekly.WeeklyText(headline="本週持平", summary=["持股率超過 100% 表示使用融資"], market_review=["週一：大盤上漲"],
+                             trade_notes=[weekly.TradeNote(code="2915", date="2026-10-12", comment="看好後市加碼布局")],
+                             lessons=["控管風險"], next_week=["續抱"])
+    text = weekly_review.check_text(w, text, True, rep)
+    assert text.summary == [] and "上漲" not in text.market_review[0]
+    assert "布局" not in text.trade_notes[0].comment
+    assert rep["passed"]

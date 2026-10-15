@@ -113,15 +113,25 @@ def _merge_fills(rows: list[dict]) -> list[dict]:
     return merged
 
 
+CLOSE_TIME = "13:30"
+
+
+def before_trade(facts: list[dict], day: str) -> list[dict]:
+    """成交當天收盤前就已產生的報告，最新的在前。當天盤後報告是成交之後才寫的，不能當作成交理由。"""
+    cut = f"{day} {CLOSE_TIME}"
+    return sorted((r for r in facts if (r.get("generated_at") or "") < cut), key=lambda r: r.get("generated_at") or "", reverse=True)
+
+
 def _reason_for(t: dict, facts: list[dict], intra: list[dict]) -> dict:
-    """這筆成交的理由：系統建議 → 盤中建議 → 使用者備註 → 標示自行判斷。"""
+    """這筆成交的理由：系統建議 → 盤中建議 → 使用者備註 → 標示自行判斷。只看收盤前已產生的報告。"""
     code, side = t["code"], t["side"]
     act = "BUY" if side == "BUY" else "SELL"
-    for r in facts:
+    for r in before_trade(facts, t["date"]):
         for o in r.get("orders", []):
             if o.get("code") == code and o.get("action") == act:
                 why = (o.get("why_stock") or [])[:3] if act == "BUY" else [o.get("why_sell", "")]
-                return {"source": f"{r['date']} {r.get('title', '報告')}建議", "basket": o.get("basket_name") or o.get("basket"),
+                return {"source": f"{r['date']} {r.get('title', '報告')}建議", "generated_at": r.get("generated_at"),
+                        "basket": o.get("basket_name") or o.get("basket"),
                         "reasons": [w for w in why if w], "plan_price": o.get("limit_price"), "plan_shares": o.get("shares"),
                         "stop": o.get("stop"), "exit_plan": (o.get("exit_plan") or [])[:2], "risks": (o.get("risks") or [])[:2]}
     for s in reversed(intra):
@@ -244,14 +254,28 @@ def _day_market(d: dt.date, facts: list[dict], tx: pd.DataFrame) -> dict:
     close = float(row.Close.iloc[-1]) if len(row) and row.index[-1].date() == d else None
     events, macro, us = [], [], []
     for r in facts:
-        events += [{"event": e["event"], "sentiment": e.get("sentiment"), "codes": e.get("codes", [])} for e in r.get("events", [])[:6]]
-        macro += [{"event": m["event"], "factor": m.get("factor_name"), "impact_pct_nav": m.get("total_pct_nav")} for m in r.get("macro", [])[:4]]
+        times = {n.get("id"): n.get("time") for n in r.get("news", [])}
+
+        def src(x: dict) -> list[dict]:
+            """事件引用的新聞（標題、連結、報告收錄時間），供週報附連結與檢查。"""
+            return [{"title": n.get("title"), "url": n.get("url"), "time": times.get(n.get("id")), "report": r.get("generated_at")}
+                    for n in x.get("news") or [] if n.get("url")][:3]
+
+        events += [{"event": e["event"], "sentiment": e.get("sentiment"), "codes": e.get("codes", []), "news": src(e)}
+                   for e in r.get("events", [])[:6]]
+        macro += [{"event": m["event"], "factor": m.get("factor_name"), "impact_pct_nav": m.get("total_pct_nav"), "news": src(m)}
+                  for m in r.get("macro", [])[:4]]
         us = us or [{"name": u["name"], "change_pct": u["change_pct"]} for u in r.get("us_snapshot", [])[:6]]
-    seen, uniq = set(), []
-    for e in events:
-        if e["event"] not in seen:
-            seen.add(e["event"])
-            uniq.append(e)
+
+    def dedupe(rows: list[dict]) -> list[dict]:
+        seen, out = set(), []
+        for e in rows:
+            if e["event"] not in seen:
+                seen.add(e["event"])
+                out.append(e)
+        return out
+
+    uniq, macro = dedupe(events), dedupe(macro)
     return {"date": d.isoformat(), "weekday": WEEKDAYS[d.weekday()], "trading": _traded(d, tx), "taiex_close": close,
             "taiex_chg_pct": round(chg, 2) if chg is not None else None, "events": uniq[:5], "macro": macro[:3], "us": us,
             "market_view": next((r.get("market_view") for r in facts if r.get("market_view")), None)}
@@ -305,7 +329,7 @@ def collect(any_day: dt.date) -> dict:
             reason = _reason_for(t, facts, intra)
             if reason["source"] == SELF_SOURCE:
                 ctx = ctx or _day_ctx(d, all_trades, nav_at)
-                reason = _infer_reason(t, facts, mkt, ctx)
+                reason = _infer_reason(t, before_trade(facts, d.isoformat()), mkt, ctx)
             asset = pfm.asset_of(t)
             qty, price = int(float(t["shares"])), float(t["price"])
             mult = pfm.deriv_spec(t["code"].upper())["multiplier"] if asset in ("FUT", "OPT") else 1
@@ -354,6 +378,7 @@ def collect(any_day: dt.date) -> dict:
     if (deriv := round(nav1 - nav0 - sum(contrib.values()))) and (pf0.derivs or pf1.derivs or any(t["asset"] in ("FUT", "OPT") for t in trades)):
         rows.append({"code": "", "name": "期貨與選擇權", "pnl": deriv})
     contrib_rows = sorted(rows, key=lambda r: -abs(r["pnl"]))[:10]
+    contrib_total = sum(r["pnl"] for r in rows)
     tx_week = [x["taiex_chg_pct"] for x in daily if x["taiex_chg_pct"] is not None]
     tx_ret = None
     if tx_base and last and last["taiex_close"]:
@@ -368,7 +393,7 @@ def collect(any_day: dt.date) -> dict:
         "taiex_week_pct": tx_ret, "taiex_days_up": sum(1 for x in tx_week if x > 0), "taiex_days_down": sum(1 for x in tx_week if x < 0),
         "trade_count_week": len(trades), "trade_count_total": pf1.trade_count, "symbols_total": len(pf1.traded_symbols),
         "cash": round(pf1.cash), "futures_equity": round(pf1.futures_equity(prices1)),
-        "daily": daily, "trades": trades, "holdings": holdings, "contrib": contrib_rows,
+        "daily": daily, "trades": trades, "holdings": holdings, "contrib": contrib_rows, "contrib_total": contrib_total,
     }
 
 

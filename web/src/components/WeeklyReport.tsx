@@ -45,6 +45,20 @@ export default function WeeklyReport() {
             {r.week_label}・{r.period}・{r.trades} 筆成交・{r.slides} 頁
             {r.verified_text ? '・文字由開源 AI 撰寫，數字已核對' : '・文字採固定格式（AI 未通過數字核對或暫時無法使用）'}
           </div>
+          {r.review && (
+            <div className="mt-1 text-sm">
+              <span className={r.review.passed ? 'text-down' : 'text-up'}>
+                週報檢查：通過 {r.review.counts?.['通過'] ?? 0}・已修正 {r.review.counts?.['已修正'] ?? 0}・注意 {r.review.counts?.['注意'] ?? 0}・錯誤 {r.review.counts?.['錯誤'] ?? 0}
+              </span>
+              {!!r.review.issues?.length && (
+                <ul className="mt-0.5 list-disc pl-5 text-ink-2">
+                  {r.review.issues.map((x: Json, i: number) => (
+                    <li key={i}>【{x.status}】{x.item}：{x.detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <a href={fileUrl(r.file)} className="mt-2 inline-block rounded-md bg-link px-3 py-1.5 text-sm text-white no-underline">下載 {r.name}</a>
         </div>
       )}

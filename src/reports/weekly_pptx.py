@@ -25,6 +25,8 @@ INK2 = RGBColor(0x3B, 0x47, 0x63)
 MUTED = RGBColor(0x6B, 0x74, 0x89)
 LINE = RGBColor(0xD9, 0xDE, 0xE7)
 MIST = RGBColor(0xEE, 0xF1, 0xF5)
+LINK = RGBColor(0x1F, 0x5F, 0xBF)
+WARN_C = RGBColor(0xB4, 0x56, 0x0F)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 UP = RGBColor(0xC8, 0x32, 0x3A)
 DOWN = RGBColor(0x17, 0x8A, 0x55)
@@ -55,7 +57,7 @@ def _font(run, size: float, color: RGBColor = INK, bold: bool = False, num: bool
 
 
 def _text(slide, x, y, w, h, parts, *, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, line_spacing: float = 1.15):
-    """parts：[(文字, 大小, 顏色, 粗體, 數字字型)] 或多段 [[...], [...]]（每段一個段落）。"""
+    """parts：[(文字, 大小, 顏色, 粗體, 數字字型[, 連結])] 或多段 [[...], [...]]（每段一個段落）。"""
     tb = slide.shapes.add_textbox(x, y, w, h)
     tf = tb.text_frame
     tf.word_wrap = True
@@ -67,10 +69,13 @@ def _text(slide, x, y, w, h, parts, *, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TO
         p.alignment = align
         p.line_spacing = line_spacing
         for seg in para:
-            txt, size, color, bold, num = (list(seg) + [INK, False, False])[:5] if len(seg) < 5 else seg
+            txt, size, color, bold, num, url = (list(seg) + [INK, False, False, None][len(seg) - 2:])[:6]
             r = p.add_run()
             r.text = txt
             _font(r, size, color, bold, num)
+            if url:
+                r.hyperlink.address = url
+                r.font.underline = True
     return tb
 
 
@@ -349,8 +354,15 @@ def _trade_details(prs, w: dict, text, page: int) -> int:
         _text(s, x1, Inches(2.55), Inches(4), Inches(0.3), [("當天市場", 12, MUTED, False, False)])
         _text(s, x1, Inches(2.85), Inches(4), Inches(0.5),
               [("加權 ", 14, INK2, False, False), (_pct(m["taiex_chg_pct"]), 22, _tone(m["taiex_chg_pct"]), True, True)])
-        lines = [e["event"] for e in m["events"][:2]] + [x["event"] for x in m["macro"][:1]]
-        _bullets(s, x1, Inches(3.5), Inches(4.1), Inches(1.6), lines or ["當天報告沒有記錄重大事件"], size=11)
+        evs = m["events"][:2] + m["macro"][:1]
+        if evs:
+            paras = [[("■ ", 6, INK, False, False), (e["event"], 11, LINK if e.get("news") else INK2, False, False,
+                                                     (e.get("news") or [{}])[0].get("url"))] for e in evs]
+            tb = _text(s, x1, Inches(3.5), Inches(4.1), Inches(1.6), paras, line_spacing=1.3)
+            for para in tb.text_frame.paragraphs:
+                para.space_after = Pt(6)
+        else:
+            _bullets(s, x1, Inches(3.5), Inches(4.1), Inches(1.6), ["當天報告沒有記錄重大事件"], size=11)
         if r.get("plan_price"):
             diff = (t["price"] / r["plan_price"] - 1) * 100
             _text(s, x1, Inches(5.25), Inches(4.1), Inches(0.9),
@@ -433,13 +445,61 @@ def _plan(prs, w: dict, text, page: int) -> int:
     return page + 1
 
 
+def _news(prs, w: dict, news: list[dict], page: int) -> int:
+    """本週週報引用的每則事件與新聞原文連結（點標題可開啟）。"""
+    rows = []
+    for e in news:  # 一則事件一行：事件文字本身就是連結，後面附來源標題
+        n = e["news"][0]
+        src = (n.get("title") or "").split(" - ")[-1] if " - " in (n.get("title") or "") else ""
+        more = f"　等 {len(e['news'])} 則報導" if len(e["news"]) > 1 else ""
+        rows.append([(f"週{e['weekday']} {_mmdd(e['date'])}　", 10, MUTED, False, False),
+                     (e["event"] if len(e["event"]) <= 48 else e["event"][:47] + "…", 11, LINK, False, False, n["url"]),
+                     (f"　{src}{more}", 9, MUTED, False, False)])
+    per = 17
+    chunks = [rows[i:i + per] for i in range(0, len(rows), per)]
+    for k, chunk in enumerate(chunks):
+        s = prs.slides.add_slide(prs.slide_layouts[6])
+        _title(s, "本週新聞來源" + (f"（{k + 1}/{len(chunks)}）" if len(chunks) > 1 else ""),
+               "週報引用的事件與原始新聞；點標題開啟原文", y=Inches(0.8))
+        tb = _text(s, MX, Inches(1.75), W - 2 * MX, Inches(5.2), chunk, line_spacing=1.15)
+        for para in tb.text_frame.paragraphs:
+            para.space_after = Pt(5)
+        _footer(s, w, page)
+        page += 1
+    return page
+
+
+def _review(prs, w: dict, rep: dict, page: int) -> int:
+    """週報檢查 Agent 的結果：數據、新聞、理由、文字逐項核對。"""
+    c = rep.get("counts", {})
+    tone = {"通過": DOWN, "已修正": LINK, "注意": WARN_C, "錯誤": UP}
+    checks = rep["checks"]
+    chunks = [checks[i:i + 10] for i in range(0, len(checks), 10)] or [[]]
+    for k, chunk in enumerate(chunks):
+        s = prs.slides.add_slide(prs.slide_layouts[6])
+        _title(s, "週報檢查結果" + (f"（{k + 1}/{len(chunks)}）" if len(chunks) > 1 else ""),
+               f"通過 {c.get('通過', 0)} 項・已自動修正 {c.get('已修正', 0)} 項・需注意 {c.get('注意', 0)} 項・錯誤 {c.get('錯誤', 0)} 項",
+               y=Inches(0.8))
+        rows, colors = [], {}
+        for i, r in enumerate(chunk):
+            d = r["detail"]
+            rows.append([r["group"], r["item"], r["status"], d if len(d) <= 46 else d[:45] + "…"])
+            colors[(i, 2)] = tone.get(r["status"], INK)
+        _table(s, MX, Inches(1.75), W - 2 * MX, ["類別", "檢查項目", "結果", "說明"], rows, [0.7, 3.0, 0.8, 7.6],
+               colors=colors, row_h=Inches(0.46))
+        _footer(s, w, page)
+        page += 1
+    return page
+
+
 def _notes(prs, w: dict, verified: bool, page: int) -> None:
     s = prs.slides.add_slide(prs.slide_layouts[6])
     _title(s, "資料來源與說明", y=Inches(0.8))
     _bullets(s, MX, Inches(1.8), W - 2 * MX, Inches(5), [
         "成交：XQ 全球贏家成交回報（網站匯入或 AI 助理記錄）；同一筆委託分多次成交時合併為一列，價格為成交量加權平均",
         "總資產採競賽 App「投資組合總值」口徑：初始 1,000 萬＋未實現＋已實現；股票用當天收盤價、期貨用該合約日盤結算價（與 App 對帳一致）",
-        "市場資料：證交所／櫃買中心日 K、加權指數、期交所行情；事件與國際大事來自當天盤前報告收錄的新聞",
+        "市場資料：證交所／櫃買中心日 K、加權指數、期交所行情；事件與國際大事來自當天報告收錄的新聞，原文連結見「本週新聞來源」",
+        "週報檢查 Agent：輸出前逐項核對數據、新聞時間與出處、交易理由是否在成交前產生及前後矛盾，結果見「週報檢查結果」",
         "交易理由：優先引用當天系統建議的理由；自行判斷的交易依成交前一日的系統排名、價格位置、持股率與資金去向整理",
         ("文字說明由開源 AI 模型依上述資料撰寫，所有數字已逐一與資料核對" if verified
          else "文字說明採固定格式自動產生（AI 服務暫時無法使用或未通過數字核對）"),
@@ -448,7 +508,7 @@ def _notes(prs, w: dict, verified: bool, page: int) -> None:
     _footer(s, w, page)
 
 
-def build(w: dict, text, verified: bool, path: Path) -> Path:
+def build(w: dict, text, verified: bool, path: Path, review: dict | None = None) -> Path:
     prs = Presentation()
     prs.slide_width, prs.slide_height = W, H
     _cover(prs, w, text)
@@ -462,6 +522,9 @@ def build(w: dict, text, verified: bool, path: Path) -> Path:
     page = _holdings(prs, w, page)
     page = _contrib(prs, w, page)
     page = _plan(prs, w, text, page)
+    if review:
+        page = _news(prs, w, review.get("news") or [], page)
+        page = _review(prs, w, review, page)
     _notes(prs, w, verified, page)
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(path)

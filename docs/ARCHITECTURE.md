@@ -20,7 +20,7 @@
 決策層   AllocationAgent（三籃比例）  PositionSizerAgent（張數）  RecoveryAgent（虧損補回／換股）
          HoldingAdviceAgent（每檔持股加碼／續抱／減碼／出清）  ComplianceAgent（競賽規則）  AlertAgent（警示）
 產出層   ReportWriterAgent（LLM）→ VerifierAgent（數字核對）→ Word / PPT / 下單清單 CSV / Email
-         IntradayAgent（盤中每 40 分鐘重算）  WeeklyReportAgent → 週報 PPT
+         IntradayAgent（盤中每 40 分鐘重算）  WeeklyReportAgent → WeeklyReviewAgent（檢查）→ 週報 PPT
 互動層   ChatAgent（AI 助理，工具呼叫）  OnDemandAgent（任一股票即時分析）
 回饋層   TunerAgent（調整 Agent）：記錄預測 → 對答案 → 偵測重大失誤 → 回測驗證後修正參數（可回復）
          BackfillAgent：回補歷史預測，讓調整 Agent 第一天就有樣本
@@ -50,6 +50,7 @@
 | `agents/news.py` | 新聞抓取、去重、財經過濾、股票／ETF／期貨分類、LLM 事件萃取（必須引用新聞編號） |
 | `agents/writer.py` / `verifier.py` | 報告文字（LLM）與數字核對（純程式） |
 | `agents/weekly.py` + `reports/weekly_pptx.py` | 週報：當週每筆成交、理由來源、每日市場與事件、總資產與加權比較、期末持股、損益來源、檢討與下週計畫 |
+| `agents/weekly_review.py` | 週報檢查：數據彼此一致、新聞附連結且不晚於當天、理由在成交前產生且不與買賣方向／實際損益矛盾、AI 文字不與事實衝突；能修的自動修正，結果列在週報「週報檢查結果」頁 |
 | `agents/tuner.py` | 調整 Agent（見下節） |
 | `agents/xq_import.py` | 解析從 XQ「帳務→庫存」複製貼上的文字，與系統持倉對帳 |
 | `agents/xq_vision.py` | XQ 截圖（庫存或成交回報）→ 視覺模型（Gemini 2.5 Flash → NVIDIA Nemotron Nano Omni）轉成表格；每列一筆；股數依盤別判斷（整股＝張、零股＝股），用成交價金核對；代號不認得或名稱對不上會標示 |

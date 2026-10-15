@@ -1385,15 +1385,20 @@ def weekly_report(week: str | None = None) -> dict:
     from src.reports import weekly_pptx
 
     day = dt.date.fromisoformat(week) if week else now_tw().date()
+    from src.agents import weekly_review
+
     w = weekly.collect(day)
+    rep = weekly_review.check_data(w)  # 檢查 Agent：先修正數據、新聞、理由，再交給 AI 寫文字
     text, verified = weekly.narrate(w, weekly.next_week_plan())
+    text = weekly_review.check_text(w, text, verified, rep)
     name = f"{w['week_label'].replace(' ', '')}週報_{w['monday']}.pptx"
-    path = weekly_pptx.build(w, text, verified, REPORT_DIR / "weekly" / name)
+    path = weekly_pptx.build(w, text, verified, REPORT_DIR / "weekly" / name, review=rep)
     from pptx import Presentation
 
     return {"file": f"weekly/{name}", "name": name, "week_no": w["week_no"], "week_label": w["week_label"], "period": f"{w['monday']}～{w['end_day']}",
             "slides": len(Presentation(str(path)).slides), "trades": w["trade_count_week"], "verified_text": verified,
-            "headline": text.headline}
+            "headline": text.headline, "review": {"passed": rep["passed"], "counts": rep["counts"],
+                                                  "issues": [r for r in rep["checks"] if r["status"] != "通過"]}}
 
 
 def weekly_reports() -> list[dict]:
