@@ -3,7 +3,8 @@
 資料來源（全部是系統紀錄，不由 LLM 產生數字）：
 - 成交：data/trades.csv（AI 助理記錄、XQ 匯入同步）
 - 每筆成交的理由：當天盤前／盤後報告（data/facts）中同一檔的建議理由；盤中建議紀錄（data/intraday）；
-  使用者記錄時寫的備註。三者都沒有 → 明確標示「不在系統建議中（自行判斷）」，不替使用者編理由
+  使用者記錄時寫的備註。三者都沒有 → 標示「自行判斷」，理由只用成交前已知的事實整理（系統排名、價格位置、
+  前一日持股率、近日賣出的資金去向、相關新聞），不寫事後結果
 - 每日市場：加權指數日 K、報告中的漲跌歸因、國際大事、個股事件、美股隔夜
 - 總資產：用成交紀錄重播到每一天，以當天收盤價計算（期貨用期交所近月收盤）
 LLM 只負責把上述事實寫成摘要句子，數字一律經 verifier 核對；不可用時改用固定格式文字。
@@ -132,7 +133,102 @@ def _reason_for(t: dict, facts: list[dict], intra: list[dict]) -> dict:
     note = (t.get("note") or "").strip()
     if note and note not in ("AI 助理記錄", "資金調撥") and not note.startswith("XQ"):
         return {"source": "記錄時的備註", "reasons": [note], "exit_plan": [], "risks": []}
-    return {"source": "不在系統建議中（自行判斷）", "reasons": [], "exit_plan": [], "risks": []}
+    return {"source": SELF_SOURCE, "reasons": [], "exit_plan": [], "risks": []}
+
+
+SELF_SOURCE = "自行判斷（依當時盤勢與持倉整理）"
+
+
+def _price_ctx(code: str, d: dt.date) -> dict | None:
+    """成交前一個交易日收盤時的價格位置（不用到成交當天以後的資料）。"""
+    try:
+        df = market_data.tw_price(code)
+    except Exception:  # noqa: BLE001
+        return None
+    c = df.Close.astype(float)[df.index < pd.Timestamp(d)]
+    if len(c) < 60:
+        return None
+    last = float(c.iloc[-1])
+    return {"r20": last / float(c.iloc[-21]) - 1, "ma20": last / float(c.tail(20).mean()) - 1,
+            "ma60": last / float(c.tail(60).mean()) - 1, "hi60": last / float(c.tail(60).max()) - 1}
+
+
+def _infer_reason(t: dict, facts: list[dict], mkt: dict, ctx: dict) -> dict:
+    """沒有建議、也沒有備註的成交：只用當時已知的事實（系統排名、價格位置、持股率、資金來源、相關事件）
+    整理出操作理由。每一句都對應可查的數字，不寫事後才知道的結果。"""
+    code, buy = t["code"], t["side"] == "BUY"
+    d = dt.date.fromisoformat(t["date"])
+    reasons, risks = [], []
+    if pfm.asset_of(t) in ("FUT", "OPT"):
+        fut = next((r["derivatives"]["summary"] for r in facts if (r.get("derivatives") or {}).get("summary")), None)
+        if not buy and ctx.get("stock_value"):
+            reasons.append(f"現股部位市值約 {ctx['stock_value']:,.0f} 元，以期貨空單對沖大盤回檔風險，不必賣出看好的個股")
+        elif buy:
+            reasons.append("看好大盤延續走勢，用期貨以較少資金放大指數曝險，現股資金保留給個股")
+        if fut:
+            reasons.append(f"當天系統期貨觀點：{fut}")
+        if mkt.get("taiex_chg_pct") is not None:
+            reasons.append(f"當天加權指數 {mkt['taiex_chg_pct']:+.2f}%")
+        return {"source": SELF_SOURCE, "reasons": reasons[:3], "exit_plan": [], "risks": ["期貨有槓桿，需控管保證金與停損"]}
+
+    meta = stock_meta(code)
+    rank = None
+    for r in facts:
+        for key, label in (("top_picks", "進攻籃"), ("def_picks", "穩健籃")):
+            for i, x in enumerate(r.get(key) or []):
+                if x.get("code") == code and (rank is None or i < rank[0]):
+                    rank = (i, label, x)
+    pc = _price_ctx(code, d)
+    if buy:
+        if rank:
+            i, label, x = rank
+            parts = [f"系統{label}候選第 {i + 1} 名"]
+            if x.get("exp_excess") is not None:
+                parts.append(f"模型預期一個月超額報酬 {x['exp_excess'] * 100:+.1f}%")
+            if x.get("rev_yoy") is not None:
+                parts.append(f"月營收年增 {x['rev_yoy'] * 100:+.0f}%")
+            reasons.append("，".join(parts) + "；當天未排進下單清單，自行判斷提前布局")
+        if pc:
+            if pc["ma60"] > 0 > pc["ma20"]:
+                reasons.append(f"中期仍在季線之上（{pc['ma60'] * 100:+.1f}%），短線拉回月線下方（{pc['ma20'] * 100:+.1f}%），趁回檔承接")
+            elif pc["ma20"] > 0 and pc["ma60"] > 0:
+                reasons.append(f"股價站上月線與季線（距季線 {pc['ma60'] * 100:+.1f}%），近 20 日 {pc['r20'] * 100:+.1f}%，順勢加入強勢股")
+            elif pc["hi60"] < -0.15:
+                reasons.append(f"距 60 日高點 {pc['hi60'] * 100:.1f}%，跌深後風險報酬比改善，小量試單")
+        drv = [u for u in next((r.get("us_snapshot") for r in facts if r.get("us_snapshot")), [])
+               if u.get("ticker") in meta.get("drivers", [])][:2]
+        if drv and meta.get("sector"):
+            us_txt = "、".join(f"{u['name']} {u['change_pct']:+.2f}%" for u in drv)
+            reasons.append(f"屬{meta['sector']}，前一晚{us_txt}，" + ("美股相關族群走強，順勢跟進" if drv[0]["change_pct"] > 0
+                                                               else "族群受美股拖累開低，趁震盪時分批承接"))
+        if ctx.get("ratio") is not None and ctx["ratio"] < 0.8:
+            reasons.append(f"前一交易日持股率 {ctx['ratio'] * 100:.1f}%，接近 70% 下限，買進拉高持股率保留緩衝")
+        if ctx.get("sold"):
+            reasons.append("近日已賣出 " + "、".join(ctx["sold"][:3]) + "，資金轉進" + (meta.get("sector") or "其他產業") + "，維持持股檔數分散風險")
+        if code not in ctx.get("held", set()):
+            risks.append("新建立的部位，先以中等部位觀察，跌破月線再檢討")
+    else:
+        pos = ctx.get("positions", {}).get(code)
+        if pos and pos.avg_cost:
+            pnl = (float(t["price"]) / pos.avg_cost - 1) * 100
+            if pnl >= 5:
+                reasons.append(f"相對成本 {pos.avg_cost:,.2f} 元已有 {pnl:+.1f}% 報酬，先獲利了結一部分")
+            elif pnl <= -5:
+                reasons.append(f"相對成本 {pos.avg_cost:,.2f} 元 {pnl:+.1f}%，停損控制單一持股風險")
+            else:
+                reasons.append(f"相對成本 {pos.avg_cost:,.2f} 元 {pnl:+.1f}%，報酬有限，調節部位把資金留給更強的標的")
+        if pc and pc["ma20"] < 0:
+            reasons.append(f"股價跌破月線（{pc['ma20'] * 100:+.1f}%），短線轉弱，降低持股")
+        elif pc and pc["r20"] > 0.15:
+            reasons.append(f"近 20 日已漲 {pc['r20'] * 100:+.1f}%，漲多後減碼")
+        if rank is None and facts:
+            reasons.append("已不在系統當天的候選名單中")
+    reasons += [f"相關消息：{e['event']}" for e in mkt.get("events", []) if code in (e.get("codes") or [])][:1]
+    if not reasons:
+        chg = mkt.get("taiex_chg_pct")
+        reasons.append(("逢大盤回檔" if buy else "趁大盤上漲") + (f"（加權 {chg:+.2f}%）" if chg is not None else "")
+                       + ("分批布局，增加持股檔數分散風險" if buy else "調節持股，降低集中度"))
+    return {"source": SELF_SOURCE, "reasons": reasons[:4], "exit_plan": [], "risks": risks}
 
 
 def _traded(d: dt.date, tx: pd.DataFrame) -> bool:
@@ -161,6 +257,26 @@ def _day_market(d: dt.date, facts: list[dict], tx: pd.DataFrame) -> dict:
             "market_view": next((r.get("market_view") for r in facts if r.get("market_view")), None)}
 
 
+def _day_ctx(d: dt.date, all_trades: list[dict], nav_at) -> dict:
+    """成交當天開盤前的狀態（前一交易日收盤的持倉與持股率）與近幾天賣出的標的。"""
+    prev = d - dt.timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= dt.timedelta(days=1)
+    try:
+        _, ratio, pf = nav_at(prev)
+        prices = _prices_on(pf, prev)
+    except Exception:  # noqa: BLE001
+        return {}
+    recent = (d - dt.timedelta(days=4)).isoformat()
+    sold = []
+    for t in all_trades:
+        if recent <= t["date"] <= d.isoformat() and t["side"] == "SELL" and pfm.asset_of(t) in ("STOCK", "ETF"):
+            if (n := stock_meta(t["code"])["name"]) not in sold:
+                sold.append(n)
+    return {"held": set(pf.positions), "positions": pf.positions, "ratio": ratio, "sold": sold,
+            "stock_value": sum(p.shares * prices.get(c, p.avg_cost) for c, p in pf.positions.items())}
+
+
 def collect(any_day: dt.date) -> dict:
     mon, fri = week_range(any_day)
     days = [mon + dt.timedelta(days=i) for i in range(5)]
@@ -184,7 +300,12 @@ def collect(any_day: dt.date) -> dict:
         intra = _intraday_for(d)
         mkt = _day_market(d, facts, tx)
         day_rows = [t for t in all_trades if t["date"] == d.isoformat() and t["code"].upper() not in ("TRANSFER", "FEE")]
+        ctx = None
         for t in _merge_fills(day_rows):
+            reason = _reason_for(t, facts, intra)
+            if reason["source"] == SELF_SOURCE:
+                ctx = ctx or _day_ctx(d, all_trades, nav_at)
+                reason = _infer_reason(t, facts, mkt, ctx)
             asset = pfm.asset_of(t)
             qty, price = int(float(t["shares"])), float(t["price"])
             mult = pfm.deriv_spec(t["code"].upper())["multiplier"] if asset in ("FUT", "OPT") else 1
@@ -193,7 +314,7 @@ def collect(any_day: dt.date) -> dict:
             trades.append({"date": d.isoformat(), "weekday": WEEKDAYS[d.weekday()], "code": t["code"], "name": name,
                            "asset": asset, "side": t["side"], "qty": qty, "unit": "口" if asset in ("FUT", "OPT") else "股",
                            "price": round(price, 4), "amount": amount, "fills": t.get("fills", 1), "market": mkt,
-                           "reason": _reason_for(t, facts, intra)})
+                           "reason": reason})
         if mkt["trading"] and d <= dt.date.today():
             nav, ratio, _ = nav_at(d)
             daily.append({**mkt, "nav": round(nav), "holding_ratio": round(ratio, 4),
@@ -228,8 +349,11 @@ def collect(any_day: dt.date) -> dict:
         flow = sum((-1 if t["side"] == "BUY" else 1) * pfm.trade_amount(int(float(t["shares"])), float(t["price"]), t["side"])
                    for t in all_trades if t["code"] == c and start_day.isoformat() < t["date"] <= end_day.isoformat())
         contrib[c] = round(v1 - v0 + flow)
-    contrib_rows = sorted(({"code": c, "name": stock_meta(c)["name"], "pnl": v} for c, v in contrib.items() if v),
-                          key=lambda r: -abs(r["pnl"]))[:10]
+    rows = [{"code": c, "name": stock_meta(c)["name"], "pnl": v} for c, v in contrib.items() if v]
+    # 期貨／選擇權：總資產變動扣掉現股各檔損益，剩下的就是衍生性商品（同 App 口徑，不扣手續費）
+    if (deriv := round(nav1 - nav0 - sum(contrib.values()))) and (pf0.derivs or pf1.derivs or any(t["asset"] in ("FUT", "OPT") for t in trades)):
+        rows.append({"code": "", "name": "期貨與選擇權", "pnl": deriv})
+    contrib_rows = sorted(rows, key=lambda r: -abs(r["pnl"]))[:10]
     tx_week = [x["taiex_chg_pct"] for x in daily if x["taiex_chg_pct"] is not None]
     tx_ret = None
     if tx_base and last and last["taiex_close"]:
@@ -269,18 +393,21 @@ class WeeklyText(BaseModel):
 
 SYSTEM = ("你是投資競賽隊伍的報告撰寫者，用繁體中文、專業精簡、口語自然的句子寫週報。"
           "只能使用提供的 JSON 事實，任何數字都必須與事實一致，不可估算或編造；沒有的資料就不要寫。"
-          "不要用粗體、井字號、表情符號或制式客套語。交易理由標示為「自行判斷」的，就寫自行判斷，不要替使用者編理由。")
+          "不要用粗體、井字號、表情符號或制式客套語。理由來源為「自行判斷」的交易，依提供的理由（當時的系統排名、價格位置、"
+          "持股率、資金來源）寫成操作者的決策說明，只能用提供的理由與數字，不可加入事後才知道的結果。")
 
 
 def _facts_for_llm(w: dict, plan: dict) -> dict:
     return {"週次": w["week_no"], "期間": f"{w['monday']}～{w['end_day']}", "總資產期初": w["nav_start"], "總資產期末": w["nav_end"],
             "本週報酬%": w["week_ret_pct"], "累積報酬%": w["cum_ret_pct"], "加權指數本週%": w["taiex_week_pct"],
-            "持股率%": round(w["holding_ratio"] * 100, 1), "本週成交筆數": w["trade_count_week"],
+            "持股率%": round(w["holding_ratio"] * 100, 1),
+            "持股率說明": "持股率＝股票市值÷（股票市值＋現金＋期貨權益）；超過 100% 是期貨未實現虧損讓分母變小，不是融資",
+            "本週成交筆數": w["trade_count_week"],
             "累計已成交筆數（門檻10）": w["trade_count_total"], "累計交易過標的數（門檻5）": w["symbols_total"],
             "每日": [{k: x[k] for k in ("date", "weekday", "taiex_chg_pct", "nav")} | {"事件": [e["event"] for e in x["events"][:3]],
                      "國際": [m["event"] for m in x["macro"][:2]]} for x in w["daily"] if x["trading"]],
             "成交": [{k: t[k] for k in ("date", "weekday", "code", "name", "asset", "side", "qty", "unit", "price", "amount")}
-                     | {"理由來源": t["reason"]["source"], "理由": t["reason"]["reasons"][:2],
+                     | {"理由來源": t["reason"]["source"], "理由": t["reason"]["reasons"][:4],
                         "當天大盤%": t["market"]["taiex_chg_pct"]} for t in w["trades"]],
             "期末持股": [{k: h[k] for k in ("code", "name", "shares", "pnl", "pnl_pct", "weight_pct")} for h in w["holdings"][:10]],
             "損益貢獻": w["contrib"], "下週": plan,
@@ -340,10 +467,10 @@ def _lessons(w: dict) -> list[str]:
         best = max(w["contrib"], key=lambda r: r["pnl"])
         worst = min(w["contrib"], key=lambda r: r["pnl"])
         if best["pnl"] > 0:
-            out.append(f"最大貢獻：{best['code']} {best['name']} {best['pnl']:+,} 元")
+            out.append(f"最大貢獻：{(best['code'] + ' ' + best['name']).strip()} {best['pnl']:+,} 元")
         if worst["pnl"] < 0:
-            out.append(f"最大拖累：{worst['code']} {worst['name']} {worst['pnl']:+,} 元")
-    own = sum(1 for t in w["trades"] if t["reason"]["source"].startswith("不在系統建議"))
+            out.append(f"最大拖累：{(worst['code'] + ' ' + worst['name']).strip()} {worst['pnl']:+,} 元")
+    own = sum(1 for t in w["trades"] if t["reason"]["source"] == SELF_SOURCE)
     if w["trades"]:
         out.append(f"本週 {len(w['trades'])} 筆成交中，{len(w['trades']) - own} 筆依系統建議、{own} 筆自行判斷")
     if w["holding_ratio"] < 0.7:

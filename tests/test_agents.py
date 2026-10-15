@@ -215,13 +215,32 @@ def test_weekly_report_collect_and_build(monkeypatch, tmp_path):
         {"date": "2026-10-01", "code": "2886", "side": "SELL", "shares": "400", "price": "49", "margin": "0", "note": ""}])
     w = weekly.collect(dt.date(2026, 10, 1))
     assert w["monday"] == "2026-09-28" and not w["daily"][0]["trading"]  # 9/28 加權沒有資料 → 休市
-    assert [t["reason"]["source"] for t in w["trades"]] == ["記錄時的備註", "不在系統建議中（自行判斷）"]
+    assert [t["reason"]["source"] for t in w["trades"]] == ["記錄時的備註", weekly.SELF_SOURCE]
     assert w["taiex_week_pct"] == 2.0 and w["trade_count_week"] == 2
     text = weekly._template(w, {})
     out = weekly_pptx.build(w, text, False, tmp_path / "w.pptx")
     from pptx import Presentation
 
     assert out.exists() and len(Presentation(str(out)).slides) >= 8
+
+
+def test_weekly_infer_reason_uses_only_prior_facts(monkeypatch):
+    """自行判斷的成交：理由來自成交前的系統排名、價格位置、持股率與資金去向，且不用到成交當天以後的價格。"""
+    import pandas as pd
+
+    from src.agents import market_data, weekly
+
+    idx = pd.bdate_range("2026-07-01", "2026-10-20")
+    close = pd.Series(range(100, 100 + len(idx)), index=idx, dtype=float)
+    close[close.index >= "2026-10-13"] = 1.0  # 成交當天起暴跌：不應影響理由
+    monkeypatch.setattr(market_data, "tw_price", lambda code, years=2: pd.DataFrame({"Close": close}))
+    monkeypatch.setattr(weekly, "stock_meta", lambda c: {"name": "欣興", "sector": "電子零組件業", "drivers": []})
+    facts = [{"top_picks": [{"code": "9999"}, {"code": "3037", "exp_excess": 0.1, "rev_yoy": 0.6}]}]
+    t = {"date": "2026-10-13", "code": "3037", "side": "BUY", "shares": "100", "price": "1180", "note": ""}
+    r = weekly._infer_reason(t, facts, {"events": []}, {"ratio": 0.75, "sold": ["潤泰全"], "held": set()})
+    assert r["source"] == weekly.SELF_SOURCE
+    text = " ".join(r["reasons"])
+    assert "候選第 2 名" in text and "站上月線與季線" in text and "75.0%" in text and "潤泰全" in text
 
 
 def test_tuner_independent_periods_block_overlapping_samples():

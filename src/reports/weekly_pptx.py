@@ -310,7 +310,18 @@ def _trade_table(prs, w: dict, page: int) -> int:
 
 def _trade_details(prs, w: dict, text, page: int) -> int:
     notes = {(n.code, n.date): n.comment for n in text.trade_notes}
+    # 同一天同一檔同方向的多筆委託合併成一頁（理由相同，數量與金額加總）
+    groups: dict[tuple, dict] = {}
     for t in w["trades"]:
+        k = (t["date"], t["code"], t["side"])
+        if k in groups:
+            g = groups[k]
+            g["price"] = round((g["price"] * g["qty"] + t["price"] * t["qty"]) / (g["qty"] + t["qty"]), 4)
+            g["qty"] += t["qty"]
+            g["amount"] += t["amount"]
+        else:
+            groups[k] = dict(t)
+    for t in groups.values():
         s = prs.slides.add_slide(prs.slide_layouts[6])
         week_tape(s, w["daily"], highlight=t["date"])
         verb = "買進" if t["side"] == "BUY" else "賣出"
@@ -329,8 +340,6 @@ def _trade_details(prs, w: dict, text, page: int) -> int:
         paras = [[(comment, 17, INK, False, False)]]
         paras += [[("■ ", 7, INK, False, False), (d, 12, INK2, False, False)] for d in details]
         paras += [[(f"理由來源：{r['source']}", 11, MUTED, False, False)]]
-        if r["source"].startswith("不在系統建議"):
-            paras += [[("下次記錄成交時一併說明理由（例如跟 AI 助理說「因為法說會釋出好消息，買進 2330 一張」），週報就會寫進來。", 11, MUTED, False, False)]]
         tb = _text(s, MX, Inches(2.88), Inches(7.4), Inches(3.6), paras, line_spacing=1.3)
         for i, para in enumerate(tb.text_frame.paragraphs):
             para.space_after = Pt(14 if i == 0 else 6)
@@ -386,7 +395,7 @@ def _contrib(prs, w: dict, page: int) -> int:
     _title(s, "本週損益來源", "各檔本週損益（含已賣出部分）；紅色賺、綠色賠")
     rows = list(reversed(rows[:8]))
     cd = CategoryChartData()
-    cd.categories = [f"{r['code']} {r['name']}" for r in rows]
+    cd.categories = [f"{r['code']} {r['name']}".strip() for r in rows]
     cd.add_series("本週損益（元）", [r["pnl"] for r in rows])
     gf = s.shapes.add_chart(XL_CHART_TYPE.BAR_CLUSTERED, MX, Inches(2.2), W - 2 * MX, Inches(4.5), cd)
     ch = gf.chart
@@ -431,7 +440,7 @@ def _notes(prs, w: dict, verified: bool, page: int) -> None:
         "成交：XQ 全球贏家成交回報（網站匯入或 AI 助理記錄）；同一筆委託分多次成交時合併為一列，價格為成交量加權平均",
         "總資產採競賽 App「投資組合總值」口徑：初始 1,000 萬＋未實現＋已實現；股票用當天收盤價、期貨用該合約日盤結算價（與 App 對帳一致）",
         "市場資料：證交所／櫃買中心日 K、加權指數、期交所行情；事件與國際大事來自當天盤前報告收錄的新聞",
-        "交易理由：優先引用當天系統建議的理由；沒有對應建議者標示「自行判斷」，不另行補寫",
+        "交易理由：優先引用當天系統建議的理由；自行判斷的交易依成交前一日的系統排名、價格位置、持股率與資金去向整理",
         ("文字說明由開源 AI 模型依上述資料撰寫，所有數字已逐一與資料核對" if verified
          else "文字說明採固定格式自動產生（AI 服務暫時無法使用或未通過數字核對）"),
         "持股率同 App：股票＋ETF 市值 ÷（市值＋持有現金＋期貨保證金＋期貨未實現）；損益同 App 不扣手續費，手續費另計",

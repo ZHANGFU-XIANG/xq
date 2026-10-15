@@ -75,15 +75,23 @@ def build_features(tx: pd.DataFrame, us: dict[str, pd.DataFrame], h: int) -> pd.
     us_feat["vix"], us_feat["vix_chg"] = us_df["vix"], us_df["vix"].pct_change()
     # 台股 t 日收盤時，最新的美股收盤是 t 日之前的那一晚（不偷看未來）
     left = df.reset_index().rename(columns={"index": "date", df.index.name or "index": "date"})
-    left["date"] = pd.to_datetime(left["date"])
+    # 兩邊的日期精度可能不同（us / s），merge_asof 要求一致，統一成 ns 且去掉時區
+    left["date"] = _naive_ns(left["date"])
     right = us_feat.reset_index().rename(columns={"index": "us_date"})
     right = right.rename(columns={right.columns[0]: "us_date"})
-    right["us_date"] = pd.to_datetime(right["us_date"])
+    right["us_date"] = _naive_ns(right["us_date"])
     merged = pd.merge_asof(left.sort_values("date"), right.sort_values("us_date"), left_on="date", right_on="us_date",
                            allow_exact_matches=False, direction="backward")
     merged = merged.set_index("date")
     merged["fwd"] = merged["close"].shift(-h) / merged["close"] - 1
     return merged
+
+
+def _naive_ns(s: pd.Series) -> pd.Series:
+    s = pd.to_datetime(s)
+    if getattr(s.dt, "tz", None) is not None:
+        s = s.dt.tz_localize(None)
+    return s.astype("datetime64[ns]")
 
 
 def _model():
