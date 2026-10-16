@@ -4,5 +4,5 @@ daytrade:
   reward_risk: 1.0
   stop_atr: 1.0
 strategy:
-  max_weight: 0.2
-  risk_per_trade: 0.012
+  max_weight: 0.15
+  risk_per_trade: 0.0096
