@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-16T15:53:41",
+ "generated": "2026-10-16T16:44:09",
  "target_cagr": 0.9,
  "algorithms": [
   {
@@ -155,5 +155,6 @@
    "note": "沒有正報酬：不是主力策略，系統只當參考"
   }
  ],
- "seconds": 15
+ "new_pred_days": 0,
+ "seconds": 25
 }
