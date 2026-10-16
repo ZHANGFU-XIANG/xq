@@ -1,0 +1,1297 @@
+{
+ "regime": {
+  "state": "中性",
+  "light": "灰燈",
+  "level": "灰燈",
+  "headline": "灰燈：大盤中性（距季線 +2.1%、20 日 +2.4%）",
+  "warnings": [],
+  "actions": [
+   "維持進攻 80%／穩健 20%",
+   "收盤站上 48,041 點且 20 日漲幅 > 2% 轉綠燈（加攻）；跌破 45,088 點轉紅燈（轉守）"
+  ],
+  "lines": {
+   "close": 46970,
+   "ma20": 48041,
+   "ma60": 46008,
+   "weak_enter": 45088,
+   "weak_exit": 46468,
+   "strong_enter": 48041,
+   "strong_exit": 47080
+  },
+  "offense": 0.8
+ },
+ "time": "2026-10-16 09:01",
+ "slot": "2026-10-16 09:00",
+ "is_last_check": false,
+ "market_open": true,
+ "building": false,
+ "taiex": {
+  "price": 47241.16,
+  "chg_pct": 0.58,
+  "time": "09:04:40"
+ },
+ "nav": 8794259,
+ "holding_ratio": 0.7923,
+ "return_pct": -12.057,
+ "allocation": {
+  "offense": 0.75,
+  "defense": 0.25,
+  "etf": 0.0,
+  "stock_split": {
+   "offense": 0.75,
+   "defense": 0.25
+  },
+  "etf_reasons": [
+   "ETF 基準比例 0%（分散個股風險、證交稅 0.1%）",
+   "今日 ETF 籃比例 0%（佔股票＋ETF 目標持股；基準 0% 已依上述條件調整）"
+  ]
+ },
+ "derivatives": {
+  "summary": "期貨不操作",
+  "mode": "補回虧損",
+  "orders": [],
+  "hedge": null,
+  "reasons": [
+   "目前累積報酬 -12.06%、距高點回撤 -13.77%、剩 30 個交易日",
+   "報酬為負或回撤 ≥ 4%：提高機率門檻、放寬每筆風險",
+   "方向模型：未來 5 個交易日上漲機率 65.5%（模型估計，不是保證）",
+   "做多：樣本外 60 次，命中率 66.7%（基準 63.7%），平均每次 +0.84%（已扣成本）",
+   "放空：樣本外交易僅 0 次，少於 20 次，證據不足",
+   "已持有 TX202610 多 2 口，每點 400 元，已達建議曝險每點 90 元，不再加碼；現有曝險是建議的 4.4 倍，若跌 1,448 點（停損距離）約虧損 579,200 元（總資產 6.6%），可考慮減碼"
+  ],
+  "reserve": 300000,
+  "margin_needed": 0,
+  "conditions": [
+   {
+    "name": "做多台指期（擇時）",
+    "met": true,
+    "need": "上漲機率 ≥ 60%，且回測證明模型做多贏過「一直做多」",
+    "now": "上漲機率 65.5%（已達）；回測模型做多平均 0.845% vs 一直做多 0.799%（有優勢）"
+   },
+   {
+    "name": "放空台指期（擇時）",
+    "met": false,
+    "need": "上漲機率 ≤ 40%，且回測放空有正報酬、樣本 ≥ 20 次",
+    "now": "上漲機率 65.5%；回測放空樣本 0 次"
+   },
+   {
+    "name": "補回虧損：加碼大盤曝險",
+    "met": true,
+    "need": "累積報酬轉負或回撤 ≥ 4%，且加權在季線上",
+    "now": "累積報酬 -12.06%、回撤 -13.77%、加權距季線 +2.09%"
+   },
+   {
+    "name": "買賣權避險（只做買方）",
+    "met": false,
+    "need": "任一成立：加權 RSI ≥ 75、距季線 ≥ 10%、VIX 單日 ≥ +15%、下跌機率 ≥ 60%",
+    "now": "RSI 43.9、距季線 2.09%、VIX -2.4%、下跌機率 34.5%"
+   }
+  ],
+  "reference": {
+   "note": "僅供參考，不是建議：系統目前判斷沒有優勢，若自行操作請先確認風險",
+   "stop_rule": "停損以加權 ATR14 的 2.0 倍 ≈ 1,448 點估算",
+   "futures": [
+    {
+     "contract": "TMF202610",
+     "name": "微型臺指期貨",
+     "price": 47299,
+     "margin": 35050.0,
+     "stop_points": 1448,
+     "loss_at_stop": 14480,
+     "loss_pct_nav": 0.16,
+     "notional": 472990
+    },
+    {
+     "contract": "MTX202610",
+     "name": "小型臺指",
+     "price": 47299,
+     "margin": 175250.0,
+     "stop_points": 1448,
+     "loss_at_stop": 72400,
+     "loss_pct_nav": 0.82,
+     "notional": 2364950
+    }
+   ],
+   "put": {
+    "contract": "TXO202611P45000",
+    "strike": 45000.0,
+    "price": 740.0,
+    "premium": 37000,
+    "protect_from": 45000.0
+   }
+  },
+  "quote": {
+   "root": "MTX",
+   "contract": "MTX202610",
+   "ym": "202610",
+   "price": 47299.0,
+   "ref": 46931.0,
+   "settlement": null,
+   "date": "20261016",
+   "chg_pct": 0.78,
+   "time": "2026-10-16 09:05:08",
+   "spot": 47234.72,
+   "basis": 64.28,
+   "source": "期交所 MIS 即時",
+   "days_to_settlement": 5
+  },
+  "contract_month": "202610",
+  "signal": {
+   "date": "2026-10-15",
+   "p_up": 0.655,
+   "horizon_days": 5,
+   "long_enabled": true,
+   "short_enabled": false,
+   "gate_reasons": [
+    "做多：樣本外 60 次，命中率 66.7%（基準 63.7%），平均每次 +0.84%（已扣成本）",
+    "放空：樣本外交易僅 0 次，少於 20 次，證據不足"
+   ],
+   "drivers": [
+    {
+     "feature": "加權 5 日報酬",
+     "push": "看多",
+     "weight": 0.353
+    },
+    {
+     "feature": "費半前一晚",
+     "push": "看空",
+     "weight": -0.23
+    },
+    {
+     "feature": "距月線",
+     "push": "看空",
+     "weight": -0.187
+    },
+    {
+     "feature": "月線在季線上",
+     "push": "看多",
+     "weight": 0.183
+    }
+   ],
+   "backtest": {
+    "h": 5,
+    "n_oos_days": 634,
+    "base_up_rate": 0.637,
+    "period": "2024-02-02～2026-10-07",
+    "always_long": {
+     "n": 127,
+     "hit": 0.646,
+     "avg_ret_pct": 0.799
+    },
+    "long": {
+     "n": 60,
+     "hit": 0.667,
+     "avg_ret_pct": 0.845,
+     "base_rate": 0.637
+    },
+    "short": {
+     "n": 0,
+     "hit": null,
+     "avg_ret_pct": null,
+     "base_rate": 0.363
+    },
+    "all_days_auc_like": 0.595
+   }
+  }
+ },
+ "recovery": {
+  "items": [
+   {
+    "code": "2845",
+    "name": "遠東銀",
+    "basket": "defense",
+    "unrealized": 8329,
+    "pnl_pct": 1.78,
+    "held_days": 8,
+    "decision": "續抱",
+    "why": "買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 12.6 才出場。提醒：綜合排名 3443 創意 扣成本後多 10.8%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 476,137 元，成本 467,808 元，未實現損益 +8,329 元（+1.78%）",
+     "【穩健籃】續抱的預期：一個月預期報酬 +0.75%（約 +3,571 元），收正報酬機率 64.7%",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+0.8%）多 10.8%",
+     "決策：續抱 —— 買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 12.6 才出場。提醒：綜合排名 3443 創意 扣成本後多 10.8%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0075,
+    "p_newhigh": 0.6468,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "5880",
+    "name": "合庫金",
+    "basket": "defense",
+    "unrealized": 31505,
+    "pnl_pct": 5.02,
+    "held_days": 8,
+    "decision": "續抱",
+    "why": "買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 25.28 才出場。提醒：綜合排名 3443 創意 扣成本後多 9.5%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 658,800 元，成本 627,295 元，未實現損益 +31,505 元（+5.02%）",
+     "【穩健籃】續抱的預期：一個月預期報酬 +2.07%（約 +13,637 元），收正報酬機率 65.1%",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+2.1%）多 9.5%",
+     "決策：續抱 —— 買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 25.28 才出場。提醒：綜合排名 3443 創意 扣成本後多 9.5%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0207,
+    "p_newhigh": 0.6515,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "2889",
+    "name": "國票金",
+    "basket": "defense",
+    "unrealized": 32763,
+    "pnl_pct": 5.05,
+    "held_days": 8,
+    "decision": "續抱並可加碼",
+    "why": "模型排名仍在全市場前 19%、股價在月線之上、虧損未擴大，權重 7.7% 仍低於上限，可逢回加碼攤低成本",
+    "lines": [
+     "目前市值 681,010 元，成本 648,247 元，未實現損益 +32,763 元（+5.05%）",
+     "【穩健籃】續抱的預期：一個月預期報酬 +2.18%（約 +14,846 元），收正報酬機率 61.8%",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+2.2%）多 9.4%",
+     "決策：續抱並可加碼 —— 模型排名仍在全市場前 19%、股價在月線之上、虧損未擴大，權重 7.7% 仍低於上限，可逢回加碼攤低成本"
+    ],
+    "exp_ret": 0.0218,
+    "p_newhigh": 0.6181,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "2915",
+    "name": "潤泰全",
+    "basket": "defense",
+    "unrealized": 11893,
+    "pnl_pct": 2.88,
+    "held_days": 8,
+    "decision": "續抱",
+    "why": "買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 55.39 才出場。提醒：綜合排名 3443 創意 扣成本後多 8.7%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 424,642 元，成本 412,749 元，未實現損益 +11,893 元（+2.88%）",
+     "【穩健籃】續抱的預期：一個月預期報酬 +2.92%（約 +12,400 元），收正報酬機率 51.9%",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+2.9%）多 8.7%",
+     "決策：續抱 —— 買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 55.39 才出場。提醒：綜合排名 3443 創意 扣成本後多 8.7%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0292,
+    "p_newhigh": 0.5187,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "2103",
+    "name": "台橡",
+    "basket": "offense",
+    "unrealized": -2527,
+    "pnl_pct": -2.85,
+    "held_days": 5,
+    "decision": "續抱",
+    "why": "買進第 5 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 27.7 才出場。提醒：綜合排名 3443 創意 扣成本後多 8.1%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 86,100 元，成本 88,627 元，未實現損益 -2,527 元（-2.85%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +3.53%（約 +3,039 元），創新高機率 49.1%",
+     "補回虧損需上漲 2.93%；續抱依模型預期需 約 17 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 504 元）後，需上漲 3.54%，需 約 6 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+3.5%）多 8.1%",
+     "決策：續抱 —— 買進第 5 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 27.7 才出場。提醒：綜合排名 3443 創意 扣成本後多 8.1%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0353,
+    "p_newhigh": 0.4912,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "2360",
+    "name": "致茂",
+    "basket": "defense",
+    "unrealized": -3085,
+    "pnl_pct": -16.3,
+    "held_days": 5,
+    "decision": "停損換股",
+    "why": "收盤 1980.0 已跌破停損價 2069.91，依紀律出場；資金轉往評分最高的候選標的",
+    "lines": [
+     "目前市值 15,840 元，成本 18,925 元，未實現損益 -3,085 元（-16.30%）",
+     "【穩健籃】續抱的預期：一個月預期報酬 +3.89%（約 +616 元），收正報酬機率 56.8%",
+     "補回虧損需上漲 19.48%；續抱依模型預期需 約 5.0 個月（超過競賽剩餘期間的風險高）",
+     "換股方案（同一籃）：賣出後換入 00692 富邦公司治理（一個月預期報酬 +3.80%、收正報酬機率 77.1%），扣除換股成本 0.585%（約 93 元）後，需上漲 20.18%，需 約 5.3 個月（超過競賽剩餘期間的風險高）",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+3.9%）多 7.7%",
+     "決策：停損換股 —— 收盤 1980.0 已跌破停損價 2069.91，依紀律出場；資金轉往評分最高的候選標的"
+    ],
+    "exp_ret": 0.0389,
+    "p_newhigh": 0.5684,
+    "swap": null,
+    "alt": {
+     "code": "00692",
+     "name": "富邦公司治理"
+    }
+   },
+   {
+    "code": "6196",
+    "name": "帆宣",
+    "basket": "offense",
+    "unrealized": -33288,
+    "pnl_pct": -4.43,
+    "held_days": 8,
+    "decision": "續抱並可加碼",
+    "why": "模型排名仍在全市場前 19%、股價在月線之上、虧損未擴大，權重 8.2% 仍低於上限，可逢回加碼攤低成本",
+    "lines": [
+     "目前市值 717,600 元，成本 750,888 元，未實現損益 -33,288 元（-4.43%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +4.20%（約 +30,139 元），創新高機率 58.1%",
+     "補回虧損需上漲 4.64%；續抱依模型預期需 約 22 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 4,198 元）後，需上漲 5.25%，需 約 8 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+4.2%）多 7.4%",
+     "決策：續抱並可加碼 —— 模型排名仍在全市場前 19%、股價在月線之上、虧損未擴大，權重 8.2% 仍低於上限，可逢回加碼攤低成本"
+    ],
+    "exp_ret": 0.042,
+    "p_newhigh": 0.5815,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "3037",
+    "name": "欣興",
+    "basket": "offense",
+    "unrealized": -43710,
+    "pnl_pct": -6.49,
+    "held_days": 3,
+    "decision": "續抱",
+    "why": "買進第 3 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 1046.11 才出場。提醒：綜合排名 3443 創意 扣成本後多 6.8%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 629,850 元，成本 673,560 元，未實現損益 -43,710 元（-6.49%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +4.78%（約 +30,107 元），創新高機率 18.0%",
+     "補回虧損需上漲 6.94%；續抱依模型預期需 約 29 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 3,685 元）後，需上漲 7.57%，需 約 12 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+4.8%）多 6.8%",
+     "決策：續抱 —— 買進第 3 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 1046.11 才出場。提醒：綜合排名 3443 創意 扣成本後多 6.8%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0478,
+    "p_newhigh": 0.1799,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "1560",
+    "name": "中砂",
+    "basket": "offense",
+    "unrealized": -126365,
+    "pnl_pct": -11.38,
+    "held_days": 8,
+    "decision": "停損換股",
+    "why": "收盤 902.0 已跌破停損價 936.69，依紀律出場；資金轉往評分最高的候選標的",
+    "lines": [
+     "目前市值 984,082 元，成本 1,110,447 元，未實現損益 -126,365 元（-11.38%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +5.18%（約 +50,975 元），創新高機率 37.3%",
+     "補回虧損需上漲 12.84%；續抱依模型預期需 約 50 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 5,757 元）後，需上漲 13.50%，需 約 21 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+5.2%）多 6.4%",
+     "決策：停損換股 —— 收盤 902.0 已跌破停損價 936.69，依紀律出場；資金轉往評分最高的候選標的"
+    ],
+    "exp_ret": 0.0518,
+    "p_newhigh": 0.3734,
+    "swap": null,
+    "alt": {
+     "code": "1617",
+     "name": "榮星"
+    }
+   },
+   {
+    "code": "3591",
+    "name": "艾笛森",
+    "basket": "offense",
+    "unrealized": -31255,
+    "pnl_pct": -5.31,
+    "held_days": 8,
+    "decision": "續抱",
+    "why": "買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 25.11 才出場。提醒：綜合排名 3443 創意 扣成本後多 3.9%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 557,335 元，成本 588,590 元，未實現損益 -31,255 元（-5.31%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +7.69%（約 +42,859 元），創新高機率 42.8%",
+     "補回虧損需上漲 5.61%；續抱依模型預期需 約 15 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 3,260 元）後，需上漲 6.23%，需 約 10 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+7.7%）多 3.9%",
+     "決策：續抱 —— 買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 25.11 才出場。提醒：綜合排名 3443 創意 扣成本後多 3.9%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.0769,
+    "p_newhigh": 0.4275,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "6182",
+    "name": "合晶",
+    "basket": "offense",
+    "unrealized": -4165,
+    "pnl_pct": -3.6,
+    "held_days": 3,
+    "decision": "續抱",
+    "why": "買進第 3 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 97.31 才出場。提醒：綜合排名 3443 創意 扣成本後多 3.7%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 111,500 元，成本 115,665 元，未實現損益 -4,165 元（-3.60%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +7.90%（約 +8,808 元），創新高機率 0.6%",
+     "補回虧損需上漲 3.74%；續抱依模型預期需 約 9 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 652 元）後，需上漲 4.35%，需 約 7 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+7.9%）多 3.7%",
+     "決策：續抱 —— 買進第 3 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 97.31 才出場。提醒：綜合排名 3443 創意 扣成本後多 3.7%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.079,
+    "p_newhigh": 0.0062,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "3189",
+    "name": "景碩",
+    "basket": "offense",
+    "unrealized": -138108,
+    "pnl_pct": -7.77,
+    "held_days": 8,
+    "decision": "續抱",
+    "why": "買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 999.0 才出場。提醒：綜合排名 3443 創意 扣成本後多 1.9%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股",
+    "lines": [
+     "目前市值 1,639,000 元，成本 1,777,108 元，未實現損益 -138,108 元（-7.77%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +9.70%（約 +158,983 元），創新高機率 61.2%",
+     "補回虧損需上漲 8.43%；續抱依模型預期需 約 17 個交易日",
+     "換股方案（同一籃）：賣出後換入 1617 榮星（一個月預期報酬 +12.59%、創新高機率 57.7%），扣除換股成本 0.585%（約 9,588 元）後，需上漲 9.06%，需 約 14 個交易日",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+9.7%）多 1.9%",
+     "決策：續抱 —— 買進第 8 個交易日，未滿 10 個交易日不換股、不因分數小幅轉弱賣出（模型排名每天都會小幅變動，來回換股要付約 0.58% 成本）；跌破停損 999.0 才出場。提醒：綜合排名 3443 創意 扣成本後多 1.9%，滿 10 個交易日（或獲利達 10%）後若仍如此會建議結單轉股"
+    ],
+    "exp_ret": 0.097,
+    "p_newhigh": 0.612,
+    "swap": null,
+    "alt": null
+   },
+   {
+    "code": "6213",
+    "name": "聯茂",
+    "basket": "offense",
+    "unrealized": 77965,
+    "pnl_pct": 10.72,
+    "held_days": 8,
+    "decision": "續抱並可加碼",
+    "why": "模型排名仍在全市場前 3%、股價在月線之上、虧損未擴大，權重 9.2% 仍低於上限，可逢回加碼攤低成本",
+    "lines": [
+     "目前市值 805,000 元，成本 727,035 元，未實現損益 +77,965 元（+10.72%）",
+     "【進攻籃】續抱的預期：一個月預期報酬 +11.09%（約 +89,274 元），創新高機率 80.5%",
+     "結單轉股比較：綜合排名最佳未持有 3443 創意（綜合預期 +12.2%、勝率 59%、可信度中），扣換股成本 0.585% 後比續抱（+11.1%）多 0.5%",
+     "決策：續抱並可加碼 —— 模型排名仍在全市場前 3%、股價在月線之上、虧損未擴大，權重 9.2% 仍低於上限，可逢回加碼攤低成本"
+    ],
+    "exp_ret": 0.1109,
+    "p_newhigh": 0.8047,
+    "swap": null,
+    "alt": null
+   }
+  ],
+  "actions": {
+   "2360": {
+    "decision": "停損換股",
+    "why": "收盤 1980.0 已跌破停損價 2069.91，依紀律出場；資金轉往評分最高的候選標的",
+    "swap": null,
+    "alt": "00692 富邦公司治理"
+   },
+   "1560": {
+    "decision": "停損換股",
+    "why": "收盤 902.0 已跌破停損價 936.69，依紀律出場；資金轉往評分最高的候選標的",
+    "swap": null,
+    "alt": "1617 榮星"
+   }
+  },
+  "summary": [
+   "累積損益 -1,205,741 元（-12.06%），已實現 +48,865 元",
+   "回到初始資金需上漲 13.71%；只有正報酬才列入排名，補回虧損是第一優先",
+   "現有持股依模型加權的一個月預期報酬 +5.22%（約 +459,256 元）",
+   "進攻籃最佳替換候選：1617 榮星，一個月預期報酬 +12.59%，創新高機率 57.7%",
+   "穩健籃最佳替換候選：00692 富邦公司治理，一個月預期報酬 +3.80%，收正報酬機率 77.1%"
+  ],
+  "portfolio_exp_ret": 0.0522
+ },
+ "funding": {
+  "transfer_from_futures": 0,
+  "futures_reserve": 300000
+ },
+ "orders": [
+  {
+   "code": "3037",
+   "name": "欣興",
+   "action": "SELL",
+   "basket": "offense",
+   "asset": "STOCK",
+   "planned_shares": 570,
+   "limit_price": 1090.0,
+   "price": 1105.0,
+   "chg_pct": 2.79,
+   "stop": null,
+   "why": "風險警示：重大負面新聞：欣興楊梅廠爆死亡工安！員工遭機台夾傷送醫不治 桃市勞檢處勒令部分停工（多來源）；股價已跌破月線，全數出場；法人近 5 日賣超 6,452 張，籌碼轉弱",
+   "status": "可以下單",
+   "advice": "賣出 570 股（零股），限價 1090.0（現價 1105.0）"
+  },
+  {
+   "code": "6213",
+   "name": "聯茂",
+   "action": "SELL",
+   "basket": "offense",
+   "asset": "STOCK",
+   "planned_shares": 333,
+   "limit_price": 796.0,
+   "price": 805.0,
+   "chg_pct": 0.75,
+   "stop": null,
+   "why": "風險警示：列為處置股（連續三次及當日沖銷標準，115/10/08～115/10/19）：改為分盤撮合、可能需預收款，流動性變差，減碼三分之一",
+   "status": "可以下單",
+   "advice": "賣出 333 股（零股），限價 796.0（現價 805.0）"
+  },
+  {
+   "code": "6196",
+   "name": "帆宣",
+   "action": "SELL",
+   "basket": "offense",
+   "asset": "STOCK",
+   "planned_shares": 383,
+   "limit_price": 617.0,
+   "price": 624.0,
+   "chg_pct": 1.79,
+   "stop": null,
+   "why": "風險警示：負面新聞：帆宣董事會決議發行國內第六次無擔保可轉換公司債，上限40億元；股價偏弱，減碼三分之一；法人近 5 日賣超 655 張，籌碼轉弱",
+   "status": "可以下單",
+   "advice": "賣出 383 股（零股），限價 617.0（現價 624.0）"
+  },
+  {
+   "code": "1560",
+   "name": "中砂",
+   "action": "SELL",
+   "basket": "offense",
+   "asset": "STOCK",
+   "planned_shares": 1091,
+   "limit_price": 892.0,
+   "price": 902.0,
+   "chg_pct": -0.11,
+   "stop": null,
+   "why": "觸發停損：收盤 902.00 元 ≤ 停損價 936.69 元（成本 1017.82 元，損益 -11.38%）；同時風險警示：已跌破停損價 936.69（目前 902.0）：依紀律全數出場",
+   "status": "可以下單",
+   "advice": "賣出 1 張又 91 股（共 1,091 股），限價 892.0（現價 902.0）"
+  },
+  {
+   "code": "2360",
+   "name": "致茂",
+   "action": "SELL",
+   "basket": "defense",
+   "asset": "STOCK",
+   "planned_shares": 8,
+   "limit_price": 1960.0,
+   "price": 1980.0,
+   "chg_pct": -2.22,
+   "stop": null,
+   "why": "觸發停損：收盤 1980.00 元 ≤ 停損價 2069.91 元（成本 2365.62 元，損益 -16.30%）；同時風險警示：已跌破停損價 2069.91（目前 1980.0）：依紀律全數出場；重大負面新聞：致茂爆違約交割5859.5萬元（多來源）；股價已跌破月線，全數出場；法人近 5 日賣超 2,222 張，籌碼轉弱",
+   "status": "可以下單",
+   "advice": "賣出 8 股（零股），限價 1960.0（現價 1980.0）"
+  }
+ ],
+ "holding_items": [
+  {
+   "fragment": false,
+   "code": "1560",
+   "name": "中砂",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 1091,
+   "avg_cost": 1017.82,
+   "price": 902.0,
+   "pnl": -126365,
+   "pnl_pct": -11.38,
+   "weight_pct": 11.19,
+   "stop": 936.69,
+   "swap": null,
+   "verdict": "全部出清",
+   "qty": 1091,
+   "qty_text": "賣出全部 1 張又 91 股（共 1,091 股）",
+   "limit_price": 892.0,
+   "reasons": [
+    "觸發停損：收盤 902.00 元 ≤ 停損價 936.69 元（成本 1017.82 元，損益 -11.38%）；同時風險警示：已跌破停損價 936.69（目前 902.0）：依紀律全數出場",
+    "停損一律全數出場，避免虧損擴大；紀律優先於預測"
+   ],
+   "conditions": [
+    "收盤跌破停損 936.69（距今 -3.7%）→ 全部出清"
+   ],
+   "score": 0.323,
+   "model": {
+    "exp_ret": 0.0518,
+    "p_newhigh": 0.3734,
+    "p_up": 0.5671,
+    "exp_dd": -0.1021
+   }
+  },
+  {
+   "fragment": false,
+   "code": "3037",
+   "name": "欣興",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 570,
+   "avg_cost": 1181.68,
+   "price": 1105.0,
+   "pnl": -43710,
+   "pnl_pct": -6.49,
+   "weight_pct": 7.16,
+   "stop": 1046.11,
+   "swap": null,
+   "verdict": "全部出清",
+   "qty": 570,
+   "qty_text": "賣出全部 570 股（零股）",
+   "limit_price": 1090.0,
+   "reasons": [
+    "風險警示：重大負面新聞：欣興楊梅廠爆死亡工安！員工遭機台夾傷送醫不治 桃市勞檢處勒令部分停工（多來源）；股價已跌破月線，全數出場；法人近 5 日賣超 6,452 張，籌碼轉弱",
+    "觸發條件中最嚴重者決定賣出比例：全數出場；限價取最近價 × 0.99（不低於跌停價）以提高成交機率"
+   ],
+   "conditions": [
+    "收盤跌破停損 1046.11（距今 5.6%）→ 全部出清"
+   ],
+   "score": 0.204,
+   "model": {
+    "exp_ret": 0.0478,
+    "p_newhigh": 0.1799,
+    "p_up": 0.5154,
+    "exp_dd": -0.1418
+   }
+  },
+  {
+   "fragment": false,
+   "code": "2360",
+   "name": "致茂",
+   "basket": "defense",
+   "basket_name": "穩健籃",
+   "shares": 8,
+   "avg_cost": 2365.62,
+   "price": 1980.0,
+   "pnl": -3085,
+   "pnl_pct": -16.3,
+   "weight_pct": 0.18,
+   "stop": 2069.91,
+   "swap": null,
+   "verdict": "全部出清",
+   "qty": 8,
+   "qty_text": "賣出全部 8 股（零股）",
+   "limit_price": 1960.0,
+   "reasons": [
+    "觸發停損：收盤 1980.00 元 ≤ 停損價 2069.91 元（成本 2365.62 元，損益 -16.30%）；同時風險警示：已跌破停損價 2069.91（目前 1980.0）：依紀律全數出場；重大負面新聞：致茂爆違約交割5859.5萬元（多來源）；股價已跌破月線，全數出場；法人近 5 日賣超 2,222 張，籌碼轉弱",
+    "停損一律全數出場，避免虧損擴大；紀律優先於預測"
+   ],
+   "conditions": [
+    "收盤跌破停損 2069.91（距今 -4.3%）→ 全部出清"
+   ],
+   "score": -0.115,
+   "model": {
+    "exp_ret": 0.0389,
+    "p_newhigh": 0.099,
+    "p_up": 0.5684,
+    "exp_dd": -0.1317
+   }
+  },
+  {
+   "fragment": false,
+   "code": "6213",
+   "name": "聯茂",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 1000,
+   "avg_cost": 727.03,
+   "price": 805.0,
+   "pnl": 77965,
+   "pnl_pct": 10.72,
+   "weight_pct": 9.15,
+   "stop": 639.23,
+   "swap": null,
+   "verdict": "減碼",
+   "qty": 333,
+   "qty_text": "賣出 333 股（零股），保留 667 股（零股）",
+   "limit_price": 796.0,
+   "reasons": [
+    "風險警示：列為處置股（連續三次及當日沖銷標準，115/10/08～115/10/19）：改為分盤撮合、可能需預收款，流動性變差，減碼三分之一",
+    "觸發條件中最嚴重者決定賣出比例：33%；限價取最近價 × 0.99（不低於跌停價）以提高成交機率"
+   ],
+   "conditions": [
+    "收盤跌破停損 639.23（距今 25.9%）→ 全部出清"
+   ],
+   "score": 0.587,
+   "model": {
+    "exp_ret": 0.1109,
+    "p_newhigh": 0.8047,
+    "p_up": 0.5969,
+    "exp_dd": -0.1319
+   }
+  },
+  {
+   "fragment": false,
+   "code": "6196",
+   "name": "帆宣",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 1150,
+   "avg_cost": 652.95,
+   "price": 624.0,
+   "pnl": -33288,
+   "pnl_pct": -4.43,
+   "weight_pct": 8.16,
+   "stop": 599.23,
+   "swap": null,
+   "verdict": "減碼",
+   "qty": 383,
+   "qty_text": "賣出 383 股（零股），保留 767 股（零股）",
+   "limit_price": 617.0,
+   "reasons": [
+    "風險警示：負面新聞：帆宣董事會決議發行國內第六次無擔保可轉換公司債，上限40億元；股價偏弱，減碼三分之一；法人近 5 日賣超 655 張，籌碼轉弱",
+    "觸發條件中最嚴重者決定賣出比例：33%；限價取最近價 × 0.99（不低於跌停價）以提高成交機率"
+   ],
+   "conditions": [
+    "收盤跌破停損 599.23（距今 4.1%）→ 全部出清"
+   ],
+   "score": 0.271,
+   "model": {
+    "exp_ret": 0.042,
+    "p_newhigh": 0.5815,
+    "p_up": 0.5499,
+    "exp_dd": -0.0995
+   }
+  },
+  {
+   "fragment": false,
+   "code": "3189",
+   "name": "景碩",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 1639,
+   "avg_cost": 1084.26,
+   "price": 1000.0,
+   "pnl": -138108,
+   "pnl_pct": -7.77,
+   "weight_pct": 18.64,
+   "stop": 999.0,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 1 張又 639 股（共 1,639 股）",
+   "limit_price": null,
+   "reasons": [
+    "綜合分數 +0.56，未觸發賣出條件（≤ -0.30），也未達加碼條件（權重已足或分數未達門檻）",
+    "一個月模型：預期報酬 +9.70%、創新高機率 61.2%",
+    "注意：距停損價 999.0 只剩 0.1%，先掛好停損單"
+   ],
+   "conditions": [
+    "收盤跌破停損 999.0（距今 0.1%）→ 全部出清",
+    "突破 52 週高點 1150.0 → 確認創新高，續抱讓獲利奔跑"
+   ],
+   "score": 0.564,
+   "model": {
+    "exp_ret": 0.097,
+    "p_newhigh": 0.612,
+    "p_up": 0.6147,
+    "exp_dd": -0.1033
+   }
+  },
+  {
+   "fragment": false,
+   "code": "2889",
+   "name": "國票金",
+   "basket": "defense",
+   "basket_name": "穩健籃",
+   "shares": 40416,
+   "avg_cost": 16.04,
+   "price": 16.85,
+   "pnl": 32763,
+   "pnl_pct": 5.05,
+   "weight_pct": 7.74,
+   "stop": 15.43,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 40 張又 416 股（共 40,416 股）",
+   "limit_price": null,
+   "reasons": [
+    "穩健分數 +0.70，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +2.18%、收正報酬機率 61.8%"
+   ],
+   "conditions": [
+    "收盤跌破停損 15.43（距今 9.2%）→ 全部出清"
+   ],
+   "score": 0.697,
+   "model": {
+    "exp_ret": 0.0218,
+    "p_newhigh": 0.4327,
+    "p_up": 0.6181,
+    "exp_dd": -0.0411
+   }
+  },
+  {
+   "fragment": false,
+   "code": "5880",
+   "name": "合庫金",
+   "basket": "defense",
+   "basket_name": "穩健籃",
+   "shares": 24000,
+   "avg_cost": 26.14,
+   "price": 27.45,
+   "pnl": 31505,
+   "pnl_pct": 5.02,
+   "weight_pct": 7.49,
+   "stop": 25.28,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 24 張（24,000 股）",
+   "limit_price": null,
+   "reasons": [
+    "穩健分數 +0.56，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +2.07%、收正報酬機率 65.1%"
+   ],
+   "conditions": [
+    "收盤跌破停損 25.28（距今 8.6%）→ 全部出清"
+   ],
+   "score": 0.565,
+   "model": {
+    "exp_ret": 0.0207,
+    "p_newhigh": 0.8715,
+    "p_up": 0.6515,
+    "exp_dd": -0.0359
+   }
+  },
+  {
+   "fragment": false,
+   "code": "3591",
+   "name": "艾笛森",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 20528,
+   "avg_cost": 28.67,
+   "price": 27.15,
+   "pnl": -31255,
+   "pnl_pct": -5.31,
+   "weight_pct": 6.34,
+   "stop": 25.11,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 20 張又 528 股（共 20,528 股）",
+   "limit_price": null,
+   "reasons": [
+    "綜合分數 +0.46，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +7.69%、創新高機率 42.8%"
+   ],
+   "conditions": [
+    "收盤跌破停損 25.11（距今 8.1%）→ 全部出清",
+    "突破 52 週高點 33.34 → 確認創新高，續抱讓獲利奔跑"
+   ],
+   "score": 0.462,
+   "model": {
+    "exp_ret": 0.0769,
+    "p_newhigh": 0.4275,
+    "p_up": 0.5303,
+    "exp_dd": -0.0911
+   }
+  },
+  {
+   "fragment": false,
+   "code": "2845",
+   "name": "遠東銀",
+   "basket": "defense",
+   "basket_name": "穩健籃",
+   "shares": 36071,
+   "avg_cost": 12.97,
+   "price": 13.2,
+   "pnl": 8329,
+   "pnl_pct": 1.78,
+   "weight_pct": 5.41,
+   "stop": 12.6,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 36 張又 71 股（共 36,071 股）",
+   "limit_price": null,
+   "reasons": [
+    "穩健分數 +0.50，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +0.75%、收正報酬機率 64.7%"
+   ],
+   "conditions": [
+    "收盤跌破停損 12.6（距今 4.8%）→ 全部出清"
+   ],
+   "score": 0.499,
+   "model": {
+    "exp_ret": 0.0075,
+    "p_newhigh": 0.4923,
+    "p_up": 0.6468,
+    "exp_dd": -0.026
+   }
+  },
+  {
+   "fragment": false,
+   "code": "2915",
+   "name": "潤泰全",
+   "basket": "defense",
+   "basket_name": "穩健籃",
+   "shares": 7173,
+   "avg_cost": 57.54,
+   "price": 59.2,
+   "pnl": 11893,
+   "pnl_pct": 2.88,
+   "weight_pct": 4.83,
+   "stop": 55.39,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 7 張又 173 股（共 7,173 股）",
+   "limit_price": null,
+   "reasons": [
+    "穩健分數 +0.46，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +2.92%、收正報酬機率 51.9%",
+    "注意：負面新聞：營收：潤泰全(2915)9月營收1億1084萬元，月增率-29.73%，年增率-64.02%；股價尚穩，先上調停損"
+   ],
+   "conditions": [
+    "建議停損上調至 58.28",
+    "收盤跌破停損 55.39（距今 6.9%）→ 全部出清"
+   ],
+   "score": 0.464,
+   "model": {
+    "exp_ret": 0.0292,
+    "p_newhigh": 0.4486,
+    "p_up": 0.5187,
+    "exp_dd": -0.0696
+   }
+  },
+  {
+   "fragment": false,
+   "code": "6182",
+   "name": "合晶",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 1000,
+   "avg_cost": 115.67,
+   "price": 111.5,
+   "pnl": -4165,
+   "pnl_pct": -3.6,
+   "weight_pct": 1.27,
+   "stop": 97.31,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 1 張（1,000 股）",
+   "limit_price": null,
+   "reasons": [
+    "綜合分數 +0.07，未觸發賣出條件（≤ -0.30），也未達加碼條件（權重已足或分數未達門檻）",
+    "一個月模型：預期報酬 +7.90%、創新高機率 0.6%",
+    "注意：法人近 5 日賣超 19,681 張，籌碼轉弱"
+   ],
+   "conditions": [
+    "收盤跌破停損 97.31（距今 14.6%）→ 全部出清",
+    "突破 52 週高點 194.5 → 確認創新高，續抱讓獲利奔跑"
+   ],
+   "score": 0.068,
+   "model": {
+    "exp_ret": 0.079,
+    "p_newhigh": 0.0062,
+    "p_up": 0.5093,
+    "exp_dd": -0.1292
+   }
+  },
+  {
+   "fragment": true,
+   "code": "2103",
+   "name": "台橡",
+   "basket": "offense",
+   "basket_name": "進攻籃",
+   "shares": 3000,
+   "avg_cost": 29.54,
+   "price": 28.7,
+   "pnl": -2527,
+   "pnl_pct": -2.85,
+   "weight_pct": 0.98,
+   "stop": 27.7,
+   "swap": null,
+   "verdict": "續抱",
+   "qty": 0,
+   "qty_text": "維持 3 張（3,000 股）",
+   "limit_price": null,
+   "reasons": [
+    "綜合分數 +0.30，未觸發賣出條件（≤ -0.30）",
+    "一個月模型：預期報酬 +3.53%、創新高機率 49.1%"
+   ],
+   "conditions": [
+    "收盤跌破停損 27.7（距今 3.6%）→ 全部出清",
+    "突破 52 週高點 32.0 → 確認創新高，續抱讓獲利奔跑",
+    "零碎部位（市值約 86,100 元、占總資產 1.0%）：下次結單轉股或賣出時一併處理；不要再分批加碼零股（每筆最低手續費 20 元）"
+   ],
+   "score": 0.302,
+   "model": {
+    "exp_ret": 0.0353,
+    "p_newhigh": 0.4912,
+    "p_up": 0.503,
+    "exp_dd": -0.0882
+   }
+  }
+ ],
+ "holding_alerts": [
+  {
+   "scope": "持股",
+   "level": "警告",
+   "code": "2915",
+   "name": "潤泰全",
+   "title": "2915 潤泰全",
+   "price": 59.2,
+   "chg_pct": 0.51,
+   "reasons": [
+    "負面新聞：營收：潤泰全(2915)9月營收1億1084萬元，月增率-29.73%，年增率-64.02%；股價尚穩，先上調停損"
+   ],
+   "action": "停損上調至 58.28",
+   "sell_shares": 0,
+   "limit_price": null,
+   "why_qty": null,
+   "new_stop": 58.28,
+   "news": [
+    {
+     "title": "營收：潤泰全(2915)9月營收1億1084萬元，月增率-29.73%，年增率-64.02% - 富聯網",
+     "url": "https://news.google.com/rss/articles/CBMiiAFBVV95cUxQaXp5aHNVdjdJZ1RaQTc5eDQ4NlB2RGwyMnFmektya0lKRkhaRmRCU3hjSGZSWi1ZZi1rNUo1bUx6WWQzUWpxejZ3bzVoSHhUdF91RGQ2SHlaYjI0aDVtZkFtMUQxNmIzZEcxWGVaRDQ0SG1tZTVvVUowb3htUU9kY0Z3ZHpfMm1o?oc=5",
+     "source": "Google新聞",
+     "time": "10/12 07:25"
+    }
+   ]
+  },
+  {
+   "scope": "持股",
+   "level": "提醒",
+   "code": "3189",
+   "name": "景碩",
+   "title": "3189 景碩",
+   "price": 1000.0,
+   "chg_pct": 2.15,
+   "reasons": [
+    "距停損價 999.0 只剩 0.1%，先掛好停損單"
+   ],
+   "action": "續抱，持續觀察",
+   "sell_shares": 0,
+   "limit_price": null,
+   "why_qty": null,
+   "new_stop": null,
+   "news": []
+  },
+  {
+   "scope": "持股",
+   "level": "嚴重",
+   "code": "1560",
+   "name": "中砂",
+   "title": "1560 中砂",
+   "price": 902.0,
+   "chg_pct": -0.11,
+   "reasons": [
+    "已跌破停損價 936.69（目前 902.0）：依紀律全數出場"
+   ],
+   "action": "建議賣出 1 張又 91 股（共 1,091 股）（持有 1,091 股的 100%），限價 892.0",
+   "sell_shares": 1091,
+   "limit_price": 892.0,
+   "why_qty": "觸發條件中最嚴重者決定賣出比例：全數出場；限價取最近價 × 0.99（不低於跌停價）以提高成交機率",
+   "new_stop": null,
+   "news": []
+  },
+  {
+   "scope": "持股",
+   "level": "警告",
+   "code": "6196",
+   "name": "帆宣",
+   "title": "6196 帆宣",
+   "price": 624.0,
+   "chg_pct": 1.79,
+   "reasons": [
+    "負面新聞：帆宣董事會決議發行國內第六次無擔保可轉換公司債，上限40億元；股價偏弱，減碼三分之一",
+    "法人近 5 日賣超 655 張，籌碼轉弱"
+   ],
+   "action": "建議賣出 383 股（零股）（持有 1,150 股的 33%），限價 617.0",
+   "sell_shares": 383,
+   "limit_price": 617.0,
+   "why_qty": "觸發條件中最嚴重者決定賣出比例：33%；限價取最近價 × 0.99（不低於跌停價）以提高成交機率",
+   "new_stop": null,
+   "news": [
+    {
+     "title": "6196 帆宣- 帆宣董事會決議發行國內第六次無擔保可轉換公司債，上限40億元- 股市爆料同學會 - CMoney",
+     "url": "https://news.google.com/rss/articles/CBMiWEFVX3lxTE9wcFkzMi1MUHRZMjlGOFk4ZjZWSGpFT3pXZzJ0azZJZmxoQndHNUxjdzlOWnZCTmVWLWxISGw1R3FkSUFWNEk0SnRVUGUwaFZEM0RDakE5MFM?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 05:21"
+    },
+    {
+     "title": "董事會：帆宣(6196)決議發行國內第六次無擔保可轉換公司債，總額上限40億元 - 富聯網",
+     "url": "https://news.google.com/rss/articles/CBMiiAFBVV95cUxOVDZZTlZYUjJKNVdSdXNabXcwZ2hYbVFJVWwzSDBrS3liQ280QXA5QjEtelZHbzRTbk9TZXBobG1teXlkQWE3enFseWhxVkRsYVBHVXhRZ3luNDJhZ3lNS0djalIwVGpISE8yNlJMQTdjbVlhZURQTDdyR2F6VnVldnNiQV9WbXdl?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 07:08"
+    },
+    {
+     "title": "公告董事會決議發行國內第六次無擔保可轉換公司債",
+     "url": "https://mops.twse.com.tw/mops/#/web/t146sb05?companyId=6196",
+     "source": "公開資訊觀測站",
+     "time": "10-12"
+    }
+   ]
+  },
+  {
+   "scope": "持股",
+   "level": "警告",
+   "code": "6213",
+   "name": "聯茂",
+   "title": "6213 聯茂",
+   "price": 805.0,
+   "chg_pct": 0.75,
+   "reasons": [
+    "列為處置股（連續三次及當日沖銷標準，115/10/08～115/10/19）：改為分盤撮合、可能需預收款，流動性變差，減碼三分之一"
+   ],
+   "action": "建議賣出 333 股（零股）（持有 1,000 股的 33%），限價 796.0",
+   "sell_shares": 333,
+   "limit_price": 796.0,
+   "why_qty": "觸發條件中最嚴重者決定賣出比例：33%；限價取最近價 × 0.99（不低於跌停價）以提高成交機率",
+   "new_stop": null,
+   "news": []
+  },
+  {
+   "scope": "持股",
+   "level": "嚴重",
+   "code": "2360",
+   "name": "致茂",
+   "title": "2360 致茂",
+   "price": 1980.0,
+   "chg_pct": -2.22,
+   "reasons": [
+    "已跌破停損價 2069.91（目前 1980.0）：依紀律全數出場",
+    "重大負面新聞：致茂爆違約交割5859.5萬元（多來源）；股價已跌破月線，全數出場",
+    "法人近 5 日賣超 2,222 張，籌碼轉弱"
+   ],
+   "action": "建議賣出 8 股（零股）（持有 8 股的 100%），限價 1960.0",
+   "sell_shares": 8,
+   "limit_price": 1960.0,
+   "why_qty": "觸發條件中最嚴重者決定賣出比例：全數出場；限價取最近價 × 0.99（不低於跌停價）以提高成交機率",
+   "new_stop": null,
+   "news": [
+    {
+     "title": "台股韭菜翻車！ 致茂爆5859.5萬違約交割 - ETtoday財經雲",
+     "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFAtLUVQRU5zZVlfT1dHYmxVUVdLTzZsTXRfcFRNRm5QNTFJc1Z0MFpBV0F3dnBXMHVsSVd1QVp4NEhQcVQ4aXNfTm53MkdKbFJWb0HSAVBBVV95cUxQaXJIRjFkNXl6Mk5KYnlHdWwxcEhWcXNJeHZwU3p5d2lab2twamlGMHBLdGZSSzM3TlNKWDhhRjFRcE5qVzU3ZlJxRXB3QkZHYQ?oc=5",
+     "source": "Google新聞",
+     "time": "10/12 23:10"
+    },
+    {
+     "title": "股價衝2560元卻出事！致茂爆5859萬違約交割 當沖占比逾4成惹禍？ - Yahoo股市",
+     "url": "https://news.google.com/rss/articles/CBMi_gJBVV95cUxPWThadUtqdlFEX0xEcW51VXYxMWp6YWY1Y19wSk9OZWV3cFVpbFRHYVIta05KWHlrZ1E2WE43amd0NVByRzJQeUdDQjVPWDF2U2ZHVFl1VEZQT1lGVkU1bTBEUl9WNHFNY0U5eDNvVUZRYmZfZjRrNkRMdG1tTThkdFRWTGxhTWFGeUdmZzdSRm5leGp1M3dGbzNzUG5UcnU0dUdyc3ROenVXOG41RmJzbDBKSW1RRm1rZ0p2QkNoRWdJSDBGU0dfVE52cE5wWW92M1E2TXZncUJ2X25RUzNrT1VUbU1mOG9rQ3dyR1p4UEdVZmloTE5odW53U1VJSkFhNEdDUnc2azVTbFRhVWc0TS0tN2M0OEV2eFM4U3UyTkQ4SkE3YUM1OC02Q2dMS2dOaTUzTEJoMnY2YUU2N2V4Z3BxYmVDUG4xQnlvVnRra2tleUcwTzdneENYZHctSmdScDdaajk5TVVzZDlCb3BkRkhLeVRta05SNXVmTG5n?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 07:15"
+    },
+    {
+     "title": "致茂爆違約交割5,859萬 - 經濟日報",
+     "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE5KYW5JMVJVRmllNnhmRDRsTUpOdklnZHc0SUlDMlozajBsM0trR3ZDdkNpRm9uRVRvOF80WXYzU1FVZ0RQcURzWlVwcDc1SW5aYThkbFNDN2lOd9IBX0FVX3lxTE42UkVDZFkzNWY2bXFjZmh4QWx3Vm1NZjZWWWZJSDVIQmhMV2lOVEplb1Q0QUVLRjRyRzkzZFZXOUxHN3h0YUZTSWFEazlEY0V3TVZUaVlsUk56Z3FGVXNB?oc=5",
+     "source": "Google新聞",
+     "time": "10/11 17:00"
+    },
+    {
+     "title": "致茂爆違約交割5859.5萬元 今年第21檔炸鍋 - 自由財經",
+     "url": "https://news.google.com/rss/articles/CBMiX0FVX3lxTFBfVHhfRkxmY1BicEcza29vb0trY3BhZENqcGlTSWpSbFJ6WUROZjJVbWdKRnU4MXpaUDFoSGEwYk5PNW5OTHQxQkxYa19KR0ZrZ3Zna3k2VjNaNG1VelJj0gFkQVVfeXFMT2xZVHhsRTFOaGVyc3E2cEJSM0JGNEw0ZHFSbWxvOFFfckk1dElNN21CWElYSi1YV2tjSkZEN2p3UEotNFhZRXI5WGNDTnJkc1NhOTR2NHZ3RndqbzRiVElGd0l2Nw?oc=5",
+     "source": "Google新聞",
+     "time": "10/12 18:53"
+    }
+   ]
+  },
+  {
+   "scope": "持股",
+   "level": "提醒",
+   "code": "6182",
+   "name": "合晶",
+   "title": "6182 合晶",
+   "price": 111.5,
+   "chg_pct": 1.36,
+   "reasons": [
+    "法人近 5 日賣超 19,681 張，籌碼轉弱"
+   ],
+   "action": "續抱，持續觀察",
+   "sell_shares": 0,
+   "limit_price": null,
+   "why_qty": null,
+   "new_stop": null,
+   "news": []
+  },
+  {
+   "scope": "持股",
+   "level": "嚴重",
+   "code": "3037",
+   "name": "欣興",
+   "title": "3037 欣興",
+   "price": 1105.0,
+   "chg_pct": 2.79,
+   "reasons": [
+    "重大負面新聞：欣興楊梅廠爆死亡工安！員工遭機台夾傷送醫不治 桃市勞檢處勒令部分停工（多來源）；股價已跌破月線，全數出場",
+    "法人近 5 日賣超 6,452 張，籌碼轉弱"
+   ],
+   "action": "建議賣出 570 股（零股）（持有 570 股的 100%），限價 1090.0",
+   "sell_shares": 570,
+   "limit_price": 1090.0,
+   "why_qty": "觸發條件中最嚴重者決定賣出比例：全數出場；限價取最近價 × 0.99（不低於跌停價）以提高成交機率",
+   "new_stop": null,
+   "news": [
+    {
+     "title": "欣興楊梅爆工安停工急發重訊 今跌1.7%市值一天蒸發360億元 - Yahoo股市",
+     "url": "https://news.google.com/rss/articles/CBMi9wJBVV95cUxOX3c2OWNWWnIwZHlMa2VhV3BKMTdpZC1YeGNpNEd6dFNYU3N6QVBIWW1rM2kxMThWaVZNVjJuNmRCLTFfNG90XzhwUlNPNjRFd3N5c1FNUGE0YWlkQ0dtWWNCc0Q2eG9LQm1RNXZSYXN3dFZvMlc3bGcyTlN3dVVOTDQ2bGdja09ndlJfaXZONmJDVjEzaEEwcVVpeE5kbHhQRktLeTVCdWpndEplRm9ZTVVVTDI1eDFmcHByaEVQX2VMNzkzYU5aZU1zUzlMWXJmU0xCU203dWoxQ3l3RVFjSFRTakk0LVZLUWZ1V2tLMlBUdmhnVXNtVF85akE4WUdScDhFVVM3eU1oQXJqSE5vNm5xN0tPUWlXWVJSQ3R0b1JkU2dFWVJEM1gwRWJEQXNlY25RNEZ5OGJaZGZobTRQekF4S2E3WjYxTUdKTnktYmVUY3UwZDBhNWVXOURWdnZsUlZocS1uOWRWMF9BYll6TFphUU5DU3M?oc=5",
+     "source": "Google新聞",
+     "time": "10/14 09:21"
+    },
+    {
+     "title": "欣興：1名員工遭機台夾傷送醫不治 楊梅一廠部分停工！ - 自由財經",
+     "url": "https://news.google.com/rss/articles/CBMiX0FVX3lxTE1FZFBueE43Tnk4MmtmOG5SVUlrTXRFNHRWNm9CY1Rpay0tOU1XOElYb0tPdjVqaHFLdGdsb01LT0pNR3N5Y0VKWkxTZExUeVpLTUx4SUNZR1JBcUxwemNz0gFkQVVfeXFMTkJmamhFYVVrRVhLYm8xY3dQSk1qb1FZVF9FQXR0RnI1QjNWdUpOdDViRVhEUW9Mb2w0bmF6RlRhVWR3NXRPUHdycFNuNGV0LTZ0LWx4N19ZWkpENW9uNVVMbENGaw?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 20:51"
+    },
+    {
+     "title": "欣興楊梅廠工安意外勞檢處勒令部分停工- 產業 - 工商時報",
+     "url": "https://news.google.com/rss/articles/CBMiX0FVX3lxTE1HMFh1V045VGNjd0wtb2p4SkJsTnRtM1BVU0x0SkVfOXlQNmItcE5Hd0w1VmZCQlFWbmZ4Q0Rha3JBUEZFc2E3MkRzT2c3ZzFzZFI1WUlxcTJBTzQ4bmFJ?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 20:29"
+    },
+    {
+     "title": "欣興楊梅廠爆死亡工安！員工遭機台夾傷送醫不治 桃市勞檢處勒令部分停工 - Yahoo股市",
+     "url": "https://news.google.com/rss/articles/CBMi3gNBVV95cUxPN1RMUHptelg3UDIxRDk1MXV6NGVMRVRadkdiZXNIX1VHMFFpNk5lMXplYmxBblF0dXlwNGVSblFmSC1USDBDRGRmRmthbXNOMkw4ZGZnaXhhWUxMbE9YLUZZdjNDYjFrOE5QTnFScjB6U3haUkY2QWdhRWhKVE96aVdSdjJQRFJpUm5XZi01aG05NFFLbTdkaElqMnV6LTgwZkJGWXJjUXpnWjNLTFVZWGxXRlhhQUtHcWM2Rjh3akZWUHl2ZU01WFhsTFdmOTJKY01PQzZWbUJiZjVnR1FVZEFWR24tczdDMGtmR1NhZjE2TUhiZEhTdDJLckhVZEc3eHR3RmlzZDRkOWgtbmhhNXJaRUFQcmZWTGc4QWN6dmtmTU1XTExkSDdqN3p1bHh5cjlPdkJUd2NwTHNuRWZwWFg3aFlpUTFuRHdxQkFJWEpLRVNGTHVXWFpnVnR0cnRMVFQycDhST3dyblJreFpNTmZpMEVTWEdHbmM2SWg4cjRwT3RjZDdUeGJoQmJaYlhGNGdRSlNBdlBILWVJTjlSSkNjc25oeHZNUm50QTctbWx1SE4tRWIyLS1jOXJLS2RaUmw1RGxuam1uRHAwQnRLSmd5Sm1aVmNLOUppcmVn?oc=5",
+     "source": "Google新聞",
+     "time": "10/13 22:40"
+    }
+   ]
+  }
+ ],
+ "recommendations": [],
+ "cash_now": {
+  "securities": 41923,
+  "futures_transferable": 0,
+  "sell_proceeds": 2127374,
+  "available": 2169297
+ },
+ "skipped": [],
+ "changes": [
+  {
+   "code": "6182",
+   "name": "合晶",
+   "change": "取消",
+   "detail": "依現價重算後分數或排名下降，不再列入"
+  },
+  {
+   "code": "3189",
+   "name": "景碩",
+   "change": "取消",
+   "detail": "依現價重算後分數或排名下降，不再列入"
+  },
+  {
+   "code": "3591",
+   "name": "艾笛森",
+   "change": "取消",
+   "detail": "依現價重算後分數或排名下降，不再列入"
+  },
+  {
+   "code": "2103",
+   "name": "台橡",
+   "change": "取消",
+   "detail": "依現價重算後分數或排名下降，不再列入"
+  }
+ ],
+ "actions": [
+  "【賣出】3037 欣興：賣出 570 股（零股），限價 1090.0（現價 1105.0）",
+  "【賣出】6213 聯茂：賣出 333 股（零股），限價 796.0（現價 805.0）",
+  "【賣出】6196 帆宣：賣出 383 股（零股），限價 617.0（現價 624.0）",
+  "【賣出】1560 中砂：賣出 1 張又 91 股（共 1,091 股），限價 892.0（現價 902.0）",
+  "【賣出】2360 致茂：賣出 8 股（零股），限價 1960.0（現價 1980.0）"
+ ],
+ "waits": [],
+ "ratio_note": "目前實際持股率 79.2%，高於 70% 下限，但低於目標 90%",
+ "rule_notes": [],
+ "summary": "5 項可以動作"
+}
