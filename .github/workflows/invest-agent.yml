@@ -2,13 +2,12 @@ name: invest-agent
 
 # 準點由網站（src/api/scheduler.py）以 workflow_dispatch＋scheduled 觸發；cron 只當備援（GitHub cron 常延遲數小時）。
 # 兩者都先經過 gate（src/schedule.py）：過了有效時間或同一時段已完成就略過。
+# gate 放在安裝字型與套件之前，重複觸發被略過時只花約 1 分鐘（2026-10-20：私人 repo 每月 2,000 分鐘額度用完）。
+# 盤中建議不設 cron 備援：GitHub cron 常延遲到收盤後，gate 幾乎都會略過，只是白花分鐘數。
 on:
   schedule:
     - cron: "0 23 * * 0-4"   # 台灣 07:00（週一～週五）盤前報告
     - cron: "20 0 * * 1-5"   # 台灣 08:20 開盤前更新
-    - cron: "0 1,3,5 * * 1-5"  # 台灣 09:00、11:00、13:00 盤中建議（每 40 分鐘一輪）
-    - cron: "40 1,3 * * 1-5"   # 台灣 09:40、11:40
-    - cron: "20 2,4 * * 1-5"   # 台灣 10:20、12:20
     - cron: "45 7 * * 1-5"   # 台灣 15:45 盤後檢討＋隔日預掛單
     - cron: "30 8 * * 5"     # 台灣週五 16:30 週報
   workflow_dispatch:
@@ -81,22 +80,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Restore market data cache
-        uses: actions/cache@v4
-        with:
-          path: data/cache
-          key: market-${{ github.run_id }}
-          restore-keys: market-
-      - name: Install CJK fonts
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
-      - run: pip install -r requirements.txt
       - name: Decide mode
         id: mode
         run: |
           case "${{ github.event.schedule }}" in
             "0 23 * * 0-4") echo "mode=premarket" >> "$GITHUB_OUTPUT" ;;
             "20 0 * * 1-5") echo "mode=preopen" >> "$GITHUB_OUTPUT" ;;
-            "0 1,3,5 * * 1-5"|"40 1,3 * * 1-5"|"20 2,4 * * 1-5") echo "mode=intraday" >> "$GITHUB_OUTPUT" ;;
             "45 7 * * 1-5") echo "mode=postclose" >> "$GITHUB_OUTPUT" ;;
             "30 8 * * 5")   echo "mode=weekly" >> "$GITHUB_OUTPUT" ;;
             *)              echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT" ;;
@@ -105,10 +94,27 @@ jobs:
         id: gate
         run: |
           if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.scheduled }}" = "true" ]; then
+            pip install -q pyyaml   # gate 只需要 src/config.py 的 yaml
             python -m src.schedule gate "${{ steps.mode.outputs.mode }}"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
+      # 順便喚醒網站（取代已移除的 keepalive.yml；網站本身也會每 6 小時自我造訪）
+      - name: Wake website
+        run: curl -s -m 20 -o /dev/null https://avad8-xq.hf.space/api/status || true
+      - name: Restore market data cache
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: market-${{ github.run_id }}
+          restore-keys: market-
+      - name: Install CJK fonts
+        if: steps.gate.outputs.run == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-cjk
+      - name: Install requirements
+        if: steps.gate.outputs.run == 'true'
+        run: pip install -r requirements.txt
       - name: Run
         if: steps.gate.outputs.run == 'true'
         run: |

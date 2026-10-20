@@ -20,7 +20,7 @@ import sys
 from src.config import DATA_DIR, is_trading_day, now_tw
 
 LOG = DATA_DIR / "schedule_log.json"
-INTRADAY_SLOTS = [(9, 0), (9, 40), (10, 20), (11, 0), (11, 40), (12, 20), (13, 0)]  # 與 agents/intraday.SLOTS 相同（這裡不匯入，避免載入大型套件）
+INTRADAY_SLOTS = [(9, 0), (10, 20), (11, 40), (13, 0)]  # 與 agents/intraday.SLOTS 相同（這裡不匯入，避免載入大型套件）
 
 # (key, mode, 開始時刻, 有效分鐘, 是否只在交易日)；有效時間內才執行，過了就等下一次
 SCHEDULE: list[tuple[str, str, tuple[int, int], int, bool]] = [

@@ -33,7 +33,7 @@ function Row({ x, q, notes }: { x: Json; q?: Json; notes?: Json[] }) {
 /** 潛在標的：模型看好但今天還沒列入下單（排名候補、過熱等回檔）。 */
 export default function Potential({ asset = 'STOCK' }: { asset?: 'STOCK' | 'ETF' }) {
   const { data: d } = useQuery<Json>({ queryKey: ['potential'], queryFn: () => get('/api/potential'), refetchInterval: 600_000 })
-  // 盤中計畫（每 40 分鐘重算）已經要買的不算潛在標的
+  // 盤中計畫（每 80 分鐘重算）已經要買的不算潛在標的
   const { data: intra } = useQuery<Json>({ queryKey: ['intraday'], queryFn: () => get('/api/intraday'), staleTime: 60_000 })
   const planned = new Set<string>((intra?.orders ?? []).map((o: Json) => o.code))
   const baskets = (asset === 'ETF' ? ['etf'] : ['offense', 'defense']) as ('offense' | 'defense' | 'etf')[]

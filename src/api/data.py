@@ -600,7 +600,7 @@ _INTRA_LOCK = __import__("threading").Lock()
 
 
 def _saved_intraday() -> dict | None:
-    """雲端排程每 40 分鐘存下的最新一份盤中建議（data/intraday/*.json，經 GitHub 同步到網站）。"""
+    """雲端排程每 80 分鐘存下的最新一份盤中建議（data/intraday/*.json，經 GitHub 同步到網站）。"""
     from src.config import DATA_DIR
 
     files = sorted((DATA_DIR / "intraday").glob("*.json"))
@@ -632,7 +632,7 @@ def _compute_intraday(slot: str, key: tuple) -> dict:
         return out
 
 
-LIVE_REFRESH_MIN = 1  # 網站盤中每 1 分鐘以即時價重算（2026-10-11 使用者要求；一次約 5～30 秒）；雲端排程與 Email 仍為每 40 分鐘一輪
+LIVE_REFRESH_MIN = 1  # 網站盤中每 1 分鐘以即時價重算（2026-10-11 使用者要求；一次約 5～30 秒）；雲端排程與 Email 為每 80 分鐘一輪
 
 
 def _live_slot() -> str:
@@ -646,7 +646,7 @@ def _live_slot() -> str:
 
 
 def live_intraday(refresh: bool = False) -> dict:
-    """盤中建議：網站盤中每 1 分鐘以即時價重算（雲端排程每 40 分鐘一輪並寄信）；持股變動或手動重算時立即更新。
+    """盤中建議：網站盤中每 1 分鐘以即時價重算（雲端排程每 80 分鐘一輪並寄信）；持股變動或手動重算時立即更新。
     還沒有這個時段的結果時，先回傳上一份（記憶體或雲端存檔）並標示 stale，背景重算完自動替換，不讓使用者等。"""
     import threading
 
@@ -990,7 +990,7 @@ def potential(limit: int = 8) -> dict:
     if not r:
         return {"date": None, "offense": [], "defense": []}
     ordered = {o["code"] for o in r.get("orders", [])}
-    if _INTRA["v"] is not None:  # 盤中計畫（每 40 分鐘重算）已列入的也排除
+    if _INTRA["v"] is not None:  # 盤中計畫（每 80 分鐘重算）已列入的也排除
         ordered |= {o["code"] for o in _INTRA["v"].get("orders", [])}
     held = set(pfm.build_portfolio().positions)
     off, dfn = [], []
@@ -1531,11 +1531,11 @@ def health() -> dict:
         f = files[-1].stem  # 20261005_0940
         last = dt.datetime.strptime(f, "%Y%m%d_%H%M").replace(tzinfo=config.TW_TZ)
         age = (now - last).total_seconds() / 60
-        stale = trading and 9 * 60 + 10 <= hm <= 13 * 60 + 40 and age > 70
+        stale = trading and 9 * 60 + 10 <= hm <= 13 * 60 + 40 and age > 110
         in_session = trading and 9 * 60 <= hm <= 13 * 60 + 40
-        idle = "" if in_session else "（盤中 09:00～13:00 每 40 分鐘一輪，收盤後與休市日不更新，屬正常）"
+        idle = "" if in_session else "（盤中 09:00～13:00 每 80 分鐘一輪，收盤後與休市日不更新，屬正常）"
         add("雲端盤中建議", "error" if stale else "ok", f"最近一次 {last.strftime('%m/%d %H:%M')}（{age:.0f} 分鐘前）{idle}",
-            "盤中每 40 分鐘一輪，超過 70 分鐘沒更新代表排程延遲或失敗" if stale else "")
+            "盤中每 80 分鐘一輪，超過 110 分鐘沒更新代表排程延遲或失敗" if stale else "")
     elif trading and hm >= 9 * 60 + 10:
         add("雲端盤中建議", "warn", "今天還沒有雲端盤中建議紀錄")
     if sync.cloud():

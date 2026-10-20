@@ -44,7 +44,7 @@ export default function Derivatives({ d, compact = false }: { d?: Json; compact?
       )}
       {d.conditions?.length > 0 && (
         <div className="mt-3">
-          <h4 className="mb-1 text-sm font-medium text-muted">什麼情況下會建議操作（每 40 分鐘重算）</h4>
+          <h4 className="mb-1 text-sm font-medium text-muted">什麼情況下會建議操作（每 80 分鐘重算）</h4>
           <ul className="space-y-1.5 text-[0.95rem]">
             {d.conditions.map((c: Json) => (
               <li key={c.name} className="rounded-md bg-paper px-3 py-2">

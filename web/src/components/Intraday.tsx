@@ -22,7 +22,7 @@ export function useIntraday() {
     refetchInterval: (q) => ((q.state.data as Json)?.stale ? 10_000 : isTradingNow() ? 10_000 : 120_000) })
 }
 
-/** 盤中建議：網站盤中每 1 分鐘以即時價重新計算（雲端排程與 Email 每 40 分鐘）（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */
+/** 盤中建議：網站盤中每 1 分鐘以即時價重新計算（雲端排程與 Email 每 80 分鐘）（沒有持股時就是建倉建議）。asset 指定只顯示股票、ETF 或期貨與選擇權。 */
 export default function Intraday({ asset }: { asset: Asset }) {
   const qc = useQueryClient()
   const { data: d, isFetching } = useIntraday()

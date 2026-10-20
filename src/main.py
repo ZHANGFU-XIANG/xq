@@ -3,7 +3,7 @@
 用法：
   python -m src.main premarket [--date YYYY-MM-DD] [--force]   盤前報告（07:00）
   python -m src.main preopen                                    開盤前更新（08:20，加入那指期即時報價）
-  python -m src.main intraday                                   盤中建議（09:00 起每 40 分鐘，即時報價重算）
+  python -m src.main intraday                                   盤中建議（09:00 起每 80 分鐘，即時報價重算）
   python -m src.main backfill                                   回補過去 60 個交易日的預測紀錄（給調整 Agent）
   python -m src.main postclose                                  盤後檢討＋調整 Agent 健康檢查＋隔日預掛單（15:45）
   python -m src.main weekly                                     週報＋完整模型調校

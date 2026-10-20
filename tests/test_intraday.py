@@ -40,8 +40,8 @@ def test_slots_every_40_minutes():
     def at(h, m):
         return current_slot(dt.datetime(2026, 10, 5, h, m, tzinfo=TW_TZ))[-5:]
 
-    assert at(8, 50).endswith("盤前") and at(9, 0) == "09:00" and at(9, 39) == "09:00" and at(9, 40) == "09:40"
-    assert at(10, 25) == "10:20" and at(12, 59) == "12:20" and at(13, 10) == "13:00"
+    assert at(8, 50).endswith("盤前") and at(9, 0) == "09:00" and at(10, 19) == "09:00" and at(10, 20) == "10:20"
+    assert at(11, 39) == "10:20" and at(12, 59) == "11:40" and at(13, 10) == "13:00"
     assert at(14, 0).endswith("收盤後")
     assert current_slot(dt.datetime(2026, 10, 3, 10, 0, tzinfo=TW_TZ)).endswith("休市")  # 週六
 

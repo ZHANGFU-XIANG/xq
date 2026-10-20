@@ -20,7 +20,7 @@
 決策層   AllocationAgent（三籃比例）  PositionSizerAgent（張數）  RecoveryAgent（虧損補回／換股）
          HoldingAdviceAgent（每檔持股加碼／續抱／減碼／出清）  ComplianceAgent（競賽規則）  AlertAgent（警示）
 產出層   ReportWriterAgent（LLM）→ VerifierAgent（數字核對）→ Word / PPT / 下單清單 CSV / Email
-         IntradayAgent（盤中每 40 分鐘重算）  WeeklyReportAgent → WeeklyReviewAgent（檢查）→ 週報 PPT
+         IntradayAgent（盤中每 80 分鐘重算）  WeeklyReportAgent → WeeklyReviewAgent（檢查）→ 週報 PPT
 互動層   ChatAgent（AI 助理，工具呼叫）  OnDemandAgent（任一股票即時分析）
 回饋層   TunerAgent（調整 Agent）：記錄預測 → 對答案 → 偵測重大失誤 → 回測驗證後修正參數（可回復）
          BackfillAgent：回補歷史預測，讓調整 Agent 第一天就有樣本
@@ -44,7 +44,7 @@
 | `agents/holding_advice.py` | 每檔庫存：加碼／續抱／減碼／全部出清的股數、限價與後續條件 |
 | `agents/compliance.py` | 持股率、交易筆數、交易過標的數、最後一日持有檔數與現金比例、禁止權證 |
 | `agents/alerts.py` | 市場（漲跌停、注意處置股）、持股（負面新聞、重大訊息）、ETF 折溢價、期貨追繳與結算、選擇權到期、競賽門檻 |
-| `agents/intraday.py` | 盤中每 40 分鐘以即時價重算計畫；與盤前比較新增／取消／調整；標示「現在能不能下單」 |
+| `agents/intraday.py` | 盤中每 80 分鐘以即時價重算計畫；與盤前比較新增／取消／調整；標示「現在能不能下單」 |
 | `agents/macro.py` | 國際大事 → 國際因子（利率、匯率、油價、美股科技、中國、VIX）→ 各持股歷史敏感度（|相關| ≥0.125 才計入） |
 | `agents/attribution.py` | 今日漲跌拆成大盤 β、產業、個股特有因素，換算成金額 |
 | `agents/news.py` | 新聞抓取、去重、財經過濾、股票／ETF／期貨分類、LLM 事件萃取（必須引用新聞編號） |

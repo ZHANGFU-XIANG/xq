@@ -201,12 +201,12 @@ def test_schedule_gate_windows(monkeypatch, tmp_path):
     at = lambda s: dt.datetime.fromisoformat(s).replace(tzinfo=TW_TZ)  # noqa: E731
     assert schedule.gate("premarket", at("2026-10-05 07:01"))[0]
     assert not schedule.gate("preopen", at("2026-10-05 13:52"))[0]       # 延遲到收盤後的開盤前更新沒有意義
-    run, key, _ = schedule.gate("intraday", at("2026-10-05 09:45"))
-    assert run and key == "intraday 09:40"
+    run, key, _ = schedule.gate("intraday", at("2026-10-05 10:25"))
+    assert run and key == "intraday 10:20"
     assert not schedule.gate("intraday", at("2026-10-05 14:25"))[0]      # 收盤後才觸發的盤中建議略過
-    schedule.mark(key, at("2026-10-05 09:47"))
-    assert not schedule.gate("intraday", at("2026-10-05 09:50"))[0]      # 同一時段不重複
-    assert schedule.gate("intraday", at("2026-10-05 10:21"))[0]
+    schedule.mark(key, at("2026-10-05 10:27"))
+    assert not schedule.gate("intraday", at("2026-10-05 10:30"))[0]      # 同一時段不重複
+    assert schedule.gate("intraday", at("2026-10-05 11:41"))[0]
     assert not schedule.gate("intraday", at("2026-10-10 09:00"))[0]      # 國慶日休市
 
 

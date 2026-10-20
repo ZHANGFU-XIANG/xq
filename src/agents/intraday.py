@@ -1,4 +1,4 @@
-"""IntradayAgent：盤中每 40 分鐘重新計算操作建議（09:00、09:40、10:20、11:00、11:40、12:20、13:00），使用者親手下單。
+"""IntradayAgent：盤中每 80 分鐘重新計算操作建議（09:00、10:20、11:40、13:00；2026-10-20 由每 40 分鐘降頻以節省 GitHub Actions 分鐘數），使用者親手下單。
 
 每一輪：
 1. 以證交所即時報價重算整份計畫（on_demand.live_plan）：持股 加碼／續抱／減碼／全部出清＋新部位建倉
@@ -23,11 +23,11 @@ from src.state import portfolio as pfm
 
 log = logging.getLogger(__name__)
 OUT_DIR = DATA_DIR / "intraday"
-SLOTS = [(9, 0), (9, 40), (10, 20), (11, 0), (11, 40), (12, 20), (13, 0)]
+SLOTS = [(9, 0), (10, 20), (11, 40), (13, 0)]
 
 
 def slot_label(slot: str) -> str:
-    """「2026-10-04 休市」→「休市」；「2026-10-05 09:40」→「09:40」。"""
+    """「2026-10-04 休市」→「休市」；「2026-10-05 10:20」→「10:20」。"""
     return slot.split(" ", 1)[1] if " " in slot else slot
 
 
@@ -36,7 +36,7 @@ def market_open(slot: str) -> bool:
 
 
 def current_slot(now: dt.datetime | None = None) -> str:
-    """目前所屬的 40 分鐘時段（建議在時段內固定，到下一個時段才更新）。"""
+    """目前所屬的 80 分鐘時段（建議在時段內固定，到下一個時段才更新）。"""
     from src.config import is_trading_day
 
     now = now or now_tw()
@@ -80,7 +80,7 @@ def _order_status(o: dict, rt: dict, held: int, market_open: bool = True) -> dic
     if not market_open:  # 盤前／收盤後：可預掛單（平台接受前一日 15:30 後的預掛）
         verb = "買進" if o["action"] == "BUY" else "賣出"
         return {**base, "status": "可預掛單", "remaining": o["shares"],
-                "advice": f"開盤前預掛：限價 {limit} {verb} {sizer.fmt_shares(o['shares'])}{odd_note}；開盤後每 40 分鐘依即時價重算"}
+                "advice": f"開盤前預掛：限價 {limit} {verb} {sizer.fmt_shares(o['shares'])}{odd_note}；開盤後每 80 分鐘依即時價重算"}
     if o["action"] == "BUY":
         if held >= o["shares"] * 0.9 and o.get("existing_before", 0) == 0:
             return {**base, "status": "已成交", "advice": f"持股已有 {held:,} 股，這筆已完成"}
@@ -230,7 +230,7 @@ def save(out: dict) -> None:
 def email_body(out: dict) -> str:
     tx = out.get("taiex") or {}
     title = "建倉建議" if out["building"] else "盤中建議"
-    lines = [f"{title}（{slot_label(out['slot'])}{'' if not market_open(out['slot']) else ' 時段'}，每 40 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
+    lines = [f"{title}（{slot_label(out['slot'])}{'' if not market_open(out['slot']) else ' 時段'}，每 80 分鐘更新）" + ("・收盤前最後檢查" if out["is_last_check"] else ""),
              f"加權指數 {tx.get('price', '—')}（{tx.get('chg_pct', 0):+.2f}%）｜總資產 {out['nav']:,} 元｜實際持股率 {out['holding_ratio'] * 100:.1f}%"
              f"｜攻守 {out['allocation']['offense'] * 100:.0f}/{out['allocation']['defense'] * 100:.0f}",
              ""]

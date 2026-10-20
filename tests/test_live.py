@@ -77,3 +77,12 @@ def test_live_candle_appended_only_when_missing(monkeypatch):
     c = on_demand._live_candle("2330", old)
     assert c["time"] == "2026-10-06" and c["close"] == 101.0 and c["volume"] == 1234 and c["ma5"] == 100.2
     assert on_demand._live_candle("2330", old + [c]) is None
+
+
+def test_notifier_dedupe_key_ignores_live_numbers():
+    from src.api.notifier import _stable
+
+    a = _stable("期貨權益數 752,640 元低於維持保證金 1,076,000 元（追繳）")
+    b = _stable("期貨權益數 725,440 元低於維持保證金 1,076,000 元（追繳）")
+    assert a == b  # 金額每分鐘變動不算新警示（2026-10-19 一天重寄 300 多封）
+    assert _stable("2330 跌停 -9.9%") == _stable("2330 跌停 -10.0%")

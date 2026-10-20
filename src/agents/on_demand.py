@@ -452,7 +452,7 @@ CHASE_LIMIT = 7.0  # 盤中已漲超過 7% 或漲停：不追
 
 
 def live_plan(realtime: bool = True) -> dict:
-    """以即時價重新計算整份計畫（持股建議＋新部位建倉）。盤中每 40 分鐘的建議與「庫存怎麼處理」共用。"""
+    """以即時價重新計算整份計畫（持股建議＋新部位建倉）。盤中每 80 分鐘的建議與「庫存怎麼處理」共用。"""
     from src.agents import alerts, holding_advice
 
     ctx = context()

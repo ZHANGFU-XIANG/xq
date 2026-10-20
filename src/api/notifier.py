@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 
@@ -20,6 +21,11 @@ log = logging.getLogger(__name__)
 _sent: set[str] = set()
 state: dict = {"last": None, "error": None, "count": 0}
 _retry_at = 0.0
+
+
+def _stable(title: str) -> str:
+    """去重鍵不含即時數字：追繳警示標題含每分鐘變動的權益數，2026-10-19 因此每 1～2 分鐘重寄一封（一天 300 多封、用光 Actions 分鐘數）。"""
+    return re.sub(r"[-+]?\d[\d,]*(\.\d+)?%?", "#", title)
 
 
 def _events() -> list[tuple[str, str, str]]:
@@ -45,7 +51,7 @@ def _events() -> list[tuple[str, str, str]]:
     al = data.live_alerts()
     for a in al.get("alerts", []):
         if a.get("level") == "嚴重" and a.get("scope") in ("持股", "部位", "規則"):  # 買進前、全市場的警示不寄
-            out.append((f"alert|{a.get('code', '')}|{a.get('title', '')}", f"嚴重警示：{a.get('title', '')}",
+            out.append((f"alert|{a.get('code', '')}|{_stable(a.get('title', ''))}", f"嚴重警示：{a.get('title', '')}",
                         a.get("action", "") or "；".join(a.get("reasons", []))))
     return out
 
