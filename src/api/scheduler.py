@@ -58,7 +58,7 @@ def tick(now=None) -> list[str]:
 
 
 def _self_ping() -> None:
-    """每 6 小時從外部網址造訪自己，降低免費 Space 48 小時無人造訪而休眠的機會（GitHub keepalive 只當備援）。"""
+    """每 6 小時從外部網址造訪自己，降低免費 Space 48 小時無人造訪而休眠的機會（keepalive.yml 已移除，invest-agent 執行時也會順便喚醒）。"""
     host = os.getenv("SPACE_HOST")
     if not host:
         return

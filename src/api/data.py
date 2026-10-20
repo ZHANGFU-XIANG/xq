@@ -1432,7 +1432,7 @@ def competition_weeks() -> list[dict]:
 
 # ---------------------------------------------------------------- 系統健康
 _HEALTH: dict = {"t": 0.0, "runs": None}
-WORKFLOWS = {"invest-agent.yml": "每日排程（盤前／盤中／盤後／週報）", "keepalive.yml": "網站保持清醒", "deploy-space.yml": "網站部署"}
+WORKFLOWS = {"invest-agent.yml": "每日排程（盤前／盤中／盤後／週報）", "deploy-space.yml": "網站部署"}  # keepalive.yml 已於 2026-10-20 移除
 
 
 def _gh() -> tuple[str, dict] | None:
@@ -1512,11 +1512,6 @@ def health() -> dict:
             add(info["label"], "error", f"最近一次 {last_t} {last['conclusion']}" +
                 (f"；上次成功 {tw(ok['time']).strftime('%m/%d %H:%M')}" if ok else "；尚無成功紀錄"),
                 "到 GitHub Actions 看錯誤訊息，或請 AI 助理重新執行")
-    if "keepalive.yml" in runs:
-        rs = [r for r in runs["keepalive.yml"].get("runs", []) if r["event"] == "schedule"]
-        if not rs:
-            add("保持清醒排程", "warn", "每 6 小時的排程還沒有自動觸發過（GitHub 新排程有時會延遲幾小時）")
-
     # 資料新鮮度
     latest = load_report() or {}
     if trading and hm >= 7 * 60 + 40:
