@@ -1517,6 +1517,9 @@ def health() -> dict:
     if trading and hm >= 7 * 60 + 40:
         if latest.get("target_date") == today.isoformat():
             add("今天的盤前報告", "ok", f"{latest.get('generated_at')} 產生")
+        elif hm >= 12 * 60:  # 有效時間 07:00～12:00 已過：補跑會用到盤中／收盤後資料污染預測紀錄，不補
+            add("今天的盤前報告", "warn", f"{today} 的盤前報告漏跑，有效時間（07:00～12:00）已過，不補跑以免預測紀錄用到事後資料",
+                "下一個交易日 07:00 會正常產生；今天以盤後檢討與網站即時建議為準")
         else:
             add("今天的盤前報告", "error", f"還沒有 {today} 的盤前報告（07:00 應產生）", "請 AI 助理「重新執行盤前報告」")
     else:
