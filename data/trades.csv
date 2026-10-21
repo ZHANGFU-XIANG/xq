@@ -82,3 +82,7 @@ date,code,side,shares,price,margin,note,asset,contract
 2026-10-13,3037,BUY,180,1180,0,XQ CSV 匯入・零股・委託書號 0auwb,STOCK,
 2026-10-13,3037,BUY,370,1180,0,XQ CSV 匯入・零股・委託書號 0auwb,STOCK,
 2026-10-13,1560,BUY,50,945,0,XQ CSV 匯入・零股・委託書號 0auAL,STOCK,
+2026-10-16,2885,BUY,1000,73.5,1,XQ CSV 匯入・整股・委託書號 0ax78,STOCK,
+2026-10-16,6196,BUY,1000,613,0,XQ CSV 匯入・整股・委託書號 0axl1,STOCK,
+2026-10-20,2885,SELL,1000,71,0,XQ CSV 匯入・整股・委託書號 0ayl3,STOCK,
+2026-10-20,2885,BUY,1000,71,0,XQ CSV 匯入・整股・委託書號 0ayl3,STOCK,
