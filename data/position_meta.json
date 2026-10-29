@@ -90,11 +90,11 @@
     "shares": 570,
     "basket": "offense"
   },
-  "2885": {
-    "stop": 67.62,
+  "3264": {
+    "stop": 229.24,
     "tp_stage": 0,
-    "high": 73.4000015258789,
+    "high": 236.5,
     "shares": 1000,
-    "basket": "defense"
+    "basket": "offense"
   }
 }
