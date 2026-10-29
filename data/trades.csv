@@ -41,7 +41,6 @@ date,code,side,shares,price,margin,note,asset,contract
 2026-10-05,3591,BUY,3000,28.65,0,XQ 成交回報・整股・委託書號 0anpe,STOCK,
 2026-10-05,3591,BUY,1000,28.65,0,XQ 成交回報・整股・委託書號 0anpe,STOCK,
 2026-10-05,3591,BUY,7000,28.65,0,XQ 成交回報・整股・委託書號 0anpe,STOCK,
-2026-10-06,TX,BUY,2,49875,0,XQ CSV 匯入・期貨・委託書號 01NYf,FUT,TX202610
 2026-10-06,2889,BUY,2000,16.2,0,XQ 成交回報・整股・委託書號 0apFC,STOCK,
 2026-10-06,2889,BUY,1000,16.2,0,XQ 成交回報・整股・委託書號 0apFC,STOCK,
 2026-10-06,TX,BUY,2,49875,0,XQ CSV 匯入・期貨・委託書號 01NYf,FUT,TX202610
