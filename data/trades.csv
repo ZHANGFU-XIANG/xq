@@ -89,3 +89,5 @@ date,code,side,shares,price,margin,note,asset,contract
 2026-10-16,TX,SELL,2,47316,0,XQ CSV 匯入・期貨・委託書號 01PxA,FUT,TX202610
 2026-10-20,2885,SELL,1000,71,0,XQ CSV 匯入・整股・委託書號 0ayl3,STOCK,
 2026-10-20,2885,BUY,1000,71,0,XQ CSV 匯入・整股・委託書號 0ayl3,STOCK,
+2026-10-22,3264,BUY,1000,265,0,XQ CSV 匯入・整股・委託書號 0azlu,STOCK,
+2026-10-27,2885,SELL,1000,73,1,XQ CSV 匯入・整股・委託書號 0aArQ,STOCK,
