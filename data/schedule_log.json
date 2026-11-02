@@ -75,5 +75,8 @@
   "postclose": "16:16",
   "premarket": "07:17",
   "preopen": "08:35"
+ },
+ "2026-11-03": {
+  "premarket": "07:36"
  }
 }
