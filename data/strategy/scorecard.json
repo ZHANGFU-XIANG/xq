@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-13T16:43:27",
+ "generated": "2026-11-16T16:08:07",
  "target_cagr": 0.9,
  "algorithms": [
   {
@@ -94,7 +94,7 @@
   {
    "name": "當沖（做多訊號）",
    "metric": "每筆平均淨報酬 %",
-   "value": -0.669,
+   "value": -0.6595,
    "has_edge": false,
    "params": {
     "stop_atr": 1.0,
@@ -112,12 +112,12 @@
      "reward_risk": 1.0,
      "min_stop_pct": 0.8
     },
-    "cur_train": -0.5388,
-    "new_train": -0.5388,
-    "cur_valid": -0.8045,
-    "new_valid": -0.8045,
-    "cur_full": -0.669,
-    "new_full": -0.669,
+    "cur_train": -0.5022,
+    "new_train": -0.5022,
+    "cur_valid": -0.8245,
+    "new_valid": -0.8245,
+    "cur_full": -0.6595,
+    "new_full": -0.6595,
     "unit": "每筆平均淨報酬 %",
     "accepted": false
    },
@@ -127,7 +127,7 @@
   {
    "name": "期貨方向擇時",
    "metric": "每 5 日超越一直做多",
-   "value": -0.0027,
+   "value": -0.0043,
    "has_edge": false,
    "params": {
     "p_long": 0.6,
@@ -139,15 +139,15 @@
      "p_short": 0.4
     },
     "candidate": {
-     "p_long": 0.6,
-     "p_short": 0.4
+     "p_long": 0.65,
+     "p_short": 0.3
     },
-    "cur_train": 0.0011,
-    "new_train": 0.0011,
-    "cur_valid": -0.0065,
-    "new_valid": -0.0065,
-    "cur_full": -0.0027,
-    "new_full": -0.0027,
+    "cur_train": -0.0021,
+    "new_train": 0.002,
+    "cur_valid": -0.0064,
+    "new_valid": -0.0063,
+    "cur_full": -0.0043,
+    "new_full": -0.0022,
     "unit": "每期（5 日）平均報酬減一直做多",
     "accepted": false
    },
@@ -155,6 +155,5 @@
    "note": "沒有正報酬：不是主力策略，系統只當參考"
   }
  ],
- "new_pred_days": 22,
- "seconds": 40
+ "seconds": 41
 }
